@@ -1,10 +1,23 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const PORT = 3000;
 const APP_DIR = __dirname;
 const HTML_FILE = path.join(APP_DIR, 'app.html');
+
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
 console.log(`Serving from: ${APP_DIR}`);
 console.log(`HTML file: ${HTML_FILE}`);
@@ -27,6 +40,9 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, 'localhost', () => {
+server.listen(PORT, '0.0.0.0', () => {
+  const localIP = getLocalIP();
   console.log(`✓ Server ready at http://localhost:${PORT}/`);
+  console.log(`✓ Also accessible at http://${localIP}:${PORT}/`);
+  console.log(`✓ Press Ctrl+C to stop`);
 });
