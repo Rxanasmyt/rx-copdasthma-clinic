@@ -14,8 +14,11 @@
 RxClinic.html → เปิดด้วย Chrome/Edge
 ```
 
-### ตัวเลือกที่ 3: ดาวน์โหลด Release
-ไปที่ [Releases](../../releases) → ดาวน์โหลด `RxClinic-vX.X.X.zip`
+### ตัวเลือกที่ 3: ดาวน์โหลด Release (แนะนำ)
+📥 ดาวน์โหลด [RxClinic-v1.0.0.zip](https://github.com/Rxanasmyt/rx-copdasthma-clinic/releases/download/v1.0.0/RxClinic-v1.0.0.zip)
+- แตกไฟล์ ZIP
+- ดับเบิลคลิก `เปิดแอป.bat`
+- เสร็จ!
 
 ## 📋 ไฟล์ที่จำเป็น
 
