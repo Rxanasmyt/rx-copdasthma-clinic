@@ -1,22 +1,22 @@
 ' Rx-COPD/Asthma Clinic Launcher
-' Runs in Chrome app mode (fullscreen, no browser UI)
-
 Set objShell = CreateObject("WScript.Shell")
 strPath = objShell.CurrentDirectory
 
-' Start Node.js server in background
-objShell.Run "node.exe server.js", 0, False
+' Start Node.js server
+objShell.Run "cmd /c node.exe server.js", 0, False
 
-' Wait for server to start
+' Wait for server
 WScript.Sleep 2000
 
-' Find Chrome
+' Try Chrome locations
+Dim strChrome
 strChrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-If Dir(strChrome) = "" Then
+If CreateObject("Scripting.FileSystemObject").FileExists(strChrome) = False Then
   strChrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 End If
 
-' Launch Chrome in fullscreen kiosk mode
-' --kiosk = fullscreen, no UI
-' --incognito = private mode (no history)
-objShell.Run strChrome & " --kiosk=http://localhost:3000 --incognito --no-first-run", 0, False
+If CreateObject("Scripting.FileSystemObject").FileExists(strChrome) = False Then
+  MsgBox "Chrome not found. Open http://localhost:3000 in your browser", 0, "Rx Clinic"
+Else
+  objShell.Run Chr(34) & strChrome & Chr(34) & " --kiosk=http://localhost:3000", 0, False
+End If
