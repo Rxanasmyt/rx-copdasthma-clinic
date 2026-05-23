@@ -1,0 +1,12 @@
+.claude/
+design_extract/
+serve.ps1
+COPD-Asthma Clinic.html
+src/
+CODE_SNIPPETS.md
+IMPLEMENTATION_CHECKLIST.md
+PRODUCTION_DEPLOYMENT_GUIDE.md
+setup-firebase.html
+node_modules/
+.env
+*.log
