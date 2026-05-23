@@ -4,20 +4,26 @@
 
 ## 🚀 เริ่มต้นใช้งาน
 
-### ตัวเลือกที่ 1: ดับเบิลคลิก (ง่ายสุด)
+### ตัวเลือกที่ 1: Desktop App (ดับเบิลคลิก) ⭐ แนะนำ
 ```
-เปิดแอป.bat → เปิดแอปได้เลย
+ดับเบิลคลิก RxClinic.lnk → เปิดแอปแบบ Desktop App
+```
+✨ Looks & feels like native app, ไม่ต้องเห็น browser
+
+### ตัวเลือกที่ 2: เปิดไฟล์ Batch
+```
+ดับเบิลคลิก เปิดแอป.bat → เปิดใน Chrome
 ```
 
-### ตัวเลือกที่ 2: เปิดไฟล์โดยตรง
+### ตัวเลือกที่ 3: เปิดไฟล์โดยตรง
 ```
 RxClinic.html → เปิดด้วย Chrome/Edge
 ```
 
-### ตัวเลือกที่ 3: ดาวน์โหลด Release (แนะนำ)
-📥 ดาวน์โหลด [RxClinic-v1.0.0.zip](https://github.com/Rxanasmyt/rx-copdasthma-clinic/releases/download/v1.0.0/RxClinic-v1.0.0.zip)
+### ตัวเลือกที่ 4: ดาวน์โหลด Release
+📥 ดาวน์โหลด [RxClinic-Desktop-v1.0.0.zip](https://github.com/Rxanasmyt/rx-copdasthma-clinic/releases)
 - แตกไฟล์ ZIP
-- ดับเบิลคลิก `เปิดแอป.bat`
+- ดับเบิลคลิก `RxClinic.lnk`
 - เสร็จ!
 
 ## 📋 ไฟล์ที่จำเป็น
