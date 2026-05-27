@@ -6012,6 +6012,379 @@ const KPIsDashboard = ({ data }) => {
   );
 };
 
+
+// ============ QUALITY KPIs COMPONENT ============
+// 6 ตัวชี้วัดคุณภาพคลินิก COPD/Asthma (HA Accreditation KPIs)
+
+const calculateQualityKPIs = (data, startDate, endDate) => {
+  const allVisits = data.visits || [];
+  const patients  = data.patients || [];
+
+  // วิสิตในช่วงเวลา
+  const periodVisits = allVisits.filter(v =>
+    v.visitDate && v.visitDate >= startDate && v.visitDate <= endDate
+  );
+
+  // latest visit ต่อผู้ป่วย (ใช้ทั้งหมด ไม่จำกัดช่วง)
+  const latestVisit = {};
+  allVisits.forEach(v => {
+    if (!latestVisit[v.patientId] || v.visitDate > latestVisit[v.patientId].visitDate)
+      latestVisit[v.patientId] = v;
+  });
+
+  const copdPts   = patients.filter(p => p.diagnosis === 'COPD' || p.diagnosis === 'Both');
+  const asthmaPts = patients.filter(p => p.diagnosis === 'Asthma' || p.diagnosis === 'Both');
+  const asthmaIds = new Set(asthmaPts.map(p => p.id));
+
+  // ─── KPI 1: COPD Exacerbation Rate (เป้า < 110 /100 ผู้ป่วย) ─────────────────
+  // ใช้ countThisYear จาก latest visit ของผู้ป่วย COPD แต่ละคน
+  let copdExacerbCount = 0;
+  copdPts.forEach(p => {
+    const v = latestVisit[p.id];
+    copdExacerbCount += (v?.exacerbation?.countThisYear || 0);
+  });
+  const copdExacerbRate = copdPts.length > 0
+    ? ((copdExacerbCount / copdPts.length) * 100).toFixed(1) : '0';
+  const copdExacerbStatus = parseFloat(copdExacerbRate) < 110 ? 'pass' : 'warn';
+
+  // ─── KPI 2: Asthma ER/OPD/Hospitalized Rate (เป้า < 20 /100 ผู้ป่วย) ──────────
+  // นับ visit ที่มี erVisit=true หรือ hospitalized=true ของผู้ป่วย Asthma
+  const srcVisits = periodVisits.length > 0 ? periodVisits : allVisits;
+  const asthmaErVisits = srcVisits.filter(v =>
+    asthmaIds.has(v.patientId) &&
+    (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
+  );
+  const asthmaErCount = asthmaErVisits.length;
+  const asthmaErRate  = asthmaPts.length > 0
+    ? ((asthmaErCount / asthmaPts.length) * 100).toFixed(1) : '0';
+  const asthmaErStatus = parseFloat(asthmaErRate) < 20 ? 'pass' : 'warn';
+
+  // ─── KPI 3: Asthma + ICS ≥ 80% ───────────────────────────────────────────────
+  const ICS_KW = ['budesonide','fluticasone','beclomethasone','ciclesonide','mometasone',
+                  'symbicort','seretide','trelegy','foster','flixotide','pulmicort'];
+  const hasICS = (meds) => (meds||[]).some(m => {
+    const n = (m.name||'').toLowerCase();
+    return ICS_KW.some(k => n.includes(k));
+  });
+  const asthmaWithICS = asthmaPts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
+  const asthmaIcsPct  = asthmaPts.length > 0
+    ? ((asthmaWithICS / asthmaPts.length) * 100).toFixed(1) : '0';
+  const asthmaIcsStatus = parseFloat(asthmaIcsPct) >= 80 ? 'pass' : 'warn';
+
+  // ─── KPI 4: COPD ที่มีประวัติกำเริบ ได้รับ LABA/LAMA/Combo ≥ 80% ──────────────
+  const LABA_KW = ['salmeterol','formoterol','vilanterol','olodaterol','indacaterol','seretide','symbicort','anoro','trelegy'];
+  const LAMA_KW = ['umeclidinium','tiotropium','glycopyrronium','aclidinium','anoro','trelegy'];
+  const hasAppropriate = (meds) => {
+    const names = (meds||[]).map(m => (m.name||'').toLowerCase());
+    const laba = names.some(n => LABA_KW.some(k => n.includes(k)));
+    const lama = names.some(n => LAMA_KW.some(k => n.includes(k)));
+    return laba || lama;
+  };
+  const copdWithExacerb = copdPts.filter(p => {
+    const v = latestVisit[p.id];
+    return v && ((v.exacerbation?.countThisYear||0) > 0 || v.exacerbation?.hospitalized);
+  });
+  const copdExacerbBase = copdWithExacerb.length > 0 ? copdWithExacerb.length : copdPts.length;
+  const copdAppropriate = (copdWithExacerb.length > 0 ? copdWithExacerb : copdPts)
+    .filter(p => hasAppropriate(latestVisit[p.id]?.medications)).length;
+  const copdTherapyPct  = copdExacerbBase > 0
+    ? ((copdAppropriate / copdExacerbBase) * 100).toFixed(1) : '0';
+  const copdTherapyStatus = parseFloat(copdTherapyPct) >= 80 ? 'pass' : 'warn';
+
+  // ─── KPI 5: ผู้ป่วยผ่านเกณฑ์เทคนิคยาพ่น MDI/DPI ≥ 80% ──────────────────────
+  // "ผ่านเกณฑ์" = overallScore เป็น 'Good' หรือ 'Acceptable'
+  const techVisits  = srcVisits.filter(v => v.inhalerTechnique && v.inhalerTechnique.length > 0);
+  const techPassed  = techVisits.filter(v =>
+    v.inhalerTechnique.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable')
+  ).length;
+  const techniquePct   = techVisits.length > 0
+    ? ((techPassed / techVisits.length) * 100).toFixed(1) : '0';
+  const techniqueStatus = parseFloat(techniquePct) >= 80 ? 'pass' : 'warn';
+
+  // ─── KPI 6: ผู้ป่วยได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────────────
+  const visitedIds = new Set(allVisits.map(v => v.patientId));
+  const teleIds    = new Set((data.telepharmacy||[]).map(t => t.patientId));
+  const caredCount = patients.filter(p => visitedIds.has(p.id) || teleIds.has(p.id)).length;
+  const carePct    = patients.length > 0
+    ? ((caredCount / patients.length) * 100).toFixed(1) : '0';
+  const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
+
+  return {
+    copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdPts.length,       lowerBetter: true  },
+    asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaPts.length,     lowerBetter: true  },
+    asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaPts.length,     lowerBetter: false },
+    copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
+    techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
+    carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยได้รับบริบาลเภสัชกรรม', num: caredCount,        den: patients.length,      lowerBetter: false },
+    visitCount:  srcVisits.length,
+    patientCount: patients.length,
+    copdCount:   copdPts.length,
+    asthmaCount: asthmaPts.length,
+  };
+};
+
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
+  const isPass = metric.status === 'pass';
+  const passColor  = '#059669';
+  const warnColor  = '#DC2626';
+  const borderColor = isPass ? passColor : warnColor;
+  const bgGrad     = isPass
+    ? 'linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)'
+    : 'linear-gradient(135deg,#FEF2F2 0%,#FECACA 100%)';
+
+  // Progress bar: for lower-is-better KPIs, full bar = value/target (< target = good)
+  //               for higher-is-better KPIs, full bar = value/target (> target = good)
+  const numVal = parseFloat(metric.value);
+  let barPct;
+  if (metric.lowerBetter) {
+    barPct = metric.target > 0 ? Math.min((numVal / metric.target) * 100, 150) : 0;
+  } else {
+    barPct = Math.min(numVal, 100);
+  }
+  const barColor = isPass ? passColor : warnColor;
+
+  return (
+    <div style={{
+      background: bgGrad, border: `2px solid ${borderColor}30`,
+      borderLeft: `5px solid ${borderColor}`,
+      borderRadius: 12, padding: '16px 18px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+      boxShadow: isPass ? '0 2px 8px rgba(5,150,105,0.12)' : '0 2px 8px rgba(220,38,38,0.12)',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+            {icon} {metric.label}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontSize: 34, fontWeight: 800, color: borderColor, lineHeight: 1 }}>{metric.value}</span>
+            <span style={{ fontSize: 14, color: '#6B7280', fontWeight: 600 }}>{metric.unit}</span>
+          </div>
+          {metric.den > 0 && (
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>
+              {metric.num} / {metric.den} {metric.unit.includes('%') ? 'ราย' : 'ครั้ง/ราย'}
+            </div>
+          )}
+        </div>
+        <div style={{
+          padding: '5px 11px', borderRadius: 20,
+          background: isPass ? '#059669' : '#DC2626',
+          color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
+        }}>
+          {isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div>
+        <div style={{ height: 8, borderRadius: 99, background: '#E5E7EB', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', borderRadius: 99,
+            width: `${Math.min(barPct, 100)}%`,
+            background: barColor, transition: 'width 0.6s ease',
+          }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: '#9CA3AF' }}>
+          <span>0</span>
+          <span style={{ fontWeight: 700, color: '#6B7280' }}>เป้า: {targetLabel}</span>
+        </div>
+      </div>
+
+      {/* Description */}
+      {desc && (
+        <div style={{
+          fontSize: 11, color: '#374151', lineHeight: 1.6,
+          borderTop: `1px solid ${borderColor}20`, paddingTop: 10,
+        }}>
+          {desc}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Quality KPIs Dashboard ───────────────────────────────────────────────────
+const QualityKPIsDashboard = ({ data }) => {
+  const [dateRange, setDateRange] = React.useState(() => {
+    const end   = new Date().toISOString().slice(0, 10);
+    const start = new Date();
+    start.setFullYear(start.getFullYear() - 1);
+    return { start: start.toISOString().slice(0, 10), end };
+  });
+
+  const kpis = React.useMemo(
+    () => calculateQualityKPIs(data, dateRange.start, dateRange.end),
+    [data, dateRange]
+  );
+
+  const metrics = [
+    {
+      key: 'copdExacerbRate', icon: '🫁',
+      targetLabel: '< 110 /100 ผู้ป่วย',
+      desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง',
+    },
+    {
+      key: 'asthmaErRate', icon: '🚑',
+      targetLabel: '< 20 /100 ผู้ป่วย',
+      desc: 'อัตราการกำเริบเฉียบพลันที่ได้รับการรักษาในห้องฉุกเฉิน ผู้ป่วยนอก หรือต้องนอนรักษาในโรงพยาบาลในผู้ป่วยโรคหืด',
+    },
+    {
+      key: 'asthmaIcsPercent', icon: '💊',
+      targetLabel: '> 80%',
+      desc: 'ร้อยละผู้ป่วยคลินิกโรคหืดที่ได้รับการบริบาลเภสัชกรรมและได้รับยา Inhaled Corticosteroid (ICS)',
+    },
+    {
+      key: 'copdTherapyPercent', icon: '💉',
+      targetLabel: '> 80%',
+      desc: 'ร้อยละผู้ป่วย COPD ที่มีประวัติกำเริบ ได้รับยาที่มีส่วนประกอบของ LABA, LAMA, LABA/LAMA หรือ ICS/LABA, ICS/LABA/LAMA',
+    },
+    {
+      key: 'techniquePercent', icon: '🎯',
+      targetLabel: '> 80%',
+      desc: 'ร้อยละผู้ป่วยในคลินิกหอบหืดและปอดอุดกั้นเรื้อรังที่ผ่านเกณฑ์การประเมินเทคนิคการใช้ยาพ่น MDI หรือ DPI',
+    },
+    {
+      key: 'carePercent', icon: '👨‍⚕️',
+      targetLabel: '> 80%',
+      desc: 'ร้อยละจำนวนผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกหอบหืดและปอดอุดกั้นเรื้อรัง',
+    },
+  ];
+
+  const passCount = metrics.filter(m => kpis[m.key]?.status === 'pass').length;
+  const warnCount = metrics.length - passCount;
+  const score     = Math.round((passCount / metrics.length) * 100);
+
+  const quickSetRange = (months) => {
+    const end   = new Date().toISOString().slice(0, 10);
+    const start = new Date();
+    start.setMonth(start.getMonth() - months);
+    setDateRange({ start: start.toISOString().slice(0, 10), end });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* ─── Score Summary Card ───────────────── */}
+      <div style={{
+        background: 'linear-gradient(135deg,#0F2D5E 0%,#1848A0 100%)',
+        borderRadius: 14, padding: '20px 24px', color: '#fff',
+        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 6 }}>
+            🏆 ตัวชี้วัดคุณภาพ COPD/Asthma Clinic (HA Accreditation)
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 48, fontWeight: 800, lineHeight: 1 }}>{score}%</span>
+            <span style={{ fontSize: 15, opacity: 0.8 }}>ผ่านเกณฑ์</span>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 12 }}>
+            <span style={{ background: 'rgba(16,185,129,0.25)', color: '#6EE7B7', padding: '3px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>✅ ผ่าน {passCount} ตัวชี้วัด</span>
+            <span style={{ background: 'rgba(239,68,68,0.25)', color: '#FCA5A5', padding: '3px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>⚠ ต้องปรับ {warnCount} ตัวชี้วัด</span>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right', minWidth: 160 }}>
+          <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 8 }}>ข้อมูลในระบบ</div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{kpis.patientCount}</div>
+              <div style={{ fontSize: 10, opacity: 0.7 }}>ผู้ป่วยทั้งหมด</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{kpis.copdCount}</div>
+              <div style={{ fontSize: 10, opacity: 0.7 }}>COPD</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{kpis.asthmaCount}</div>
+              <div style={{ fontSize: 10, opacity: 0.7 }}>Asthma</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 800 }}>{kpis.visitCount}</div>
+              <div style={{ fontSize: 10, opacity: 0.7 }}>Visits</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Date Range Filter ────────────────── */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.textMuted }}>📅 ช่วงเวลา:</span>
+          {[
+            { label: '3 เดือน', months: 3 },
+            { label: '6 เดือน', months: 6 },
+            { label: '1 ปี', months: 12 },
+          ].map(({ label, months }) => (
+            <button key={label} onClick={() => quickSetRange(months)} style={{
+              padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: `1px solid ${C.border}`, background: '#F8FAFC', color: C.text, fontFamily: 'inherit',
+            }}>{label}</button>
+          ))}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <input type="date" value={dateRange.start}
+              onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+            <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
+            <input type="date" value={dateRange.end}
+              onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+          </div>
+        </div>
+      </Card>
+
+      {/* ─── KPI Cards Grid ──────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+        {metrics.map(({ key, icon, targetLabel, desc }) => (
+          <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc} />
+        ))}
+      </div>
+
+      {/* ─── Summary Table ───────────────────── */}
+      <Card>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.primary }}>📋 ตารางสรุปตัวชี้วัด</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC' }}>
+                {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','ตัวเศษ/ส่วน','ผล'].map((h,i) => (
+                  <th key={i} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map(({ key, icon, targetLabel }) => {
+                const m = kpis[key];
+                const isPass = m.status === 'pass';
+                return (
+                  <tr key={key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
+                      {icon} {m.label}
+                    </td>
+                    <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 15, color: isPass ? '#059669' : '#DC2626' }}>
+                      {m.value}{m.unit}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{targetLabel}</td>
+                    <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{m.num} / {m.den}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={{
+                        display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: isPass ? '#F0FDF4' : '#FEF2F2',
+                        color: isPass ? '#059669' : '#DC2626',
+                      }}>{isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 // ============ Analytics Dashboard (Full) ============
 const AnalyticsDashboard = ({ data }) => {
   const [tab, setTab] = React.useState('overview');
@@ -6019,7 +6392,7 @@ const AnalyticsDashboard = ({ data }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PageHeader title="📊 Analytics Dashboard" subtitle="วิเคราะห์ผลลัพธ์ · ประเมินประสิทธิภาพ · HA Audit Indicators" />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {[{v:'overview',l:'📊 Overview'},{v:'outcomes',l:'📈 Outcomes'},{v:'ha',l:'🏥 HA Indicators'}].map(({v,l}) => (
+        {[{v:'overview',l:'📊 Overview'},{v:'outcomes',l:'📈 Outcomes'},{v:'quality',l:'🏆 Quality KPIs'},{v:'ha',l:'🏥 HA Indicators'}].map(({v,l}) => (
           <button key={v} onClick={() => setTab(v)} style={{
             padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer',
             border: `1px solid ${tab===v ? C.primaryLight : C.border}`,
@@ -6040,6 +6413,8 @@ const AnalyticsDashboard = ({ data }) => {
           <TechniqueMasteryCurve data={data} />
         </div>
       )}
+
+      {tab === 'quality' && <QualityKPIsDashboard data={data} />}
 
       {tab === 'ha' && <HAIndicators data={data} />}
     </div>
