@@ -9697,8 +9697,13 @@ function App() {
   });
   const [pharmacists, setPharmacists] = useState(loadPharmacists);
 
-  // Data
-  const [data, setData] = useState(() => AppStore.load());
+  // Data — pharmacists is kept in sync with data.pharmacists via Firebase
+  const [data, setData] = useState(() => {
+    const d = AppStore.load();
+    // Seed data.pharmacists from localStorage on first load if missing
+    if (!d.pharmacists) d.pharmacists = loadPharmacists();
+    return d;
+  });
 
   // Firebase
   const [syncStatus, setSyncStatus] = useState('offline');
@@ -9748,11 +9753,14 @@ function App() {
       // Initial load — merge local vs cloud by timestamp
       const snap = await db.collection('clinic').doc('main').get();
       if (snap.exists) {
-        const merged = AppStore.merge(AppStore.load(), snap.data());
+        const local = AppStore.load();
+        if (!local.pharmacists) local.pharmacists = loadPharmacists();
+        const merged = AppStore.merge(local, snap.data());
         setData(merged);
+        if (merged.pharmacists) { setPharmacists(merged.pharmacists); savePharmacists(merged.pharmacists); }
         AppStore.save(merged);
         // If local was newer, push it back up immediately
-        if ((AppStore.load()._savedAt || 0) > (snap.data()._savedAt || 0)) {
+        if ((local._savedAt || 0) > (snap.data()._savedAt || 0)) {
           await db.collection('clinic').doc('main').set(merged);
         }
       }
@@ -9766,6 +9774,7 @@ function App() {
           setData(prev => {
             const winner = AppStore.merge(prev, remote);
             AppStore.save(winner);
+            if (winner.pharmacists) { setPharmacists(winner.pharmacists); savePharmacists(winner.pharmacists); }
             return winner;
           });
           setSyncStatus('synced');
@@ -9797,6 +9806,14 @@ function App() {
     const cfg = loadFBConfig();
     if (cfg) initFirebase(cfg);
   }, []);
+
+  // Keep data.pharmacists in sync when pharmacists state changes
+  const isFirstPharmRender = useRef(true);
+  useEffect(() => {
+    if (isFirstPharmRender.current) { isFirstPharmRender.current = false; return; }
+    savePharmacists(pharmacists);
+    setData(prev => ({ ...prev, pharmacists }));
+  }, [pharmacists]);
 
   // Persist data (localStorage + Firebase)
   const saveTimer = useRef(null);
