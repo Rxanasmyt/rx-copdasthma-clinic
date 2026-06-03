@@ -2154,18 +2154,9 @@ Object.assign(window, {
 
 const { useState: stState, useEffect: stEffect } = React;
 
-const PHARM_KEY = 'copd_pharmacists_v2';
-const PIN_KEY   = 'copd_pins_v1';
 const FB_KEY    = 'copd_firebase_v1';
 
 // ── Storage helpers ───────────────────────────────────
-const loadPharmacists = () => {
-  try { return JSON.parse(localStorage.getItem(PHARM_KEY)) || []; }
-  catch { return []; }
-};
-const savePharmacists = (list) => localStorage.setItem(PHARM_KEY, JSON.stringify(list));
-const getPINs  = () => { try { return JSON.parse(localStorage.getItem(PIN_KEY)) || {}; } catch { return {}; } };
-const setPINs  = (p) => localStorage.setItem(PIN_KEY, JSON.stringify(p));
 const loadFBConfig = () => { try { return JSON.parse(localStorage.getItem(FB_KEY)); } catch { return null; } };
 const saveFBConfig = (c) => c ? localStorage.setItem(FB_KEY, JSON.stringify(c)) : localStorage.removeItem(FB_KEY);
 
@@ -2180,325 +2171,389 @@ const PINDot = ({ filled }) => (
 );
 
 // ── Login Screen ──────────────────────────────────────
-function LoginScreen({ onLogin }) {
-  const [pharmacists, setPH] = stState(loadPharmacists);
-  const [step,   setStep]   = stState('select');  // select | pin | setpin
-  const [sel,    setSel]    = stState(null);
-  const [pin,    setPin]    = stState('');
-  const [conf,   setConf]   = stState('');
-  const [err,    setErr]    = stState('');
-  const [adding, setAdding] = stState(false);
-  const [newPfx, setNewPfx] = stState('ภก.');
-  const [newNm,  setNewNm]  = stState('');
+function LoginScreen({ onLogin, data, onDataChange }) {
+  const users = (data && data.users) || [];
 
-  const pins = getPINs();
-
-  const handleSelect = (ph) => {
-    setSel(ph); setPin(''); setConf(''); setErr('');
-    setStep(pins[ph.id] ? 'pin' : 'setpin');
-  };
-
-  const pushDigit = (d) => {
-    if (step !== 'pin' || pin.length >= 4) return;
-    const next = pin + d;
-    setPin(next);
-    if (next.length === 4) {
-      setTimeout(() => {
-        if (next === pins[sel.id]) { onLogin(sel); }
-        else { setErr('รหัส PIN ไม่ถูกต้อง'); setPin(''); }
-      }, 180);
+  // Migration: if no users but pharmacists exist, convert them
+  stEffect(() => {
+    if (!data) return;
+    const existingUsers = data.users || [];
+    if (existingUsers.length === 0 && data.pharmacists && data.pharmacists.length > 0) {
+      const migrated = data.pharmacists.map(ph => ({
+        id: ph.id || AppStore.generateId(),
+        prefix: ph.prefix || 'ภก.',
+        name: ph.name || '',
+        username: (ph.name || '').split(' ')[0].toLowerCase(),
+        pin: '',
+      }));
+      onDataChange({ ...data, users: migrated });
     }
+  }, []);
+
+  const [mode, setMode]         = stState('username'); // username | pin | register
+  const [username, setUsername] = stState('');
+  const [selUser, setSelUser]   = stState(null);
+  const [pin, setPin]           = stState('');
+  const [err, setErr]           = stState('');
+
+  // Register form
+  const [regPfx,    setRegPfx]    = stState('ภก.');
+  const [regName,   setRegName]   = stState('');
+  const [regUname,  setRegUname]  = stState('');
+  const [regPin,    setRegPin]    = stState('');
+  const [regConf,   setRegConf]   = stState('');
+
+  const bgStyle = {
+    position: 'fixed', inset: 0,
+    background: 'linear-gradient(135deg, #071732 0%, #0B1D45 50%, #0E2D6B 100%)',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    zIndex: 2000, padding: 16, fontFamily: 'Sarabun, sans-serif',
+  };
+  const cardStyle = {
+    background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20,
+    width: '100%', maxWidth: 380, padding: 28,
   };
 
-  const handleSetPIN = () => {
-    if (pin.length < 4)   { setErr('กรุณากรอก PIN 4 หลัก'); return; }
-    if (pin !== conf)     { setErr('PIN ไม่ตรงกัน'); return; }
-    setPINs({ ...getPINs(), [sel.id]: pin });
-    onLogin(sel);
-  };
-
-  const handleAddPH = () => {
-    if (!newNm.trim()) return;
-    const next = [...pharmacists, { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim() }];
-    setPH(next); savePharmacists(next); setNewNm(''); setAdding(false);
-  };
-
-  // ── numpad button ──────────────────────────────────
+  // NBtn component for numpad
   const NBtn = ({ label, onClick }) => (
     <button onClick={onClick} style={{
-      width: 66, height: 66, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.2)',
+      width: 68, height: 68, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.2)',
       background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 22, fontWeight: 600,
       color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', transition: 'all 0.1s',
     }}
-    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.16)'}
+    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
     onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}>
       {label}
     </button>
   );
 
-  // ── card style ─────────────────────────────────────
-  const card = {
-    background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(12px)',
-    borderRadius: 16, border: '1px solid rgba(255,255,255,0.15)',
-    overflow: 'hidden', width: '100%', maxWidth: 420,
-  };
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      background: 'linear-gradient(135deg, #071732 0%, #0B2454 50%, #0E3070 100%)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      zIndex: 2000, padding: 16, fontFamily: 'Sarabun, sans-serif',
-    }}>
-      {/* Logo */}
-      <div style={{ textAlign: 'center', marginBottom: 28 }}>
-        <div style={{ fontSize: 50, marginBottom: 6 }}>🫁</div>
-        <h1 style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>
-          Rx-COPD/Asthma Clinic
-        </h1>
-        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 5 }}>
-          ระบบบริบาลเภสัชกรรม
-        </p>
-        <div style={{ marginTop: 14, fontSize: 10, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 700, color: 'rgba(147,197,253,0.7)' }}>จัดทำโดย</div>
-          <div>ภก.อนัส มะยีแต</div>
-          <div>ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค</div>
-          <div>โรงพยาบาลกรงปินัง</div>
-        </div>
+  const Logo = () => (
+    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+      <div style={{ fontSize: 52, marginBottom: 6 }}>🫁</div>
+      <h1 style={{ color: '#FFFFFF', fontSize: 21, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>
+        Rx-COPD/Asthma Clinic
+      </h1>
+      <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 5 }}>ระบบบริบาลเภสัชกรรม</p>
+      <div style={{ marginTop: 12, fontSize: 10, color: 'rgba(255,255,255,0.32)', lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 700, color: 'rgba(147,197,253,0.65)' }}>จัดทำโดย</div>
+        <div>ภก.อนัส มะยีแต</div>
+        <div>ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค</div>
+        <div>โรงพยาบาลกรงปินัง</div>
       </div>
+    </div>
+  );
 
-      {/* ── STEP: Select ── */}
-      {step === 'select' && (
-        <div style={card}>
-          <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#FFFFFF' }}>
-              เลือกชื่อเภสัชกร
-            </h3>
-            <p style={{ margin: '3px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
-              แตะชื่อเพื่อเข้าสู่ระบบ
-            </p>
-          </div>
-          <div style={{ padding: 12, maxHeight: 280, overflowY: 'auto' }}>
-            {pharmacists.map(ph => (
-              <button key={ph.id} onClick={() => handleSelect(ph)} style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                padding: '11px 13px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.05)', cursor: 'pointer',
-                fontFamily: 'Sarabun, sans-serif', textAlign: 'left', marginBottom: 6,
-                transition: 'all 0.15s',
+  // ── Mode: username ──────────────────────────────────
+  if (mode === 'username') {
+    const handleNext = () => {
+      const found = users.find(u => u.username === username.trim().toLowerCase());
+      if (!found) { setErr('ไม่พบชื่อผู้ใช้ในระบบ'); return; }
+      setSelUser(found); setPin(''); setErr('');
+      if (!found.pin) { setMode('register'); } else { setMode('pin'); }
+    };
+    return (
+      <div style={bgStyle}>
+        <Logo />
+        <div style={cardStyle}>
+          <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: '#FFFFFF', textAlign: 'center' }}>
+            เข้าสู่ระบบ
+          </h3>
+          <div style={{ position: 'relative', marginBottom: 14 }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16 }}>👤</span>
+            <input
+              value={username}
+              onChange={e => { setUsername(e.target.value); setErr(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleNext()}
+              placeholder="ชื่อผู้ใช้ (username)"
+              autoFocus
+              style={{
+                width: '100%', padding: '12px 14px 12px 38px', borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.08)',
+                color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 14,
+                outline: 'none', boxSizing: 'border-box',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: '50%', background: '#1848A0',
-                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, fontWeight: 700, flexShrink: 0,
-                }}>{ph.name.charAt(0)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, color: '#FFFFFF' }}>{ph.prefix}{ph.name}</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>
-                    {pins[ph.id] ? '🔒 มี PIN' : '🔓 ยังไม่ได้ตั้ง PIN (ตั้งครั้งแรก)'}
-                  </div>
-                </div>
-                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>›</span>
-              </button>
-            ))}
-            {pharmacists.length === 0 && (
-              <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 13, padding: '16px 0' }}>
-                ยังไม่มีรายชื่อ กรุณาเพิ่มก่อน
-              </p>
-            )}
+            />
           </div>
-          <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.1)' }}>
-            {adding ? (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select value={newPfx} onChange={e => setNewPfx(e.target.value)} style={{
-                  padding: '6px 8px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: 'Sarabun, sans-serif', fontSize: 12,
-                }}>
-                  <option>ภก.</option><option>ภกญ.</option>
-                </select>
-                <input value={newNm} onChange={e => setNewNm(e.target.value)}
-                  placeholder="ชื่อ นามสกุล" style={{
-                  flex: 1, padding: '6px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: 'Sarabun, sans-serif', fontSize: 13,
-                }} />
-                <button onClick={handleAddPH} style={{
-                  padding: '6px 12px', borderRadius: 7, background: '#1848A0', color: '#fff',
-                  border: 'none', cursor: 'pointer', fontFamily: 'Sarabun, sans-serif', fontSize: 12, fontWeight: 600,
-                }}>บันทึก</button>
-                <button onClick={() => setAdding(false)} style={{
-                  padding: '6px 10px', borderRadius: 7, background: 'transparent',
-                  color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.15)',
-                  cursor: 'pointer', fontFamily: 'Sarabun, sans-serif', fontSize: 12,
-                }}>ยกเลิก</button>
-              </div>
-            ) : (
-              <button onClick={() => setAdding(true)} style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: '#0EA5C9', fontSize: 13, fontWeight: 600, fontFamily: 'Sarabun, sans-serif',
-              }}>+ เพิ่มเภสัชกรใหม่</button>
-            )}
-          </div>
+          {err && (
+            <div style={{
+              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
+              borderRadius: 20, padding: '6px 14px', fontSize: 12, color: '#FCA5A5',
+              textAlign: 'center', marginBottom: 12,
+            }}>{err}</div>
+          )}
+          <button onClick={handleNext} style={{
+            width: '100%', padding: '13px', borderRadius: 10,
+            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
+            color: '#fff', border: 'none', cursor: 'pointer',
+            fontSize: 14, fontWeight: 700, fontFamily: 'Sarabun, sans-serif',
+          }}>เข้าสู่ระบบ</button>
         </div>
-      )}
+        <button onClick={() => { setMode('register'); setSelUser(null); setErr(''); }} style={{
+          marginTop: 16, background: 'none', border: 'none', cursor: 'pointer',
+          color: 'rgba(147,197,253,0.8)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
+        }}>สมัครสมาชิก</button>
+      </div>
+    );
+  }
 
-      {/* ── STEP: Enter PIN (Numpad) ── */}
-      {step === 'pin' && sel && (
-        <div style={{ ...card, padding: 28, textAlign: 'center', maxWidth: 340 }}>
-          <button onClick={() => { setStep('select'); setPin(''); setErr(''); }} style={{
-            position: 'absolute', top: 20, left: 20, background: 'none', border: 'none',
-            cursor: 'pointer', color: 'rgba(255,255,255,0.5)', fontSize: 13,
-            fontFamily: 'Sarabun, sans-serif',
+  // ── Mode: pin ───────────────────────────────────────
+  if (mode === 'pin' && selUser) {
+    const pushDigit = (d) => {
+      if (pin.length >= 4) return;
+      const next = pin + d;
+      setPin(next);
+      if (next.length === 4) {
+        setTimeout(() => {
+          if (next === selUser.pin) { onLogin(selUser); }
+          else { setErr('รหัส PIN ไม่ถูกต้อง'); setPin(''); }
+        }, 180);
+      }
+    };
+    return (
+      <div style={bgStyle}>
+        <Logo />
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          <button onClick={() => { setMode('username'); setPin(''); setErr(''); }} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.5)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
+            display: 'block', marginBottom: 14,
           }}>← กลับ</button>
           <div style={{
-            width: 56, height: 56, borderRadius: '50%', background: '#1848A0',
+            width: 60, height: 60, borderRadius: '50%', background: '#1848A0',
             color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 20, fontWeight: 700, margin: '0 auto 10px',
-          }}>{sel.name.charAt(0)}</div>
+            fontSize: 22, fontWeight: 700, margin: '0 auto 10px',
+          }}>{(selUser.name || '').charAt(0)}</div>
           <div style={{ fontWeight: 700, fontSize: 15, color: '#FFFFFF', marginBottom: 4 }}>
-            {sel.prefix}{sel.name}
+            {selUser.prefix}{selUser.name}
           </div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 22 }}>กรอก PIN 4 หลัก</div>
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginBottom: 6 }}>
-            {[0,1,2,3].map(i => <PINDot key={i} filled={i < pin.length} />)}
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 8 }}>
+            {[0,1,2,3].map(i => (
+              <div key={i} style={{
+                width: 24, height: 24, borderRadius: '50%',
+                background: i < pin.length ? '#FFFFFF' : 'rgba(255,255,255,0.2)',
+                transition: 'all 0.15s',
+              }} />
+            ))}
           </div>
-          {err && <p style={{ color: '#FCA5A5', fontSize: 12, margin: '8px 0 0' }}>{err}</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,66px)', gap: 10, justifyContent: 'center', marginTop: 22 }}>
+          {err && (
+            <div style={{
+              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
+              borderRadius: 20, padding: '5px 14px', fontSize: 12, color: '#FCA5A5',
+              display: 'inline-block', marginBottom: 10,
+            }}>{err}</div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,68px)', gap: 10, justifyContent: 'center', marginTop: 16 }}>
             {[1,2,3,4,5,6,7,8,9].map(n => <NBtn key={n} label={n} onClick={() => pushDigit(String(n))} />)}
             <div />
             <NBtn label={0} onClick={() => pushDigit('0')} />
             <NBtn label="⌫" onClick={() => { setPin(p => p.slice(0,-1)); setErr(''); }} />
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {/* ── STEP: Set new PIN ── */}
-      {step === 'setpin' && sel && (
-        <div style={{ ...card, padding: 24, maxWidth: 380 }}>
-          <button onClick={() => { setStep('select'); setPin(''); setConf(''); setErr(''); }} style={{
-            background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)',
-            fontSize: 13, fontFamily: 'Sarabun, sans-serif', marginBottom: 14, display: 'block',
+  // ── Mode: register ──────────────────────────────────
+  if (mode === 'register') {
+    const handleRegister = () => {
+      if (!regName.trim()) { setErr('กรุณากรอกชื่อ-นามสกุล'); return; }
+      if (!regUname.trim()) { setErr('กรุณากรอก username'); return; }
+      if (regPin.length !== 4) { setErr('กรุณากรอก PIN 4 หลัก'); return; }
+      if (regPin !== regConf) { setErr('PIN ไม่ตรงกัน'); return; }
+      const existingUsers = (data && data.users) || [];
+      if (existingUsers.find(u => u.username === regUname.trim().toLowerCase())) {
+        setErr('username นี้มีอยู่แล้ว'); return;
+      }
+      const newUser = {
+        id: AppStore.generateId(),
+        prefix: regPfx,
+        name: regName.trim(),
+        username: regUname.trim().toLowerCase(),
+        pin: regPin,
+      };
+      // If migrating existing user (selUser with empty pin), update them
+      let newUsers;
+      if (selUser && !selUser.pin) {
+        newUsers = existingUsers.map(u => u.id === selUser.id
+          ? { ...u, pin: regPin, username: regUname.trim().toLowerCase() || u.username }
+          : u
+        );
+        onDataChange({ ...data, users: newUsers });
+        onLogin({ ...selUser, pin: regPin });
+      } else {
+        newUsers = [...existingUsers, newUser];
+        onDataChange({ ...data, users: newUsers });
+        onLogin(newUser);
+      }
+    };
+    const inputStyle = {
+      width: '100%', padding: '10px 14px', borderRadius: 9,
+      border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)',
+      color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 13,
+      outline: 'none', boxSizing: 'border-box',
+    };
+    return (
+      <div style={bgStyle}>
+        <Logo />
+        <div style={cardStyle}>
+          <button onClick={() => { setMode('username'); setErr(''); setSelUser(null); }} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.5)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
+            marginBottom: 12, display: 'block',
           }}>← กลับ</button>
-          <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
-            ตั้ง PIN — {sel.prefix}{sel.name}
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
+            {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : 'สมัครสมาชิกใหม่'}
           </h3>
-          <p style={{ margin: '0 0 18px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
-            เข้าใช้งานครั้งแรก กรุณาตั้งรหัส PIN 4 หลัก
-          </p>
-          {[
-            { label: 'PIN 4 หลัก', val: pin, set: setPin },
-            { label: 'ยืนยัน PIN', val: conf, set: setConf },
-          ].map(({ label, val, set }) => (
-            <div key={label} style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: 5 }}>{label}</label>
-              <input type="password" value={val} onChange={e => { set(e.target.value.slice(0,4)); setErr(''); }}
-                placeholder="• • • •" style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 8, fontSize: 18, textAlign: 'center',
-                  letterSpacing: 12, border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.08)', color: '#fff', fontFamily: 'Sarabun, sans-serif',
-                  boxSizing: 'border-box', outline: 'none',
-                }} />
-            </div>
-          ))}
-          {err && <p style={{ color: '#FCA5A5', fontSize: 12, margin: '0 0 10px' }}>{err}</p>}
-          <button onClick={handleSetPIN} style={{
-            width: '100%', padding: '12px', borderRadius: 10, background: '#1848A0',
-            color: '#fff', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700,
-            fontFamily: 'Sarabun, sans-serif',
-          }}>ตั้ง PIN และเข้าสู่ระบบ</button>
+          {!(selUser && !selUser.pin) && (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <select value={regPfx} onChange={e => setRegPfx(e.target.value)} style={{
+                  ...inputStyle, width: 100,
+                  background: 'rgba(255,255,255,0.1)',
+                }}>
+                  <option>ภก.</option><option>ภกญ.</option>
+                </select>
+                <input value={regName} onChange={e => { setRegName(e.target.value); setErr(''); }}
+                  placeholder="ชื่อ นามสกุล" style={{ ...inputStyle, flex: 1 }} />
+              </div>
+              <input value={regUname} onChange={e => { setRegUname(e.target.value); setErr(''); }}
+                placeholder="username (ภาษาอังกฤษ)" style={{ ...inputStyle, marginBottom: 10 }} />
+            </>
+          )}
+          <input type="password" value={regPin} onChange={e => { setRegPin(e.target.value.replace(/\D/g,'').slice(0,4)); setErr(''); }}
+            placeholder="PIN 4 หลัก" maxLength={4} style={{
+              ...inputStyle, marginBottom: 10, textAlign: 'center', letterSpacing: 10, fontSize: 18,
+            }} />
+          <input type="password" value={regConf} onChange={e => { setRegConf(e.target.value.replace(/\D/g,'').slice(0,4)); setErr(''); }}
+            placeholder="ยืนยัน PIN" maxLength={4} style={{
+              ...inputStyle, marginBottom: 14, textAlign: 'center', letterSpacing: 10, fontSize: 18,
+            }} />
+          {err && (
+            <div style={{
+              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
+              borderRadius: 20, padding: '6px 14px', fontSize: 12, color: '#FCA5A5',
+              textAlign: 'center', marginBottom: 12,
+            }}>{err}</div>
+          )}
+          <button onClick={handleRegister} style={{
+            width: '100%', padding: '13px', borderRadius: 10,
+            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
+            color: '#fff', border: 'none', cursor: 'pointer',
+            fontSize: 14, fontWeight: 700, fontFamily: 'Sarabun, sans-serif',
+          }}>บันทึกและเข้าสู่ระบบ</button>
         </div>
-      )}
-    </div>
-  );
+      </div>
+    );
+  }
+
+  return null;
 }
 
-// ── PharmacistManager (Settings) ─────────────────────
-function PharmacistManager({ pharmacists, onUpdate, currentUser, onSwitch }) {
-  const [adding,  setAdding]  = stState(false);
-  const [newPfx,  setNewPfx]  = stState('ภก.');
-  const [newNm,   setNewNm]   = stState('');
-  const [resetId, setResetId] = stState(null);
-  const [newPIN,  setNewPIN]  = stState('');
-  const [pinMsg,  setPinMsg]  = stState('');
-
-  const pins = getPINs();
+// ── UserManager (Settings) ────────────────────────────
+function UserManager({ data, onDataChange, currentUser }) {
+  const users = (data && data.users) || [];
+  const [adding,   setAdding]  = stState(false);
+  const [newPfx,   setNewPfx]  = stState('ภก.');
+  const [newNm,    setNewNm]   = stState('');
+  const [newUname, setNewUname] = stState('');
+  const [newPin,   setNewPin]  = stState('');
+  const [resetId,  setResetId] = stState(null);
+  const [resetPin, setResetPin] = stState('');
+  const [msg,      setMsg]     = stState('');
 
   const handleAdd = () => {
-    if (!newNm.trim()) return;
-    const next = [...pharmacists, { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim() }];
-    onUpdate(next); savePharmacists(next); setNewNm(''); setAdding(false);
+    if (!newNm.trim() || !newUname.trim() || newPin.length !== 4) {
+      setMsg('กรุณากรอกข้อมูลให้ครบและ PIN 4 หลัก'); return;
+    }
+    if (users.find(u => u.username === newUname.trim().toLowerCase())) {
+      setMsg('username นี้มีอยู่แล้ว'); return;
+    }
+    const newUser = { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim(), username: newUname.trim().toLowerCase(), pin: newPin };
+    onDataChange({ ...data, users: [...users, newUser] });
+    setNewNm(''); setNewUname(''); setNewPin(''); setAdding(false); setMsg('');
   };
 
   const handleRemove = (id) => {
-    const next = pharmacists.filter(p => p.id !== id);
-    const p2 = { ...getPINs() }; delete p2[id];
-    setPINs(p2); onUpdate(next); savePharmacists(next);
+    onDataChange({ ...data, users: users.filter(u => u.id !== id) });
   };
 
   const handleResetPIN = (id) => {
-    if (newPIN.length !== 4) { setPinMsg('กรุณากรอก 4 หลัก'); return; }
-    setPINs({ ...getPINs(), [id]: newPIN });
-    setResetId(null); setNewPIN(''); setPinMsg('');
+    if (resetPin.length !== 4) { setMsg('กรุณากรอก PIN 4 หลัก'); return; }
+    onDataChange({ ...data, users: users.map(u => u.id === id ? { ...u, pin: resetPin } : u) });
+    setResetId(null); setResetPin(''); setMsg('');
   };
 
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>รายชื่อเภสัชกรในระบบ</h4>
-        <Btn size="sm" variant="primary" onClick={() => setAdding(true)}>+ เพิ่ม</Btn>
+        <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>รายชื่อผู้ใช้ในระบบ</h4>
+        <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่ม</Btn>
       </div>
       {adding && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}` }}>
-          <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
-          <Input value={newNm} onChange={setNewNm} placeholder="ชื่อ นามสกุล" />
-          <Btn size="sm" variant="primary" onClick={handleAdd}>บันทึก</Btn>
-          <Btn size="sm" variant="ghost" onClick={() => setAdding(false)}>ยกเลิก</Btn>
+        <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+            <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
+            <Input value={newNm} onChange={v => { setNewNm(v); setMsg(''); }} placeholder="ชื่อ นามสกุล" />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <Input value={newUname} onChange={v => { setNewUname(v); setMsg(''); }} placeholder="username" />
+            <input type="password" value={newPin} onChange={e => { setNewPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
+              placeholder="PIN 4 หลัก" maxLength={4} style={{
+                width: 120, padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
+                fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
+              }} />
+          </div>
+          {msg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn size="sm" variant="primary" onClick={handleAdd}>บันทึก</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => { setAdding(false); setMsg(''); }}>ยกเลิก</Btn>
+          </div>
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {pharmacists.map(ph => (
-          <div key={ph.id} style={{
-            padding: '12px 14px', borderRadius: 8, border: `1px solid ${currentUser?.id === ph.id ? '#BFDBFE' : C.border}`,
-            background: currentUser?.id === ph.id ? '#EFF6FF' : '#F8FAFC',
+        {users.map(u => (
+          <div key={u.id} style={{
+            padding: '12px 14px', borderRadius: 8, border: `1px solid ${currentUser?.id === u.id ? '#BFDBFE' : C.border}`,
+            background: currentUser?.id === u.id ? '#EFF6FF' : '#F8FAFC',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{
                 width: 38, height: 38, borderRadius: '50%',
-                background: currentUser?.id === ph.id ? C.primary : '#94A3B8',
+                background: currentUser?.id === u.id ? C.primary : '#94A3B8',
                 color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 15, fontWeight: 700, flexShrink: 0,
-              }}>{ph.name.charAt(0)}</div>
+              }}>{(u.name || '').charAt(0)}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{ph.prefix}{ph.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</div>
                 <div style={{ fontSize: 11, color: C.textMuted }}>
-                  {pins[ph.id] ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
-                  {currentUser?.id === ph.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
+                  @{u.username} &nbsp;·&nbsp; {u.pin ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
+                  {currentUser?.id === u.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                {currentUser?.id !== ph.id && <Btn size="sm" variant="ghost" onClick={() => onSwitch(ph)}>เปลี่ยนเป็น</Btn>}
-                <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === ph.id ? null : ph.id); setNewPIN(''); setPinMsg(''); }}>
+                <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPin(''); setMsg(''); }}>
                   รีเซ็ต PIN
                 </Btn>
-                {currentUser?.id !== ph.id && <Btn size="sm" variant="danger" onClick={() => handleRemove(ph.id)}>ลบ</Btn>}
+                {currentUser?.id !== u.id && <Btn size="sm" variant="danger" onClick={() => handleRemove(u.id)}>ลบ</Btn>}
               </div>
             </div>
-            {resetId === ph.id && (
+            {resetId === u.id && (
               <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="password" value={newPIN} onChange={e => { setNewPIN(e.target.value.slice(0,4)); setPinMsg(''); }}
-                  placeholder="PIN ใหม่ 4 หลัก" style={{
+                <input type="password" value={resetPin} onChange={e => { setResetPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
+                  placeholder="PIN ใหม่ 4 หลัก" maxLength={4} style={{
                     width: 160, padding: '7px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
                     fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
                   }} />
-                <Btn size="sm" variant="primary" onClick={() => handleResetPIN(ph.id)}>บันทึก PIN</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => { setResetId(null); setPinMsg(''); }}>ยกเลิก</Btn>
-                {pinMsg && <span style={{ fontSize: 12, color: C.high }}>{pinMsg}</span>}
+                <Btn size="sm" variant="primary" onClick={() => handleResetPIN(u.id)}>บันทึก PIN</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => { setResetId(null); setMsg(''); }}>ยกเลิก</Btn>
+                {msg && <span style={{ fontSize: 12, color: C.high }}>{msg}</span>}
               </div>
             )}
           </div>
         ))}
-        {pharmacists.length === 0 && <EmptyState icon="👤" title="ยังไม่มีรายชื่อเภสัชกร" />}
+        {users.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้ในระบบ" />}
       </div>
     </Card>
   );
@@ -2692,20 +2747,19 @@ function CompetencyLog({ currentUser }) {
 }
 
 // ── SettingsView ──────────────────────────────────────
-function SettingsView({ pharmacists, onUpdatePharmacists, currentUser, onSwitch, onConfigSave, syncStatus }) {
-  const [tab, setTab] = stState('pharmacists');
+function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave, syncStatus }) {
+  const [tab, setTab] = stState('users');
   return (
     <div>
-      <SectionHeader title="ตั้งค่าระบบ" subtitle="จัดการเภสัชกร รหัส PIN และการเชื่อมต่อ Cloud" />
+      <SectionHeader title="ตั้งค่าระบบ" subtitle="จัดการผู้ใช้ รหัส PIN และการเชื่อมต่อ Cloud" />
       <Tabs tabs={[
-        { id: 'pharmacists', label: '👤 เภสัชกรและ PIN' },
-        { id: 'templates',   label: '🏷️ SOAP Templates' },
-        { id: 'competency',  label: '🎓 Competency Log' },
-        { id: 'firebase',    label: '☁️ Firebase Cloud Sync' },
+        { id: 'users',      label: '👤 จัดการผู้ใช้' },
+        { id: 'templates',  label: '🏷️ SOAP Templates' },
+        { id: 'competency', label: '🎓 Competency Log' },
+        { id: 'firebase',   label: '☁️ Firebase Cloud Sync' },
       ]} active={tab} onChange={setTab} />
-      {tab === 'pharmacists' && (
-        <PharmacistManager pharmacists={pharmacists} onUpdate={onUpdatePharmacists}
-          currentUser={currentUser} onSwitch={onSwitch} />
+      {tab === 'users' && (
+        <UserManager data={data} onDataChange={onDataChange} currentUser={currentUser} />
       )}
       {tab === 'templates' && <TemplateManager />}
       {tab === 'competency' && <CompetencyLog currentUser={currentUser} />}
@@ -2717,8 +2771,8 @@ function SettingsView({ pharmacists, onUpdatePharmacists, currentUser, onSwitch,
 }
 
 Object.assign(window, {
-  LoginScreen, SettingsView, PharmacistManager, FirebaseSetup,
-  loadPharmacists, savePharmacists, loadFBConfig, saveFBConfig, getPINs, setPINs,
+  LoginScreen, SettingsView, UserManager, FirebaseSetup,
+  loadFBConfig, saveFBConfig,
 });
 </script>
 <script type="text/babel">
@@ -9691,15 +9745,8 @@ function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem('copd_user_v1')); } catch { return null; }
   });
-  const [pharmacists, setPharmacists] = useState(loadPharmacists);
-
-  // Data — pharmacists is kept in sync with data.pharmacists via Firebase
-  const [data, setData] = useState(() => {
-    const d = AppStore.load();
-    // Seed data.pharmacists from localStorage on first load if missing
-    if (!d.pharmacists) d.pharmacists = loadPharmacists();
-    return d;
-  });
+  // Data
+  const [data, setData] = useState(() => AppStore.load());
 
   // Firebase
   const [syncStatus, setSyncStatus] = useState('offline');
@@ -9734,34 +9781,15 @@ function App() {
 
   // Firebase init — merge by timestamp, retry on failure
   const retryRef = useRef(null);
-  // IDs ของ sample pharmacists ที่ต้องลบออก
-  const LEGACY_PH_IDS = ['ph001', 'ph002'];
-  const cleanPharmacists = (list) =>
-    (list || []).filter(p => !LEGACY_PH_IDS.includes(p.id));
 
   // ฟังก์ชัน apply data จาก Firebase → state (ใช้ทั้งใน initial load และ onSnapshot)
   const applyRemoteData = useCallback((remote, db) => {
     const local = AppStore.load();
     // merge patient/visit data by timestamp
     const merged = AppStore.merge(local, remote);
-    // pharmacists: Firebase wins เสมอ แล้วลบ legacy ออก
-    merged.pharmacists = cleanPharmacists(
-      remote.pharmacists && remote.pharmacists.length > 0
-        ? remote.pharmacists
-        : local.pharmacists
-    );
 
     setData(merged);
-    setPharmacists(merged.pharmacists);
-    savePharmacists(merged.pharmacists);
     AppStore.save(merged);
-
-    // ถ้า Firebase ยังมี legacy pharmacists → push ข้อมูล clean กลับขึ้น Firebase ทันที
-    const remoteHasLegacy = (remote.pharmacists || []).some(p => LEGACY_PH_IDS.includes(p.id));
-    if (remoteHasLegacy && db) {
-      const clean = { ...merged, _savedAt: Date.now() };
-      db.collection('clinic').doc('main').set(clean).catch(console.error);
-    }
 
     return merged;
   }, []);
@@ -9815,15 +9843,6 @@ function App() {
     const cfg = loadFBConfig();
     if (cfg) initFirebase(cfg);
   }, []);
-
-  // เมื่อ pharmacists เปลี่ยน → sync เข้า data (เพื่อให้ Firebase รับรู้)
-  const isFirstPharmRender = useRef(true);
-  useEffect(() => {
-    if (isFirstPharmRender.current) { isFirstPharmRender.current = false; return; }
-    const cleaned = cleanPharmacists(pharmacists);
-    savePharmacists(cleaned);
-    setData(prev => ({ ...prev, pharmacists: cleaned }));
-  }, [pharmacists]);
 
   // Persist data (localStorage + Firebase)
   const saveTimer = useRef(null);
@@ -9880,7 +9899,7 @@ function App() {
 
   // ── Login gate ────────────────────────────────────
   if (!currentUser) {
-    return <LoginScreen onLogin={u => setCurrentUser(u)} />;
+    return <LoginScreen onLogin={u => setCurrentUser(u)} data={data} onDataChange={handleDataChange} />;
   }
 
   // ── Render view ───────────────────────────────────
@@ -9916,7 +9935,7 @@ function App() {
       case 'research':
         return <ResearchExportDashboard data={data} />;
       case 'settings':
-        return <SettingsView pharmacists={pharmacists} onUpdatePharmacists={setPharmacists}
+        return <SettingsView data={data} onDataChange={handleDataChange}
           currentUser={currentUser} onSwitch={u => setCurrentUser(u)}
           onConfigSave={initFirebase} syncStatus={syncStatus} />;
       default:
