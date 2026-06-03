@@ -2159,13 +2159,9 @@ const PIN_KEY   = 'copd_pins_v1';
 const FB_KEY    = 'copd_firebase_v1';
 
 // ── Storage helpers ───────────────────────────────────
-const DEFAULT_PHARMACISTS = [
-  { id: 'ph001', prefix: 'ภกญ.', name: 'สุดา วิชาดี' },
-  { id: 'ph002', prefix: 'ภก.',  name: 'วิชัย ชาญดี' },
-];
 const loadPharmacists = () => {
-  try { return JSON.parse(localStorage.getItem(PHARM_KEY)) || DEFAULT_PHARMACISTS; }
-  catch { return DEFAULT_PHARMACISTS; }
+  try { return JSON.parse(localStorage.getItem(PHARM_KEY)) || []; }
+  catch { return []; }
 };
 const savePharmacists = (list) => localStorage.setItem(PHARM_KEY, JSON.stringify(list));
 const getPINs  = () => { try { return JSON.parse(localStorage.getItem(PIN_KEY)) || {}; } catch { return {}; } };
@@ -9751,30 +9747,41 @@ function App() {
       setSyncStatus('syncing');
 
       // Initial load — merge local vs cloud by timestamp
+      // pharmacists always come from Firebase (source of truth for shared data)
       const snap = await db.collection('clinic').doc('main').get();
       if (snap.exists) {
+        const remote = snap.data();
         const local = AppStore.load();
-        if (!local.pharmacists) local.pharmacists = loadPharmacists();
-        const merged = AppStore.merge(local, snap.data());
+        const merged = AppStore.merge(local, remote);
+        // pharmacists: Firebase wins unconditionally when it has data
+        if (remote.pharmacists && remote.pharmacists.length > 0) {
+          merged.pharmacists = remote.pharmacists;
+        }
         setData(merged);
-        if (merged.pharmacists) { setPharmacists(merged.pharmacists); savePharmacists(merged.pharmacists); }
+        setPharmacists(merged.pharmacists || []);
+        savePharmacists(merged.pharmacists || []);
         AppStore.save(merged);
-        // If local was newer, push it back up immediately
-        if ((local._savedAt || 0) > (snap.data()._savedAt || 0)) {
-          await db.collection('clinic').doc('main').set(merged);
+        // If local patient data was newer, push merged back up
+        if ((local._savedAt || 0) > (remote._savedAt || 0)) {
+          await db.collection('clinic').doc('main').set({ ...merged, _savedAt: Date.now() });
         }
       }
       setSyncStatus('synced');
 
-      // Real-time listener — only apply remote update if it's newer
+      // Real-time listener — pharmacists always from Firebase
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
         doc => {
           if (!doc.exists) return;
           const remote = doc.data();
           setData(prev => {
             const winner = AppStore.merge(prev, remote);
+            // pharmacists: always use Firebase version
+            if (remote.pharmacists && remote.pharmacists.length > 0) {
+              winner.pharmacists = remote.pharmacists;
+            }
             AppStore.save(winner);
-            if (winner.pharmacists) { setPharmacists(winner.pharmacists); savePharmacists(winner.pharmacists); }
+            setPharmacists(winner.pharmacists || []);
+            savePharmacists(winner.pharmacists || []);
             return winner;
           });
           setSyncStatus('synced');
