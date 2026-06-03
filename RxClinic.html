@@ -9734,6 +9734,38 @@ function App() {
 
   // Firebase init — merge by timestamp, retry on failure
   const retryRef = useRef(null);
+  // IDs ของ sample pharmacists ที่ต้องลบออก
+  const LEGACY_PH_IDS = ['ph001', 'ph002'];
+  const cleanPharmacists = (list) =>
+    (list || []).filter(p => !LEGACY_PH_IDS.includes(p.id));
+
+  // ฟังก์ชัน apply data จาก Firebase → state (ใช้ทั้งใน initial load และ onSnapshot)
+  const applyRemoteData = useCallback((remote, db) => {
+    const local = AppStore.load();
+    // merge patient/visit data by timestamp
+    const merged = AppStore.merge(local, remote);
+    // pharmacists: Firebase wins เสมอ แล้วลบ legacy ออก
+    merged.pharmacists = cleanPharmacists(
+      remote.pharmacists && remote.pharmacists.length > 0
+        ? remote.pharmacists
+        : local.pharmacists
+    );
+
+    setData(merged);
+    setPharmacists(merged.pharmacists);
+    savePharmacists(merged.pharmacists);
+    AppStore.save(merged);
+
+    // ถ้า Firebase ยังมี legacy pharmacists → push ข้อมูล clean กลับขึ้น Firebase ทันที
+    const remoteHasLegacy = (remote.pharmacists || []).some(p => LEGACY_PH_IDS.includes(p.id));
+    if (remoteHasLegacy && db) {
+      const clean = { ...merged, _savedAt: Date.now() };
+      db.collection('clinic').doc('main').set(clean).catch(console.error);
+    }
+
+    return merged;
+  }, []);
+
   const initFirebase = useCallback(async (config, attempt = 0) => {
     if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
     clearTimeout(retryRef.current);
@@ -9741,55 +9773,25 @@ function App() {
     if (typeof firebase === 'undefined') { setSyncStatus('error'); return false; }
     try {
       if (!firebase.apps.length) firebase.initializeApp(config);
-      else firebase.app(); // reuse existing
+      else firebase.app();
       const db = firebase.firestore();
       dbRef.current = db;
       setSyncStatus('syncing');
 
-      // Initial load — merge local vs cloud by timestamp
-      // pharmacists always come from Firebase (source of truth for shared data)
       const snap = await db.collection('clinic').doc('main').get();
-      if (snap.exists) {
-        const remote = snap.data();
-        const local = AppStore.load();
-        const merged = AppStore.merge(local, remote);
-        // pharmacists: Firebase wins unconditionally when it has data
-        if (remote.pharmacists && remote.pharmacists.length > 0) {
-          merged.pharmacists = remote.pharmacists;
-        }
-        setData(merged);
-        setPharmacists(merged.pharmacists || []);
-        savePharmacists(merged.pharmacists || []);
-        AppStore.save(merged);
-        // If local patient data was newer, push merged back up
-        if ((local._savedAt || 0) > (remote._savedAt || 0)) {
-          await db.collection('clinic').doc('main').set({ ...merged, _savedAt: Date.now() });
-        }
-      }
+      if (snap.exists) applyRemoteData(snap.data(), db);
+
       setSyncStatus('synced');
 
-      // Real-time listener — pharmacists always from Firebase
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
         doc => {
           if (!doc.exists) return;
-          const remote = doc.data();
-          setData(prev => {
-            const winner = AppStore.merge(prev, remote);
-            // pharmacists: always use Firebase version
-            if (remote.pharmacists && remote.pharmacists.length > 0) {
-              winner.pharmacists = remote.pharmacists;
-            }
-            AppStore.save(winner);
-            setPharmacists(winner.pharmacists || []);
-            savePharmacists(winner.pharmacists || []);
-            return winner;
-          });
+          applyRemoteData(doc.data(), db);
           setSyncStatus('synced');
         },
         err => {
-          console.error('Firebase onSnapshot error:', err);
+          console.error('Firebase error:', err);
           setSyncStatus('error');
-          // Auto-retry with exponential backoff (max 5 attempts)
           if (attempt < 5) {
             const delay = Math.min(2000 * Math.pow(2, attempt), 32000);
             retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), delay);
@@ -9806,25 +9808,7 @@ function App() {
       }
       return false;
     }
-  }, []);
-
-  // One-time migration: remove sample pharmacists (ph001, ph002) from all stores
-  useEffect(() => {
-    const SAMPLE_IDS = ['ph001', 'ph002'];
-    const hasSamples = (list) => list.some(p => SAMPLE_IDS.includes(p.id));
-
-    setPharmacists(prev => {
-      if (!hasSamples(prev)) return prev;
-      const cleaned = prev.filter(p => !SAMPLE_IDS.includes(p.id));
-      savePharmacists(cleaned);
-      return cleaned;
-    });
-
-    setData(prev => {
-      if (!prev.pharmacists || !hasSamples(prev.pharmacists)) return prev;
-      return { ...prev, pharmacists: prev.pharmacists.filter(p => !SAMPLE_IDS.includes(p.id)) };
-    });
-  }, []);
+  }, [applyRemoteData]);
 
   // Load Firebase on startup if config saved
   useEffect(() => {
@@ -9832,12 +9816,13 @@ function App() {
     if (cfg) initFirebase(cfg);
   }, []);
 
-  // Keep data.pharmacists in sync when pharmacists state changes
+  // เมื่อ pharmacists เปลี่ยน → sync เข้า data (เพื่อให้ Firebase รับรู้)
   const isFirstPharmRender = useRef(true);
   useEffect(() => {
     if (isFirstPharmRender.current) { isFirstPharmRender.current = false; return; }
-    savePharmacists(pharmacists);
-    setData(prev => ({ ...prev, pharmacists }));
+    const cleaned = cleanPharmacists(pharmacists);
+    savePharmacists(cleaned);
+    setData(prev => ({ ...prev, pharmacists: cleaned }));
   }, [pharmacists]);
 
   // Persist data (localStorage + Firebase)
