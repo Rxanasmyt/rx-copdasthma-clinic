@@ -1,21 +1,13 @@
 // sw.js — Service Worker for Rx-COPD/Asthma Clinic
 // Caches app shell + assets for offline use (cache-first strategy)
 
-const CACHE_VERSION = 'rxcopd-v3';
+const CACHE_VERSION = 'rxcopd-v4';
 const APP_SHELL = [
   './',
-  './COPD-Asthma Clinic.html',
+  './index.html',
   './manifest.json',
-  './src/store.js',
-  './src/Shared.jsx',
-  './src/Settings.jsx',
-  './src/ExportUtils.jsx',
-  './src/PatientViews.jsx',
-  './src/VisitForm.jsx',
-  './src/TelepharmacyReports.jsx',
-  './src/QuickSearch.jsx',
-  './src/SOAPTemplates.jsx',
-  './src/TrendCharts.jsx',
+  './icon-192.png',
+  './icon-512.png',
   // CDN dependencies
   'https://unpkg.com/react@18.3.1/umd/react.development.js',
   'https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js',
@@ -77,7 +69,7 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Offline fallback for navigation requests
         if (event.request.mode === 'navigate') {
-          return caches.match('./COPD-Asthma Clinic.html');
+          return caches.match('./index.html');
         }
       });
     })

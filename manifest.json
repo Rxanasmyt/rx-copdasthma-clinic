@@ -2,7 +2,7 @@
   "name": "Rx-COPD/Asthma Clinic",
   "short_name": "Rx-COPD/Asthma",
   "description": "ระบบบริบาลเภสัชกรรม COPD/Asthma Clinic + Telepharmacy",
-  "start_url": "./COPD-Asthma Clinic.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#0B1D45",
