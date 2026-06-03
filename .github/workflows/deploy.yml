@@ -46,45 +46,35 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Generate version tag
-        id: version
+      - name: Bump version and create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # ดึง tag ล่าสุดที่ขึ้นต้นด้วย v (รูปแบบ vX.Y.Z)
-          LATEST=$(gh release list --repo ${{ github.repository }} --limit 50 --json tagName \
-            | jq -r '.[].tagName' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V | tail -1)
+          # อ่าน version จากไฟล์ แล้ว increment patch
+          CURRENT=$(cat VERSION)
+          MAJOR=$(echo $CURRENT | cut -d. -f1)
+          MINOR=$(echo $CURRENT | cut -d. -f2)
+          PATCH=$(echo $CURRENT | cut -d. -f3)
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          TAG="v${NEXT}"
 
-          if [ -z "$LATEST" ]; then
-            NEXT="v1.0.0"
-          else
-            # แยก major.minor.patch แล้ว increment patch
-            MAJOR=$(echo $LATEST | cut -d. -f1 | tr -d 'v')
-            MINOR=$(echo $LATEST | cut -d. -f2)
-            PATCH=$(echo $LATEST | cut -d. -f3)
-            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-          fi
+          # บันทึก version ใหม่กลับเข้า repo
+          echo $NEXT > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump version to ${NEXT} [skip ci]"
+          git push
 
-          echo "tag=${NEXT}" >> $GITHUB_OUTPUT
-          echo "date=$(TZ='Asia/Bangkok' date +'%d/%m/%Y %H:%M')" >> $GITHUB_OUTPUT
+          # สร้าง GitHub Release
+          gh release create "$TAG" RxClinic.html \
+            --title "Rx-COPD/Asthma Clinic ${TAG}" \
+            --notes "$(cat <<EOF
+          ### 🌐 เปิดแอพได้เลยที่
+          **https://rxanasmyt.github.io/rx-copdasthma-clinic/**
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "Rx-COPD/Asthma Clinic ${{ steps.version.outputs.tag }}"
-          body: |
-            ## 🚀 อัปเดตอัตโนมัติ — ${{ steps.version.outputs.date }} (ICT)
-
-            ### 🌐 เปิดแอพได้เลยที่
-            **https://rxanasmyt.github.io/rx-copdasthma-clinic/**
-
-            ### 📝 Commit ล่าสุด
-            ${{ github.event.head_commit.message }}
-
-            ---
-            *Deploy โดย GitHub Actions อัตโนมัติ*
-          files: RxClinic.html
-          make_latest: true
+          ### 📝 การเปลี่ยนแปลง
+          ${{ github.event.head_commit.message }}
+          EOF
+          )" \
+            --latest
