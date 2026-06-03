@@ -579,10 +579,19 @@ const AppStore = {
 
   save(data) {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(data));
+      const payload = { ...data, _savedAt: Date.now() };
+      localStorage.setItem(STORE_KEY, JSON.stringify(payload));
     } catch (e) {
       console.error('AppStore.save error:', e);
     }
+  },
+
+  // Returns the data that is newer based on _savedAt timestamp.
+  // If Firebase data is newer → use Firebase; otherwise keep local.
+  merge(local, remote) {
+    const localTs  = local?._savedAt  || 0;
+    const remoteTs = remote?._savedAt || 0;
+    return remoteTs >= localTs ? remote : local;
   },
 
   reset() {
@@ -9722,27 +9731,63 @@ function App() {
     else             sessionStorage.removeItem('copd_user_v1');
   }, [currentUser]);
 
-  // Firebase init
-  const initFirebase = useCallback(async (config) => {
+  // Firebase init — merge by timestamp, retry on failure
+  const retryRef = useRef(null);
+  const initFirebase = useCallback(async (config, attempt = 0) => {
     if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+    clearTimeout(retryRef.current);
     if (!config) { dbRef.current = null; setSyncStatus('offline'); return false; }
     if (typeof firebase === 'undefined') { setSyncStatus('error'); return false; }
     try {
       if (!firebase.apps.length) firebase.initializeApp(config);
+      else firebase.app(); // reuse existing
       const db = firebase.firestore();
       dbRef.current = db;
       setSyncStatus('syncing');
+
+      // Initial load — merge local vs cloud by timestamp
       const snap = await db.collection('clinic').doc('main').get();
-      if (snap.exists) setData(snap.data());
+      if (snap.exists) {
+        const merged = AppStore.merge(AppStore.load(), snap.data());
+        setData(merged);
+        AppStore.save(merged);
+        // If local was newer, push it back up immediately
+        if ((AppStore.load()._savedAt || 0) > (snap.data()._savedAt || 0)) {
+          await db.collection('clinic').doc('main').set(merged);
+        }
+      }
       setSyncStatus('synced');
+
+      // Real-time listener — only apply remote update if it's newer
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
-        doc => { if (doc.exists) setData(doc.data()); setSyncStatus('synced'); },
-        ()  => setSyncStatus('error')
+        doc => {
+          if (!doc.exists) return;
+          const remote = doc.data();
+          setData(prev => {
+            const winner = AppStore.merge(prev, remote);
+            AppStore.save(winner);
+            return winner;
+          });
+          setSyncStatus('synced');
+        },
+        err => {
+          console.error('Firebase onSnapshot error:', err);
+          setSyncStatus('error');
+          // Auto-retry with exponential backoff (max 5 attempts)
+          if (attempt < 5) {
+            const delay = Math.min(2000 * Math.pow(2, attempt), 32000);
+            retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), delay);
+          }
+        }
       );
       return true;
     } catch (e) {
-      console.error('Firebase:', e);
+      console.error('Firebase init error:', e);
       setSyncStatus('error');
+      if (attempt < 5) {
+        const delay = Math.min(2000 * Math.pow(2, attempt), 32000);
+        retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), delay);
+      }
       return false;
     }
   }, []);
@@ -9755,15 +9800,22 @@ function App() {
 
   // Persist data (localStorage + Firebase)
   const saveTimer = useRef(null);
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    // Skip first render — data just loaded, no need to push to Firebase yet
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     AppStore.save(data);
     if (dbRef.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         setSyncStatus('syncing');
-        dbRef.current.collection('clinic').doc('main').set(data)
+        const payload = { ...data, _savedAt: Date.now() };
+        dbRef.current.collection('clinic').doc('main').set(payload)
           .then(() => setSyncStatus('synced'))
-          .catch(() => setSyncStatus('error'));
+          .catch(err => {
+            console.error('Firebase save error:', err);
+            setSyncStatus('error');
+          });
       }, 800);
     }
   }, [data]);
