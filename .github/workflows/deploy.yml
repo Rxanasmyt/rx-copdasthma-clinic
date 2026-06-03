@@ -48,10 +48,26 @@ jobs:
 
       - name: Generate version tag
         id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DATE=$(TZ='Asia/Bangkok' date +'%Y.%m.%d')
-          TAG="v${DATE}-${GITHUB_RUN_NUMBER}"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          # ดึง tag ล่าสุดที่ขึ้นต้นด้วย v (รูปแบบ vX.Y.Z)
+          LATEST=$(gh release list --repo ${{ github.repository }} --limit 50 --json tagName \
+            | jq -r '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1)
+
+          if [ -z "$LATEST" ]; then
+            NEXT="v1.0.0"
+          else
+            # แยก major.minor.patch แล้ว increment patch
+            MAJOR=$(echo $LATEST | cut -d. -f1 | tr -d 'v')
+            MINOR=$(echo $LATEST | cut -d. -f2)
+            PATCH=$(echo $LATEST | cut -d. -f3)
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+
+          echo "tag=${NEXT}" >> $GITHUB_OUTPUT
           echo "date=$(TZ='Asia/Bangkok' date +'%d/%m/%Y %H:%M')" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
