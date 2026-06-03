@@ -9808,6 +9808,24 @@ function App() {
     }
   }, []);
 
+  // One-time migration: remove sample pharmacists (ph001, ph002) from all stores
+  useEffect(() => {
+    const SAMPLE_IDS = ['ph001', 'ph002'];
+    const hasSamples = (list) => list.some(p => SAMPLE_IDS.includes(p.id));
+
+    setPharmacists(prev => {
+      if (!hasSamples(prev)) return prev;
+      const cleaned = prev.filter(p => !SAMPLE_IDS.includes(p.id));
+      savePharmacists(cleaned);
+      return cleaned;
+    });
+
+    setData(prev => {
+      if (!prev.pharmacists || !hasSamples(prev.pharmacists)) return prev;
+      return { ...prev, pharmacists: prev.pharmacists.filter(p => !SAMPLE_IDS.includes(p.id)) };
+    });
+  }, []);
+
   // Load Firebase on startup if config saved
   useEffect(() => {
     const cfg = loadFBConfig();
