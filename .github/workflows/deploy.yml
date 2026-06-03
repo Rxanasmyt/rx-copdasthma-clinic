@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -45,3 +45,30 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Generate version tag
+        id: version
+        run: |
+          DATE=$(TZ='Asia/Bangkok' date +'%Y.%m.%d')
+          TAG="v${DATE}-${GITHUB_RUN_NUMBER}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "date=$(TZ='Asia/Bangkok' date +'%d/%m/%Y %H:%M')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Rx-COPD/Asthma Clinic ${{ steps.version.outputs.tag }}"
+          body: |
+            ## 🚀 อัปเดตอัตโนมัติ — ${{ steps.version.outputs.date }} (ICT)
+
+            ### 🌐 เปิดแอพได้เลยที่
+            **https://rxanasmyt.github.io/rx-copdasthma-clinic/**
+
+            ### 📝 Commit ล่าสุด
+            ${{ github.event.head_commit.message }}
+
+            ---
+            *Deploy โดย GitHub Actions อัตโนมัติ*
+          files: RxClinic.html
+          make_latest: true
