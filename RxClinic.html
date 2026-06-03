@@ -2171,11 +2171,12 @@ const PINDot = ({ filled }) => (
 );
 
 // ── Login Screen ──────────────────────────────────────
-function LoginScreen({ onLogin, data, onDataChange }) {
+function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
   const users = (data && data.users) || [];
 
-  // Migration: if no users but pharmacists exist, convert them
+  // Migration: รัน หลัง Firebase sync เสร็จเท่านั้น (ป้องกันเขียนทับข้อมูลจริง)
   stEffect(() => {
+    if (syncStatus !== 'synced') return;
     if (!data) return;
     const existingUsers = data.users || [];
     if (existingUsers.length === 0 && data.pharmacists && data.pharmacists.length > 0) {
@@ -2188,7 +2189,7 @@ function LoginScreen({ onLogin, data, onDataChange }) {
       }));
       onDataChange({ ...data, users: migrated });
     }
-  }, []);
+  }, [syncStatus]);
 
   const [mode, setMode]         = stState('username'); // username | pin | register
   const [username, setUsername] = stState('');
@@ -9747,6 +9748,7 @@ function App() {
   });
   // Data
   const [data, setData] = useState(() => AppStore.load());
+  const firebaseSynced = useRef(false); // true หลัง Firebase โหลดสำเร็จครั้งแรก
 
   // Firebase
   const [syncStatus, setSyncStatus] = useState('offline');
@@ -9809,6 +9811,7 @@ function App() {
       const snap = await db.collection('clinic').doc('main').get();
       if (snap.exists) applyRemoteData(snap.data(), db);
 
+      firebaseSynced.current = true;
       setSyncStatus('synced');
 
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
@@ -9848,10 +9851,10 @@ function App() {
   const saveTimer = useRef(null);
   const isFirstRender = useRef(true);
   useEffect(() => {
-    // Skip first render — data just loaded, no need to push to Firebase yet
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     AppStore.save(data);
-    if (dbRef.current) {
+    // ห้ามเขียน Firebase จนกว่าจะ sync ครั้งแรกเสร็จ (ป้องกัน sample data เขียนทับข้อมูลจริง)
+    if (dbRef.current && firebaseSynced.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         setSyncStatus('syncing');
@@ -9899,7 +9902,7 @@ function App() {
 
   // ── Login gate ────────────────────────────────────
   if (!currentUser) {
-    return <LoginScreen onLogin={u => setCurrentUser(u)} data={data} onDataChange={handleDataChange} />;
+    return <LoginScreen onLogin={u => setCurrentUser(u)} data={data} onDataChange={handleDataChange} syncStatus={syncStatus} />;
   }
 
   // ── Render view ───────────────────────────────────
