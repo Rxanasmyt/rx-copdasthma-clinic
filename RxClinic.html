@@ -2482,9 +2482,9 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
             เลือกผู้ใช้งาน
           </h3>
           {users.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '16px 0 20px' }}>
-              <div style={{ fontSize: 38, marginBottom: 8 }}>👤</div>
-              <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0 }}>ยังไม่มีผู้ใช้ กรุณาสมัครสมาชิก</p>
+            <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
+              <div style={{ fontSize: 38, marginBottom: 8 }}>🛡️</div>
+              <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, lineHeight: 1.7 }}>ยังไม่มีผู้ใช้ในระบบ<br/>กรุณาสร้างบัญชี <b style={{color:'#93C5FD'}}>Admin</b> คนแรก</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 280, overflowY: 'auto' }}>
@@ -2508,7 +2508,10 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
                     boxShadow: '0 4px 14px rgba(37,99,235,0.4)',
                   }}>{(u.name || '?').charAt(0)}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{u.prefix}{u.name}</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{u.prefix}{u.name}</span>
+                      {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:'rgba(37,99,235,0.7)', color:'#BAE6FD', padding:'2px 7px', borderRadius:20 }}>ADMIN</span>}
+                    </div>
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>@{u.username}</div>
                   </div>
                   <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.3)' }}>›</div>
@@ -2627,7 +2630,9 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
               onDataChange({ ...data, users: existing.map(u => u.id === selUser.id ? upd : u) });
               onLogin(upd);
             } else {
-              const nu = { id: AppStore.generateId(), prefix: regPfx, name: regName.trim(), username: regUname.trim().toLowerCase(), pin: regPin };
+              // user แรกที่สร้าง → เป็น Admin อัตโนมัติ
+              const isFirstUser = existing.length === 0;
+              const nu = { id: AppStore.generateId(), prefix: regPfx, name: regName.trim(), username: regUname.trim().toLowerCase(), pin: regPin, role: isFirstUser ? 'admin' : 'user' };
               onDataChange({ ...data, users: [...existing, nu] });
               onLogin(nu);
             }
@@ -2647,7 +2652,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
           {regStep === 1 ? (
             <>
               <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
-                {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : '✦ สมัครสมาชิกใหม่'}
+                {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : users.length === 0 ? '🛡️ สร้างบัญชี Admin' : '✦ สมัครสมาชิกใหม่'}
               </h3>
               {!(selUser && !selUser.pin) && (
                 <>
@@ -2698,39 +2703,21 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
 
 // ── UserManager (Settings) ────────────────────────────
 function UserManager({ data, onDataChange, currentUser }) {
-  const users = (data && data.users) || [];
+  const users      = (data && data.users) || [];
   const clinicCode = (data && data.clinicCode) || '';
-  const [adding,    setAdding]    = stState(false);
-  const [newPfx,    setNewPfx]    = stState('ภก.');
-  const [newNm,     setNewNm]     = stState('');
-  const [newUname,  setNewUname]  = stState('');
-  const [newPin,    setNewPin]    = stState('');
-  const [resetId,   setResetId]   = stState(null);
-  const [resetPin,  setResetPin]  = stState('');
-  const [msg,       setMsg]       = stState('');
-  const [codeEdit,  setCodeEdit]  = stState(false);
-  const [newCode,   setNewCode]   = stState('');
-  const [codeMsg,   setCodeMsg]   = stState('');
+  const isAdmin    = currentUser?.role === 'admin';
 
-  // ── Admin gate ──────────────────────────────────────
-  const adminCode = (data && data.adminCode) || '';
-  const [unlocked,   setUnlocked]   = stState(false);
-  const [adminInput, setAdminInput] = stState('');
-  const [adminErr,   setAdminErr]   = stState('');
-  const [acEdit,     setAcEdit]     = stState(false);
-  const [acNew,      setAcNew]      = stState('');
-  const [acMsg,      setAcMsg]      = stState('');
-
-  const handleVerifyAdmin = () => {
-    if (adminInput === adminCode) { setUnlocked(true); setAdminInput(''); setAdminErr(''); }
-    else { setAdminErr('รหัสผู้ดูแลไม่ถูกต้อง'); setAdminInput(''); }
-  };
-  const handleSaveAdminCode = () => {
-    const c = acNew.replace(/\D/g, '');
-    if (c.length < 4 || c.length > 8) { setAcMsg('รหัสต้องเป็นตัวเลข 4–8 หลัก'); return; }
-    onDataChange({ ...data, adminCode: c });
-    setAcEdit(false); setAcNew(''); setAcMsg(''); setUnlocked(true);
-  };
+  const [adding,   setAdding]   = stState(false);
+  const [newPfx,   setNewPfx]   = stState('ภก.');
+  const [newNm,    setNewNm]    = stState('');
+  const [newUname, setNewUname] = stState('');
+  const [newPin,   setNewPin]   = stState('');
+  const [resetId,  setResetId]  = stState(null);
+  const [resetPin, setResetPin] = stState('');
+  const [msg,      setMsg]      = stState('');
+  const [codeEdit, setCodeEdit] = stState(false);
+  const [newCode,  setNewCode]  = stState('');
+  const [codeMsg,  setCodeMsg]  = stState('');
 
   const handleAdd = () => {
     if (!newNm.trim() || !newUname.trim() || newPin.length !== 4) {
@@ -2757,74 +2744,8 @@ function UserManager({ data, onDataChange, currentUser }) {
     setCodeEdit(false); setNewCode(''); setCodeMsg('');
   };
 
-  // ── Lock screen: ต้องใส่รหัสผู้ดูแลก่อนจัดการผู้ใช้ ──
-  if (adminCode && !unlocked) {
-    return (
-      <div style={{ maxWidth: 420, margin: '24px auto' }}>
-        <Card>
-          <div style={{ textAlign: 'center', padding: '8px 4px' }}>
-            <div style={{ fontSize: 44, marginBottom: 10 }}>🔐</div>
-            <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.primary }}>เฉพาะผู้ดูแลระบบ</h4>
-            <p style={{ margin: '0 0 18px', fontSize: 12.5, color: C.textMuted }}>
-              กรอกรหัสผู้ดูแลเพื่อจัดการผู้ใช้งาน
-            </p>
-            <input type="password" value={adminInput} autoFocus
-              onChange={e => { setAdminInput(e.target.value.replace(/\D/g,'').slice(0,8)); setAdminErr(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') handleVerifyAdmin(); }}
-              placeholder="รหัสผู้ดูแล" maxLength={8} style={{
-                width: '100%', padding: '11px 14px', borderRadius: 10, border: `1.5px solid ${adminErr ? C.high : C.border}`,
-                fontFamily: 'Sarabun, sans-serif', fontSize: 18, textAlign: 'center', letterSpacing: 10,
-                boxSizing: 'border-box', marginBottom: 10,
-              }} />
-            {adminErr && <p style={{ color: C.high, fontSize: 12.5, margin: '0 0 10px', fontWeight: 600 }}>{adminErr}</p>}
-            <Btn variant="primary" onClick={handleVerifyAdmin} style={{ width: '100%', justifyContent: 'center' }}>ปลดล็อก</Btn>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Admin Code */}
-      <Card>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div>
-            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🛡️ รหัสผู้ดูแลระบบ (Admin)</h4>
-            <p style={{ margin: '3px 0 0', fontSize: 11, color: C.textMuted }}>
-              ป้องกันการเพิ่ม/ลบ/รีเซ็ตผู้ใช้ · ตัวเลข 4–8 หลัก
-            </p>
-          </div>
-          <Btn size="sm" variant={adminCode ? 'ghost' : 'primary'} onClick={() => { setAcEdit(!acEdit); setAcNew(''); setAcMsg(''); }}>
-            {adminCode ? 'เปลี่ยน' : 'ตั้งรหัส'}
-          </Btn>
-        </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: 8,
-          background: adminCode ? '#F0FDF4' : '#FEF2F2',
-          border: `1px solid ${adminCode ? '#A7F3D0' : '#FECACA'}`,
-          fontSize: 13, fontWeight: 600,
-          color: adminCode ? '#059669' : '#DC2626',
-        }}>
-          {adminCode ? `🔒 ตั้งรหัสผู้ดูแลแล้ว (${adminCode.length} หลัก)` : '🔓 ยังไม่ได้ตั้งรหัสผู้ดูแล — ใครก็เพิ่ม/ลบผู้ใช้ได้'}
-        </div>
-        {acEdit && (
-          <div style={{ marginTop: 10 }}>
-            <input value={acNew} onChange={e => { setAcNew(e.target.value.replace(/\D/g,'').slice(0,8)); setAcMsg(''); }}
-              placeholder="รหัสผู้ดูแลใหม่ 4–8 หลัก" maxLength={8} type="password" style={{
-                width: '100%', padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`,
-                fontFamily: 'Sarabun, sans-serif', fontSize: 16, textAlign: 'center', letterSpacing: 10,
-                boxSizing: 'border-box', marginBottom: 8,
-              }} />
-            {acMsg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{acMsg}</p>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Btn size="sm" variant="primary" onClick={handleSaveAdminCode}>บันทึก</Btn>
-              <Btn size="sm" variant="ghost" onClick={() => { setAcEdit(false); setAcMsg(''); }}>ยกเลิก</Btn>
-            </div>
-          </div>
-        )}
-      </Card>
-
       {/* Clinic Access Code */}
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -2874,10 +2795,13 @@ function UserManager({ data, onDataChange, currentUser }) {
       {/* User list */}
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>👤 รายชื่อผู้ใช้</h4>
-          <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่ม</Btn>
+          <div>
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>👤 รายชื่อผู้ใช้</h4>
+            {!isAdmin && <p style={{ margin: '3px 0 0', fontSize: 11, color: C.textMuted }}>เฉพาะ Admin เท่านั้นที่สามารถเพิ่ม/ลบ/รีเซ็ตผู้ใช้ได้</p>}
+          </div>
+          {isAdmin && <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่มผู้ใช้</Btn>}
         </div>
-        {adding && (
+        {adding && isAdmin && (
           <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
@@ -2913,20 +2837,25 @@ function UserManager({ data, onDataChange, currentUser }) {
                   fontSize: 15, fontWeight: 700, flexShrink: 0,
                 }}>{(u.name || '').charAt(0)}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</span>
+                    {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:'#EFF6FF', color:'#1E40AF', padding:'2px 8px', borderRadius:20, border:'1px solid #BFDBFE' }}>ADMIN</span>}
+                  </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
                     @{u.username} &nbsp;·&nbsp; {u.pin ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
                     {currentUser?.id === u.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
                   </div>
                 </div>
+                {isAdmin && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPin(''); setMsg(''); }}>
                     รีเซ็ต PIN
                   </Btn>
-                  {currentUser?.id !== u.id && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
+                  {currentUser?.id !== u.id && u.role !== 'admin' && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
                 </div>
+                )}
               </div>
-              {resetId === u.id && (
+              {resetId === u.id && isAdmin && (
                 <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input type="password" value={resetPin} onChange={e => { setResetPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
                     placeholder="PIN ใหม่ 4 หลัก" maxLength={4} style={{
@@ -10531,7 +10460,11 @@ function App() {
 
       // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
-      const remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
+      let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
+      // migration: user คนแรกที่ยังไม่มี role → กำหนดเป็น admin อัตโนมัติ
+      if (remote.users && remote.users.length > 0 && !remote.users.some(u => u.role)) {
+        remote = { ...remote, users: remote.users.map((u, i) => ({ ...u, role: i === 0 ? 'admin' : 'user' })) };
+      }
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
       setFbReady(true);
