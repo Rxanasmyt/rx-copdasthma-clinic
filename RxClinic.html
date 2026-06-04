@@ -10371,22 +10371,22 @@ function Dashboard({ data, navigate }) {
 
 // ── App ───────────────────────────────────────────────
 function App() {
-  // Auth
+  // Auth — session เก็บแค่ใน localStorage (ไม่ใช่ข้อมูลแอพ)
   const [currentUser, setCurrentUser] = useState(() => {
-    // ค้าง login ไว้บนเครื่องเดิม (localStorage) ไม่ต้อง login ใหม่ทุกครั้งที่เปิดแอพ
-    try { return JSON.parse(localStorage.getItem('copd_user_v1') || sessionStorage.getItem('copd_user_v1')); } catch { return null; }
+    try { return JSON.parse(localStorage.getItem('copd_user_v1')); } catch { return null; }
   });
-  // Data
-  const [data, setData] = useState(() => AppStore.load());
-  const firebaseSynced = useRef(false); // true หลัง Firebase โหลดสำเร็จครั้งแรก
+
+  // Data — null = ยังรอ Firebase (แสดง loading), object = โหลดแล้ว
+  const [data, setData] = useState(null);
+  const [fbReady, setFbReady] = useState(false); // Firebase โหลดครั้งแรกเสร็จ
 
   // Firebase
-  const [syncStatus, setSyncStatus] = useState('offline');
-  const dbRef   = useRef(null);
+  const [syncStatus, setSyncStatus] = useState('syncing');
+  const dbRef    = useRef(null);
   const unsubRef = useRef(null);
 
   // Nav
-  const [view,        setView]        = useState('dashboard');
+  const [view,         setView]         = useState('dashboard');
   const [selectedPtId, setSelectedPtId] = useState(null);
   const [teleAddPtId,  setTeleAddPtId]  = useState(null);
   const [searchOpen,   setSearchOpen]   = useState(false);
@@ -10395,70 +10395,38 @@ function App() {
   const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
   const [navOpen,      setNavOpen]      = useState(false);
 
-  // ติดตามขนาดหน้าจอ → สลับโหมดมือถือ/เดสก์ท็อป
+  // ติดตามขนาดหน้าจอ
   useEffect(() => {
     const h = () => setIsMobile(window.innerWidth <= 900);
     window.addEventListener('resize', h);
     return () => window.removeEventListener('resize', h);
   }, []);
-  // ปิด drawer อัตโนมัติเมื่อกลับสู่เดสก์ท็อป
   useEffect(() => { if (!isMobile) setNavOpen(false); }, [isMobile]);
 
   // Online/offline indicator
   useEffect(() => {
-    const goOnline  = () => setIsOnline(true);
-    const goOffline = () => setIsOnline(false);
-    window.addEventListener('online',  goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online',  goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
+    const on  = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online',  on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // Persist session
+  // Persist login session
   useEffect(() => {
     if (currentUser) localStorage.setItem('copd_user_v1', JSON.stringify(currentUser));
-    else { localStorage.removeItem('copd_user_v1'); sessionStorage.removeItem('copd_user_v1'); }
+    else localStorage.removeItem('copd_user_v1');
   }, [currentUser]);
 
-  // Firebase init — merge by timestamp, retry on failure
-  const retryRef = useRef(null);
-  // ลายเซ็นเนื้อหาข้อมูลที่ตรงกับ Firebase ล่าสุด (ไม่รวม _savedAt/_isSample)
-  // ใช้เทียบว่าเนื้อหาเปลี่ยนจริงไหม → กัน echo loop โดยไม่กลืนการแก้ของผู้ใช้
-  const lastSyncSig = useRef(null);
-  const dataSig = (d) => {
-    if (!d) return '';
-    const { _savedAt, _isSample, ...rest } = d;
-    try { return JSON.stringify(rest); } catch { return ''; }
-  };
-
-  // ฟังก์ชัน apply data จาก Firebase → state (ใช้ทั้งใน initial load และ onSnapshot)
-  const applyRemoteData = useCallback((remote, db) => {
-    const local = AppStore.load();
-    // merge patient/visit data by timestamp
-    const merged = AppStore.merge(local, remote);
-    const tookRemote = merged === remote; // เลือกข้อมูลจาก Firebase หรือไม่
-
-    if (tookRemote) {
-      // รับข้อมูลจาก Firebase → คง _savedAt เดิม และจำลายเซ็นว่า "ตรงกับ cloud แล้ว"
-      lastSyncSig.current = dataSig(merged);
-      setData(merged);
-      AppStore.cacheRemote(merged);
-    } else {
-      // ข้อมูลในเครื่องใหม่กว่า (เช่น แก้ตอนออฟไลน์) → persist effect จะ push ขึ้น Firebase
-      setData(merged);
-      AppStore.save(merged);
-    }
-
-    return merged;
-  }, []);
+  // ── Firebase init ──────────────────────────────────
+  const retryRef  = useRef(null);
+  const lastRemoteSig = useRef(null); // ลายเซ็นข้อมูลที่รับจาก Firebase ล่าสุด (กัน echo loop)
+  const dataSig = (d) => { try { const {_savedAt,...r}=d||{}; return JSON.stringify(r); } catch { return ''; } };
 
   const initFirebase = useCallback(async (config, attempt = 0) => {
     if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
     clearTimeout(retryRef.current);
-    if (!config) { dbRef.current = null; setSyncStatus('offline'); return false; }
-    if (typeof firebase === 'undefined') { setSyncStatus('error'); return false; }
+    if (!config || typeof firebase === 'undefined') { setSyncStatus('offline'); return; }
     try {
       if (!firebase.apps.length) firebase.initializeApp(config);
       else firebase.app();
@@ -10466,70 +10434,58 @@ function App() {
       dbRef.current = db;
       setSyncStatus('syncing');
 
+      // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
-      if (snap.exists) applyRemoteData(snap.data(), db);
-
-      firebaseSynced.current = true;
+      const remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
+      lastRemoteSig.current = dataSig(remote);
+      setData(remote);
+      setFbReady(true);
       setSyncStatus('synced');
 
+      // Realtime listener
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
         doc => {
           if (!doc.exists) return;
-          applyRemoteData(doc.data(), db);
+          const d = doc.data();
+          lastRemoteSig.current = dataSig(d);
+          setData(d);
           setSyncStatus('synced');
         },
         err => {
-          console.error('Firebase error:', err);
+          console.error('Firebase snapshot error:', err);
           setSyncStatus('error');
-          if (attempt < 5) {
-            const delay = Math.min(2000 * Math.pow(2, attempt), 32000);
-            retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), delay);
-          }
+          if (attempt < 5) retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
         }
       );
-      return true;
     } catch (e) {
       console.error('Firebase init error:', e);
       setSyncStatus('error');
-      if (attempt < 5) {
-        const delay = Math.min(2000 * Math.pow(2, attempt), 32000);
-        retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), delay);
-      }
-      return false;
+      if (attempt < 5) retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
     }
-  }, [applyRemoteData]);
+  }, []);
 
-  // Load Firebase on startup if config saved
   useEffect(() => {
     const cfg = loadFBConfig();
     if (cfg) initFirebase(cfg);
+    else setSyncStatus('offline');
   }, []);
 
-  // Persist data (localStorage + Firebase)
+  // ── เขียนข้อมูลขึ้น Firebase เท่านั้น ──────────────
   const saveTimer = useRef(null);
-  const isFirstRender = useRef(true);
-  useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return; }
-    AppStore.save(data); // เก็บลงเครื่องเสมอ (ไม่กลืนการแก้ของผู้ใช้)
-    // ห้ามเขียน Firebase จนกว่าจะ sync ครั้งแรกเสร็จ (ป้องกัน sample data เขียนทับข้อมูลจริง)
-    if (dbRef.current && firebaseSynced.current) {
-      const sig = dataSig(data);
-      // เนื้อหาตรงกับ cloud อยู่แล้ว (เช่น เป็น echo จาก snapshot) → ไม่ต้องเขียนซ้ำ
-      if (sig === lastSyncSig.current) return;
-      clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        setSyncStatus('syncing');
-        const payload = { ...data, _savedAt: Date.now() };
-        delete payload._isSample;
-        dbRef.current.collection('clinic').doc('main').set(payload)
-          .then(() => { lastSyncSig.current = sig; setSyncStatus('synced'); })
-          .catch(err => {
-            console.error('Firebase save error:', err);
-            setSyncStatus('error');
-          });
-      }, 800);
-    }
-  }, [data]);
+  const handleDataChange = useCallback((nd) => {
+    setData(nd);
+    if (!dbRef.current || !fbReady) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const sig = dataSig(nd);
+      if (sig === lastRemoteSig.current) return; // ข้อมูลไม่เปลี่ยน (echo) → ไม่เขียน
+      setSyncStatus('syncing');
+      const payload = { ...nd, _savedAt: Date.now() };
+      dbRef.current.collection('clinic').doc('main').set(payload)
+        .then(() => { lastRemoteSig.current = dataSig(nd); setSyncStatus('synced'); })
+        .catch(err => { console.error('Firebase save error:', err); setSyncStatus('error'); });
+    }, 600);
+  }, [fbReady]);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
     if (target === 'telepharmacy-add') {
@@ -10546,8 +10502,7 @@ function App() {
     document.getElementById('main-scroll')?.scrollTo({ top: 0 });
   }, []);
 
-  const handleDataChange = useCallback(nd => setData(nd), []);
-  const handleLogout = () => { localStorage.removeItem('copd_user_v1'); sessionStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
+  const handleLogout = () => { localStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
 
   // Ctrl+K / Cmd+K to open QuickSearch
   useEffect(() => {
@@ -10561,6 +10516,29 @@ function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [currentUser]);
+
+  // ── Loading — รอ Firebase โหลดครั้งแรก ───────────
+  if (!fbReady) {
+    return (
+      <div style={{
+        position:'fixed', inset:0, display:'flex', flexDirection:'column',
+        alignItems:'center', justifyContent:'center', gap:18,
+        background:'linear-gradient(145deg,#050B1E 0%,#0B1D45 38%,#0E2558 68%,#071230 100%)',
+        fontFamily:'Sarabun,sans-serif',
+      }}>
+        <div style={{fontSize:48}}>🫁</div>
+        <div style={{color:'#fff',fontSize:17,fontWeight:700}}>กำลังเชื่อมต่อ Firebase...</div>
+        {syncStatus==='error' && (
+          <div style={{color:'#FCA5A5',fontSize:13,marginTop:4}}>
+            ⚠ เชื่อมต่อไม่ได้ กำลังลองใหม่...
+          </div>
+        )}
+        <div style={{width:180,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden',marginTop:8}}>
+          <div style={{height:'100%',width:'60%',borderRadius:99,background:'#3B82F6',animation:'rxPulse 1.2s ease-in-out infinite'}} />
+        </div>
+      </div>
+    );
+  }
 
   // ── Login gate ────────────────────────────────────
   if (!currentUser) {
