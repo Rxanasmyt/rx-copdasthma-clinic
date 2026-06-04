@@ -158,6 +158,7 @@
 
   /* ── Spinner ── */
   @keyframes rxSpin { to { transform: rotate(360deg); } }
+  .rx-spin-icon { animation: rxSpin 0.8s linear infinite; }
   .rx-spinner {
     display: inline-block; width: 14px; height: 14px; border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
@@ -822,7 +823,7 @@ function SectionHeader({ title, subtitle, action }) {
 }
 
 // ── EmptyState ────────────────────────────────────────
-function EmptyState({ icon = '📋', title, subtitle }) {
+function EmptyState({ icon = '📋', title, subtitle, action }) {
   return (
     <div className="rx-fade" style={{ textAlign: 'center', padding: '56px 24px', color: C.textMuted }}>
       <div style={{
@@ -832,6 +833,7 @@ function EmptyState({ icon = '📋', title, subtitle }) {
       }}>{icon}</div>
       <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>{title}</p>
       {subtitle && <p style={{ margin: '8px 0 0', fontSize: 13, color: C.textMuted }}>{subtitle}</p>}
+      {action && <div style={{ marginTop: 18, display: 'flex', justifyContent: 'center' }}>{action}</div>}
     </div>
   );
 }
@@ -945,9 +947,9 @@ function Tabs({ tabs, active, onChange }) {
 }
 
 // ── Table ─────────────────────────────────────────────
-function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, onRowClick }) {
+function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, emptyAction, onRowClick }) {
   if (!rows || rows.length === 0) {
-    return <EmptyState icon={emptyIcon || '📋'} title={emptyTitle || 'ไม่มีข้อมูล'} subtitle={emptySubtitle} />;
+    return <EmptyState icon={emptyIcon || '📋'} title={emptyTitle || 'ไม่มีข้อมูล'} subtitle={emptySubtitle} action={emptyAction} />;
   }
   return (
     <div className="rx-scroll-x" style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${C.border}` }}>
@@ -3957,13 +3959,36 @@ function PatientList({ data, onDataChange, navigate }) {
             </Btn>
           )}
         </div>
+        {/* Quick risk filter chips */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          {[
+            { v: '',       label: `ทั้งหมด ${data.patients.length}`, c: C.textMuted },
+            { v: 'High',   label: `🔴 เสี่ยงสูง ${highRiskCount}`,   c: C.high },
+            { v: 'Medium', label: `🟠 ปานกลาง ${mediumRiskCount}`,   c: C.medium },
+            { v: 'Low',    label: `🟢 เสี่ยงต่ำ ${data.patients.filter(p => p.riskLevel === 'Low').length}`, c: C.low },
+          ].map(chip => {
+            const active = filterRisk === chip.v;
+            return (
+              <button key={chip.v} onClick={() => setFilterRisk(chip.v)} style={{
+                padding: '5px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                fontFamily: 'Sarabun, sans-serif', transition: 'all 0.15s',
+                background: active ? chip.c : '#fff',
+                color: active ? '#fff' : chip.c,
+                border: `1.5px solid ${active ? chip.c : C.border}`,
+              }}>{chip.label}</button>
+            );
+          })}
+        </div>
       </Card>
 
       {/* Table */}
       <Card padding={0}>
         <Table cols={cols} rows={filtered}
-          emptyIcon="👤" emptyTitle="ไม่พบผู้ป่วย"
-          emptySubtitle={search ? 'ลองค้นหาด้วยคำอื่น' : 'กดปุ่ม "เพิ่มผู้ป่วย" เพื่อเริ่มต้น'} />
+          emptyIcon="👤" emptyTitle={search || filterDx || filterRisk ? 'ไม่พบผู้ป่วยที่ตรงกับตัวกรอง' : 'ยังไม่มีผู้ป่วยในระบบ'}
+          emptySubtitle={search || filterDx || filterRisk ? 'ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง' : 'เริ่มต้นโดยเพิ่มผู้ป่วยรายแรกของคุณ'}
+          emptyAction={search || filterDx || filterRisk
+            ? <Btn variant="ghost" onClick={() => { setSearch(''); setFilterDx(''); setFilterRisk(''); }}>ล้างตัวกรอง</Btn>
+            : <Btn variant="primary" onClick={() => setAddOpen(true)}>+ เพิ่มผู้ป่วยรายแรก</Btn>} />
       </Card>
 
       {/* CSV Import Modal */}
@@ -4751,6 +4776,24 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     setF(prev => ({ ...prev, riskLevel: risk.level, riskFlags: risk.flags }));
   }, [f.exacerbation, f.adherence, f.inhalerTechnique, patient]);
 
+  // ── ป้องกันข้อมูลหายเมื่อยังไม่บันทึก ──
+  const justSavedRef = useRef(false);
+  const hasUnsaved = () => !justSavedRef.current && (
+    !!f.chiefComplaint || f.medications.length > 0 || f.inhalerTechnique.length > 0 ||
+    (f.adherence?.score > 0) || !!f.soap?.s || !!f.soap?.a || !!f.soap?.p || (f.drp?.items || []).length > 0
+  );
+  vfEffect(() => {
+    const handler = (e) => {
+      if (hasUnsaved()) { e.preventDefault(); e.returnValue = ''; return ''; }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  });
+  const guardedLeave = () => {
+    if (hasUnsaved() && !window.confirm('คุณยังไม่ได้บันทึกข้อมูล Visit นี้ — ต้องการออกจากหน้านี้หรือไม่? (ร่างถูกบันทึกไว้ให้อัตโนมัติ)')) return;
+    navigate('history', patientId);
+  };
+
   // Ctrl+S
   vfEffect(() => {
     const handler = (e) => {
@@ -4841,6 +4884,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       }
     }
     setSaving(true);
+    justSavedRef.current = true; // ปิด guard เพราะกำลังบันทึกจริง
     const risk = AppStore.calculateRisk(patient, f);
     const visit = { ...f, id: isEditing ? editingVisit.id : AppStore.generateId(), riskLevel: risk.level, riskFlags: risk.flags };
 
@@ -5271,7 +5315,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               )}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <Btn variant="ghost" onClick={() => navigate('history', patientId)}>ยกเลิก</Btn>
+              <Btn variant="ghost" onClick={guardedLeave}>ยกเลิก</Btn>
               <Btn variant="primary" size="lg" onClick={() => handleSave(false)} disabled={saving}>
                 {saving ? <><span className="rx-spinner" /> กำลังบันทึก...</> : (isEditing ? '💾 บันทึกการแก้ไข (⌘+S)' : '💾 บันทึกการบริบาล (⌘+S)')}
               </Btn>
@@ -10432,7 +10476,8 @@ function Dashboard({ data, navigate }) {
           <Btn size="sm" variant="ghost" onClick={() => navigate('patients')}>ดูทั้งหมด</Btn>
         </div>
         {recentV.length === 0 ? (
-          <EmptyState icon="📋" title="ยังไม่มีบันทึกการเยี่ยม" subtitle="เริ่มต้นโดยเพิ่มผู้ป่วยและบันทึกการบริบาล" />
+          <EmptyState icon="📋" title="ยังไม่มีบันทึกการเยี่ยม" subtitle="เริ่มต้นโดยเพิ่มผู้ป่วยและบันทึกการบริบาล"
+            action={<Btn variant="primary" onClick={() => navigate('patients')}>👥 ไปที่ทะเบียนผู้ป่วย</Btn>} />
         ) : (
           <div style={{ borderRadius:12, border:`1px solid ${C.border}`, overflow:'hidden' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
@@ -10502,6 +10547,25 @@ function App() {
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
   const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
   const [navOpen,      setNavOpen]      = useState(false);
+  const [appToast,     setAppToast]     = useState(null);   // {msg,type} global toast
+  const [refreshing,   setRefreshing]   = useState(false);
+  const prevSync = useRef('syncing');
+
+  // แจ้งเตือนเมื่อ sync ล้มเหลว (toast ระดับแอพ)
+  useEffect(() => {
+    if (syncStatus === 'error' && prevSync.current !== 'error') {
+      setAppToast({ msg: 'ซิงค์ข้อมูลขึ้น Cloud ไม่สำเร็จ — กำลังลองใหม่อัตโนมัติ', type: 'error' });
+    } else if (syncStatus === 'synced' && prevSync.current === 'error') {
+      setAppToast({ msg: 'เชื่อมต่อ Cloud อีกครั้งสำเร็จ', type: 'success' });
+    }
+    prevSync.current = syncStatus;
+  }, [syncStatus]);
+
+  useEffect(() => {
+    if (!appToast) return;
+    const t = setTimeout(() => setAppToast(null), 3800);
+    return () => clearTimeout(t);
+  }, [appToast]);
 
   // ติดตามขนาดหน้าจอ
   useEffect(() => {
@@ -10635,6 +10699,27 @@ function App() {
   }, []);
 
   const handleLogout = () => { localStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
+
+  // ดึงข้อมูลล่าสุดจาก Firebase ด้วยตนเอง (กดรีเฟรช)
+  const handleRefresh = useCallback(async () => {
+    if (refreshing || !dbRef.current) return;
+    setRefreshing(true);
+    setSyncStatus('syncing');
+    try {
+      const snap = await dbRef.current.collection('clinic').doc('main').get();
+      if (snap.exists) {
+        const d = snap.data();
+        lastRemoteSig.current = dataSig(d);
+        setData(d);
+      }
+      setSyncStatus('synced');
+      setAppToast({ msg: 'ดึงข้อมูลล่าสุดแล้ว', type: 'success' });
+    } catch (e) {
+      setSyncStatus('error');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing]);
 
   // Ctrl+K / Cmd+K to open QuickSearch
   useEffect(() => {
@@ -10798,6 +10883,17 @@ function App() {
               </span>
             )}
 
+            {/* Refresh button — ดึงข้อมูลล่าสุดจาก Cloud */}
+            <button onClick={handleRefresh} disabled={refreshing} aria-label="รีเฟรชข้อมูล" title="ดึงข้อมูลล่าสุดจาก Cloud" style={{
+              width: 36, height: 36, borderRadius: 9, flexShrink: 0,
+              cursor: refreshing ? 'default' : 'pointer',
+              background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary, fontSize: 15,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+            }}>
+              <span className={refreshing ? 'rx-spin-icon' : ''} style={{ display: 'inline-block' }}>🔄</span>
+            </button>
+
             {/* Sync badge */}
             {syncStatus !== 'offline' && !isMobile && (
               <span style={{
@@ -10843,6 +10939,21 @@ function App() {
 
       <QuickSearch data={data} navigate={navigate}
         isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Global toast (sync status / refresh) */}
+      {appToast && (
+        <div onClick={() => setAppToast(null)} style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer',
+          background: appToast.type === 'success' ? C.low : appToast.type === 'warning' ? C.medium : C.high,
+          color: '#fff', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.22)',
+          fontSize: 13, fontWeight: 600, zIndex: 3000, maxWidth: 'calc(100vw - 32px)',
+          animation: 'rxToastIn 0.25s ease both',
+        }}>
+          <span style={{ fontSize: 15 }}>{appToast.type === 'success' ? '✅' : appToast.type === 'warning' ? '⚠️' : '⛔'}</span>
+          <span>{appToast.msg}</span>
+        </div>
+      )}
     </div>
   );
 }
