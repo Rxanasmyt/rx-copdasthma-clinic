@@ -10461,9 +10461,11 @@ function App() {
       // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
       let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
-      // migration: user คนแรกที่ยังไม่มี role → กำหนดเป็น admin อัตโนมัติ
-      if (remote.users && remote.users.length > 0 && !remote.users.some(u => u.role)) {
+      // migration: ถ้าไม่มี admin เลย → user คนแรกในลิสต์เป็น admin อัตโนมัติ
+      if (remote.users && remote.users.length > 0 && !remote.users.some(u => u.role === 'admin')) {
         remote = { ...remote, users: remote.users.map((u, i) => ({ ...u, role: i === 0 ? 'admin' : 'user' })) };
+        // บันทึก migration กลับ Firebase ทันที
+        db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
       }
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
