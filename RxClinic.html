@@ -136,7 +136,25 @@
   @media (max-width: 640px) {
     #main-scroll { padding-left: 0 !important; padding-right: 0 !important; }
     .rx-page-pad { padding-left: 14px !important; padding-right: 14px !important; }
+    /* touch targets ≥44px on mobile */
+    .rx-btn { min-height: 44px; }
+    /* roomier modal/card padding on narrow screens */
+    .rx-modal-card { padding-left: 18px !important; padding-right: 18px !important; }
   }
+
+  /* ── Horizontal scroll affordance for wide tables ── */
+  .rx-scroll-x {
+    position: relative;
+    background:
+      linear-gradient(to right, var(--rx-surface,#fff) 30%, rgba(255,255,255,0)) left center / 28px 100% no-repeat,
+      linear-gradient(to left,  var(--rx-surface,#fff) 30%, rgba(255,255,255,0)) right center / 28px 100% no-repeat,
+      linear-gradient(to right, rgba(15,23,42,0.10), rgba(255,255,255,0)) left center / 14px 100% no-repeat,
+      linear-gradient(to left,  rgba(15,23,42,0.10), rgba(255,255,255,0)) right center / 14px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  /* ── Toast slide-in ── */
+  @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
 </style>
 <!-- React + Babel -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -749,7 +767,7 @@ function Btn({ onClick, children, variant = 'primary', size = 'md', disabled, ty
     },
   };
   return (
-    <button type={type} disabled={disabled} onClick={onClick}
+    <button type={type} disabled={disabled} onClick={onClick} className="rx-btn"
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{ ...base, ...variants[variant], ...extraStyle }}>
       {children}
@@ -910,7 +928,7 @@ function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, onRowClick })
     return <EmptyState icon={emptyIcon || '📋'} title={emptyTitle || 'ไม่มีข้อมูล'} subtitle={emptySubtitle} />;
   }
   return (
-    <div style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${C.border}` }}>
+    <div className="rx-scroll-x" style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${C.border}` }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr>
@@ -2380,7 +2398,8 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
 
   const NBtn = ({ label, onClick, disabled }) => (
     <button onClick={onClick} disabled={disabled} style={{
-      width: 72, height: 72, borderRadius: '50%',
+      width: '100%', aspectRatio: '1 / 1', maxWidth: 72, maxHeight: 72, minHeight: 56, borderRadius: '50%',
+      justifySelf: 'center',
       border: disabled ? '1.5px solid rgba(255,255,255,0.07)' : '1.5px solid rgba(255,255,255,0.18)',
       background: disabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.09)',
       cursor: disabled ? 'default' : 'pointer',
@@ -2439,7 +2458,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
   );
 
   const Numpad = ({ onDigit, onBack, disabled }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,72px)', gap: 10, justifyContent: 'center', marginTop: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, justifyContent: 'center', marginTop: 16, maxWidth: 256, marginLeft: 'auto', marginRight: 'auto' }}>
       {[1,2,3,4,5,6,7,8,9].map(n => <NBtn key={n} label={n} disabled={disabled} onClick={() => onDigit(String(n))} />)}
       <div />
       <NBtn label={0} disabled={disabled} onClick={() => onDigit('0')} />
@@ -5279,11 +5298,16 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       {/* Toast */}
       {showToast && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, padding: '12px 18px',
-          background: showToast.type === 'success' ? C.low : C.high,
-          color: '#fff', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
-          fontSize: 13, fontWeight: 600, zIndex: 500, maxWidth: 380,
-        }}>{showToast.msg}</div>
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 9,
+          background: showToast.type === 'success' ? C.low : showToast.type === 'warning' ? C.medium : C.high,
+          color: '#fff', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.22)',
+          fontSize: 13, fontWeight: 600, zIndex: 2000, maxWidth: 'calc(100vw - 32px)',
+          animation: 'rxToastIn 0.25s ease both',
+        }}>
+          <span style={{ fontSize: 15 }}>{showToast.type === 'success' ? '✅' : showToast.type === 'warning' ? '⚠️' : '⛔'}</span>
+          <span>{showToast.msg}</span>
+        </div>
       )}
 
       {/* Draft Recovery Prompt */}
@@ -6720,7 +6744,7 @@ const QualityKPIsDashboard = ({ data }) => {
       {/* ─── Summary Table ───────────────────── */}
       <Card>
         <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.primary }}>📋 ตารางสรุปตัวชี้วัด</h3>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
@@ -9025,7 +9049,7 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
         )}
       </div>
 
-      <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+      <div className="rx-scroll-x" style={{ overflowX: 'auto', marginBottom: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: '#F8FAFC' }}>
