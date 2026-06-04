@@ -10467,6 +10467,16 @@ function App() {
       }
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
+      // Sync currentUser role from Firebase (localStorage session may have stale/missing role)
+      setCurrentUser(prev => {
+        if (!prev) return prev;
+        const fresh = remote.users?.find(u => u.id === prev.id);
+        if (!fresh) return prev;
+        if (fresh.role === prev.role) return prev;
+        const updated = { ...prev, role: fresh.role };
+        try { localStorage.setItem('copd_user_v1', JSON.stringify(updated)); } catch {}
+        return updated;
+      });
       setFbReady(true);
       setSyncStatus('synced');
 
@@ -10477,6 +10487,14 @@ function App() {
           const d = doc.data();
           lastRemoteSig.current = dataSig(d);
           setData(d);
+          setCurrentUser(prev => {
+            if (!prev) return prev;
+            const fresh = d.users?.find(u => u.id === prev.id);
+            if (!fresh || fresh.role === prev.role) return prev;
+            const updated = { ...prev, role: fresh.role };
+            try { localStorage.setItem('copd_user_v1', JSON.stringify(updated)); } catch {}
+            return updated;
+          });
           setSyncStatus('synced');
         },
         err => {
