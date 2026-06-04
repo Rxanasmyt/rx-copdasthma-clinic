@@ -530,6 +530,12 @@ const AppStore = {
     }
   },
 
+  // เก็บข้อมูลจาก Firebase ลง localStorage โดย "คง" _savedAt เดิมไว้
+  // (ห้ามประทับเวลาใหม่ ไม่งั้นการเทียบ timestamp ครั้งต่อไปจะเพี้ยน → sync ผิด)
+  cacheRemote(data) {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+  },
+
   // Returns the data that is newer based on _savedAt timestamp.
   // If Firebase data is newer → use Firebase; otherwise keep local.
   merge(local, remote) {
@@ -10418,15 +10424,26 @@ function App() {
 
   // Firebase init — merge by timestamp, retry on failure
   const retryRef = useRef(null);
+  const applyingRemote = useRef(false); // กันการเขียนกลับ Firebase ตอนเพิ่งรับข้อมูลมา (echo loop)
 
   // ฟังก์ชัน apply data จาก Firebase → state (ใช้ทั้งใน initial load และ onSnapshot)
   const applyRemoteData = useCallback((remote, db) => {
     const local = AppStore.load();
     // merge patient/visit data by timestamp
     const merged = AppStore.merge(local, remote);
+    const tookRemote = merged === remote; // เลือกข้อมูลจาก Firebase หรือไม่
 
-    setData(merged);
-    AppStore.save(merged);
+    if (tookRemote) {
+      // รับข้อมูลจาก Firebase → อย่าเขียนกลับ (กัน echo loop) และคง _savedAt เดิม
+      applyingRemote.current = true;
+      setData(merged);
+      AppStore.cacheRemote(merged);
+    } else {
+      // ข้อมูลในเครื่องใหม่กว่า (เช่น แก้ตอนออฟไลน์) → ปล่อยให้ persist effect เขียนขึ้น Firebase
+      applyingRemote.current = false;
+      setData(merged);
+      AppStore.save(merged);
+    }
 
     return merged;
   }, []);
@@ -10487,6 +10504,8 @@ function App() {
   const isFirstRender = useRef(true);
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
+    // การเปลี่ยนแปลงนี้มาจาก Firebase (snapshot) → cache ไว้แล้ว ไม่ต้องเขียนกลับ (กัน echo loop / เวลาเพี้ยน)
+    if (applyingRemote.current) { applyingRemote.current = false; return; }
     AppStore.save(data);
     // ห้ามเขียน Firebase จนกว่าจะ sync ครั้งแรกเสร็จ (ป้องกัน sample data เขียนทับข้อมูลจริง)
     if (dbRef.current && firebaseSynced.current) {
