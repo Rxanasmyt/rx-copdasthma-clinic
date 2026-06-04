@@ -2516,16 +2516,25 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
               ))}
             </div>
           )}
-          <button onClick={() => {
-            setSelUser(null); setRegPfx('ภก.'); setRegName(''); setRegUname('');
-            setRegPin(''); setRegConf(''); setRegStep(1); setRegPinStep('new'); setRegErr('');
-            setMode('register');
-          }} style={{
-            width: '100%', padding: '11px', borderRadius: 12,
-            border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)',
-            color: 'rgba(147,197,253,0.85)', fontFamily: 'Sarabun, sans-serif',
-            fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}>+ สมัครสมาชิกใหม่</button>
+          {users.length === 0 ? (
+            <button onClick={() => {
+              setSelUser(null); setRegPfx('ภก.'); setRegName(''); setRegUname('');
+              setRegPin(''); setRegConf(''); setRegStep(1); setRegPinStep('new'); setRegErr('');
+              setMode('register');
+            }} style={{
+              width: '100%', padding: '11px', borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)',
+              color: 'rgba(147,197,253,0.85)', fontFamily: 'Sarabun, sans-serif',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>+ สร้างบัญชีผู้ดูแลคนแรก</button>
+          ) : (
+            <div style={{
+              textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.4)',
+              padding: '10px 8px 2px', lineHeight: 1.7,
+            }}>
+              🔒 การเพิ่มผู้ใช้ใหม่ต้องทำในแอพ (ตั้งค่า → จัดการผู้ใช้)<br/>โดยผู้ดูแลระบบเท่านั้น
+            </div>
+          )}
         </div>
     );
   }
@@ -2703,6 +2712,26 @@ function UserManager({ data, onDataChange, currentUser }) {
   const [newCode,   setNewCode]   = stState('');
   const [codeMsg,   setCodeMsg]   = stState('');
 
+  // ── Admin gate ──────────────────────────────────────
+  const adminCode = (data && data.adminCode) || '';
+  const [unlocked,   setUnlocked]   = stState(false);
+  const [adminInput, setAdminInput] = stState('');
+  const [adminErr,   setAdminErr]   = stState('');
+  const [acEdit,     setAcEdit]     = stState(false);
+  const [acNew,      setAcNew]      = stState('');
+  const [acMsg,      setAcMsg]      = stState('');
+
+  const handleVerifyAdmin = () => {
+    if (adminInput === adminCode) { setUnlocked(true); setAdminInput(''); setAdminErr(''); }
+    else { setAdminErr('รหัสผู้ดูแลไม่ถูกต้อง'); setAdminInput(''); }
+  };
+  const handleSaveAdminCode = () => {
+    const c = acNew.replace(/\D/g, '');
+    if (c.length < 4 || c.length > 8) { setAcMsg('รหัสต้องเป็นตัวเลข 4–8 หลัก'); return; }
+    onDataChange({ ...data, adminCode: c });
+    setAcEdit(false); setAcNew(''); setAcMsg(''); setUnlocked(true);
+  };
+
   const handleAdd = () => {
     if (!newNm.trim() || !newUname.trim() || newPin.length !== 4) {
       setMsg('กรุณากรอกข้อมูลให้ครบและ PIN 4 หลัก'); return;
@@ -2728,8 +2757,74 @@ function UserManager({ data, onDataChange, currentUser }) {
     setCodeEdit(false); setNewCode(''); setCodeMsg('');
   };
 
+  // ── Lock screen: ต้องใส่รหัสผู้ดูแลก่อนจัดการผู้ใช้ ──
+  if (adminCode && !unlocked) {
+    return (
+      <div style={{ maxWidth: 420, margin: '24px auto' }}>
+        <Card>
+          <div style={{ textAlign: 'center', padding: '8px 4px' }}>
+            <div style={{ fontSize: 44, marginBottom: 10 }}>🔐</div>
+            <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.primary }}>เฉพาะผู้ดูแลระบบ</h4>
+            <p style={{ margin: '0 0 18px', fontSize: 12.5, color: C.textMuted }}>
+              กรอกรหัสผู้ดูแลเพื่อจัดการผู้ใช้งาน
+            </p>
+            <input type="password" value={adminInput} autoFocus
+              onChange={e => { setAdminInput(e.target.value.replace(/\D/g,'').slice(0,8)); setAdminErr(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleVerifyAdmin(); }}
+              placeholder="รหัสผู้ดูแล" maxLength={8} style={{
+                width: '100%', padding: '11px 14px', borderRadius: 10, border: `1.5px solid ${adminErr ? C.high : C.border}`,
+                fontFamily: 'Sarabun, sans-serif', fontSize: 18, textAlign: 'center', letterSpacing: 10,
+                boxSizing: 'border-box', marginBottom: 10,
+              }} />
+            {adminErr && <p style={{ color: C.high, fontSize: 12.5, margin: '0 0 10px', fontWeight: 600 }}>{adminErr}</p>}
+            <Btn variant="primary" onClick={handleVerifyAdmin} style={{ width: '100%', justifyContent: 'center' }}>ปลดล็อก</Btn>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Admin Code */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🛡️ รหัสผู้ดูแลระบบ (Admin)</h4>
+            <p style={{ margin: '3px 0 0', fontSize: 11, color: C.textMuted }}>
+              ป้องกันการเพิ่ม/ลบ/รีเซ็ตผู้ใช้ · ตัวเลข 4–8 หลัก
+            </p>
+          </div>
+          <Btn size="sm" variant={adminCode ? 'ghost' : 'primary'} onClick={() => { setAcEdit(!acEdit); setAcNew(''); setAcMsg(''); }}>
+            {adminCode ? 'เปลี่ยน' : 'ตั้งรหัส'}
+          </Btn>
+        </div>
+        <div style={{
+          padding: '10px 14px', borderRadius: 8,
+          background: adminCode ? '#F0FDF4' : '#FEF2F2',
+          border: `1px solid ${adminCode ? '#A7F3D0' : '#FECACA'}`,
+          fontSize: 13, fontWeight: 600,
+          color: adminCode ? '#059669' : '#DC2626',
+        }}>
+          {adminCode ? `🔒 ตั้งรหัสผู้ดูแลแล้ว (${adminCode.length} หลัก)` : '🔓 ยังไม่ได้ตั้งรหัสผู้ดูแล — ใครก็เพิ่ม/ลบผู้ใช้ได้'}
+        </div>
+        {acEdit && (
+          <div style={{ marginTop: 10 }}>
+            <input value={acNew} onChange={e => { setAcNew(e.target.value.replace(/\D/g,'').slice(0,8)); setAcMsg(''); }}
+              placeholder="รหัสผู้ดูแลใหม่ 4–8 หลัก" maxLength={8} type="password" style={{
+                width: '100%', padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`,
+                fontFamily: 'Sarabun, sans-serif', fontSize: 16, textAlign: 'center', letterSpacing: 10,
+                boxSizing: 'border-box', marginBottom: 8,
+              }} />
+            {acMsg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{acMsg}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn size="sm" variant="primary" onClick={handleSaveAdminCode}>บันทึก</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => { setAcEdit(false); setAcMsg(''); }}>ยกเลิก</Btn>
+            </div>
+          </div>
+        )}
+      </Card>
+
       {/* Clinic Access Code */}
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
