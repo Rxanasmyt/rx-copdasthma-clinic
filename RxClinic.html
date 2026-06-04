@@ -10,13 +10,53 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body, #root { height: 100%; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #1A1F36; background: #F0F4F8; -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #0F172A; background: #F1F5F9; -webkit-font-smoothing: antialiased; }
   input, select, textarea, button { font-family: 'Sarabun', sans-serif; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+  /* Date pickers */
   input[type=date]::-webkit-calendar-picker-indicator,
   input[type=month]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
+
+  /* Focus ring — inputs */
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #2563EB !important;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.14) !important;
+  }
+
+  /* Animations */
+  @keyframes rxFadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes rxSlideIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes rxPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+  .rx-fade    { animation: rxFadeUp  0.22s ease both; }
+  .rx-slide   { animation: rxSlideIn 0.22s ease both; }
+  .rx-pulse   { animation: rxPulse   1.5s  ease infinite; }
+
+  /* Hover lift for cards */
+  .rx-card-hover { transition: box-shadow 0.2s, transform 0.2s; }
+  .rx-card-hover:hover { box-shadow: 0 8px 28px rgba(15,23,42,0.12) !important; transform: translateY(-1px); }
+
+  /* Smooth transitions */
+  button { transition: all 0.15s ease; }
+  a { transition: color 0.15s; }
+
+  /* Table row hover */
+  tr.rx-row:hover td { background: #F8FAFC; }
 </style>
 <!-- React + Babel -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -432,9 +472,11 @@ const C = {
   high: '#DC2626', highBg: '#FEF2F2', highBorder: '#FECACA',
   medium: '#D97706', mediumBg: '#FFFBEB', mediumBorder: '#FDE68A',
   low: '#059669', lowBg: '#F0FDF4', lowBorder: '#A7F3D0',
-  primary: '#0F2D5E', primaryLight: '#1848A0', accent: '#0EA5C9',
-  text: '#1A1F36', textMuted: '#64748B',
-  border: '#DDE3EC', surface: '#FFFFFF', bg: '#F0F4F8',
+  primary: '#1E3A8A', primaryLight: '#2563EB', primaryDark: '#1E40AF',
+  accent: '#0891B2', accentLight: '#06B6D4',
+  text: '#0F172A', textMuted: '#64748B', textLight: '#94A3B8',
+  border: '#E2E8F0', borderLight: '#F8FAFC',
+  surface: '#FFFFFF', bg: '#F1F5F9', bgAlt: '#F8FAFC',
 };
 
 // ── RiskBadge ─────────────────────────────────────────
@@ -535,23 +577,25 @@ function Modal({ open, onClose, title, children, width = 640 }) {
   if (!open) return null;
   return (
     <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(11,29,69,0.45)',
-      zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 16,
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+      backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+      zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: C.surface, borderRadius: 12, width: '100%', maxWidth: width,
-        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 20px 60px rgba(11,29,69,0.25)',
+      <div onClick={e => e.stopPropagation()} className="rx-fade" style={{
+        background: C.surface, borderRadius: 18, width: '100%', maxWidth: width,
+        maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 24px 64px rgba(15,23,42,0.3), 0 4px 16px rgba(15,23,42,0.15)',
+        border: `1px solid ${C.border}`,
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '18px 24px', borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         }}>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.primary }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: C.primary }}>{title}</h2>
           <button onClick={onClose} style={{
-            background: 'none', border: 'none', cursor: 'pointer', fontSize: 20,
-            color: C.textMuted, padding: '0 4px', lineHeight: 1,
+            width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.border}`,
+            background: C.bgAlt, cursor: 'pointer', fontSize: 16, color: C.textMuted,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>✕</button>
         </div>
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
@@ -580,18 +624,35 @@ function Btn({ onClick, children, variant = 'primary', size = 'md', disabled, ty
   const [hov, setHov] = useState(false);
   const base = {
     display: 'inline-flex', alignItems: 'center', gap: 6,
-    borderRadius: 8, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
-    border: 'none', fontFamily: 'inherit', transition: 'all 0.15s',
-    opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap',
+    borderRadius: 10, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+    border: 'none', fontFamily: 'inherit', transition: 'all 0.15s ease',
+    opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', letterSpacing: '0.01em',
     fontSize: size === 'sm' ? 12 : size === 'lg' ? 15 : 13,
-    padding: size === 'sm' ? '5px 12px' : size === 'lg' ? '11px 22px' : '8px 16px',
+    padding: size === 'sm' ? '5px 14px' : size === 'lg' ? '12px 26px' : '8px 18px',
+    transform: hov && !disabled ? 'translateY(-1px)' : 'translateY(0)',
   };
   const variants = {
-    primary: { background: hov ? C.primaryLight : C.primary, color: '#fff' },
-    accent:  { background: hov ? '#0284A8' : C.accent, color: '#fff' },
-    ghost:   { background: hov ? '#F1F5F9' : 'transparent', color: C.text, border: `1px solid ${C.border}` },
-    danger:  { background: hov ? '#B91C1C' : C.high, color: '#fff' },
-    success: { background: hov ? '#047857' : C.low, color: '#fff' },
+    primary: {
+      background: hov ? 'linear-gradient(135deg,#1D4ED8 0%,#2563EB 100%)' : 'linear-gradient(135deg,#1E40AF 0%,#2563EB 100%)',
+      color: '#fff', boxShadow: hov ? '0 4px 14px rgba(37,99,235,0.45)' : '0 2px 8px rgba(37,99,235,0.3)',
+    },
+    accent: {
+      background: hov ? 'linear-gradient(135deg,#0369A1 0%,#0891B2 100%)' : 'linear-gradient(135deg,#0284C7 0%,#06B6D4 100%)',
+      color: '#fff', boxShadow: hov ? '0 4px 14px rgba(6,182,212,0.4)' : '0 2px 8px rgba(6,182,212,0.25)',
+    },
+    ghost: {
+      background: hov ? '#F1F5F9' : '#FFFFFF', color: C.text,
+      border: `1px solid ${hov ? '#CBD5E1' : C.border}`,
+      boxShadow: hov ? '0 2px 6px rgba(15,23,42,0.08)' : 'none',
+    },
+    danger: {
+      background: hov ? 'linear-gradient(135deg,#B91C1C 0%,#DC2626 100%)' : 'linear-gradient(135deg,#DC2626 0%,#EF4444 100%)',
+      color: '#fff', boxShadow: hov ? '0 4px 14px rgba(220,38,38,0.4)' : '0 2px 8px rgba(220,38,38,0.2)',
+    },
+    success: {
+      background: hov ? 'linear-gradient(135deg,#047857 0%,#059669 100%)' : 'linear-gradient(135deg,#059669 0%,#10B981 100%)',
+      color: '#fff', boxShadow: hov ? '0 4px 14px rgba(5,150,105,0.4)' : '0 2px 8px rgba(5,150,105,0.2)',
+    },
   };
   return (
     <button type={type} disabled={disabled} onClick={onClick}
@@ -603,11 +664,11 @@ function Btn({ onClick, children, variant = 'primary', size = 'md', disabled, ty
 }
 
 // ── Card ──────────────────────────────────────────────
-function Card({ children, style: extra, padding = 20 }) {
+function Card({ children, style: extra, padding = 20, hover = false }) {
   return (
-    <div style={{
-      background: C.surface, borderRadius: 10, padding,
-      boxShadow: '0 1px 3px rgba(15,45,94,0.08), 0 1px 2px rgba(15,45,94,0.04)',
+    <div className={hover ? 'rx-card-hover' : ''} style={{
+      background: C.surface, borderRadius: 14, padding,
+      boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.06)',
       border: `1px solid ${C.border}`, ...extra,
     }}>{children}</div>
   );
@@ -629,10 +690,14 @@ function SectionHeader({ title, subtitle, action }) {
 // ── EmptyState ────────────────────────────────────────
 function EmptyState({ icon = '📋', title, subtitle }) {
   return (
-    <div style={{ textAlign: 'center', padding: '60px 24px', color: C.textMuted }}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
-      <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.text }}>{title}</p>
-      {subtitle && <p style={{ margin: '8px 0 0', fontSize: 13 }}>{subtitle}</p>}
+    <div className="rx-fade" style={{ textAlign: 'center', padding: '56px 24px', color: C.textMuted }}>
+      <div style={{
+        width: 72, height: 72, borderRadius: '50%', margin: '0 auto 18px',
+        background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34,
+      }}>{icon}</div>
+      <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text }}>{title}</p>
+      {subtitle && <p style={{ margin: '8px 0 0', fontSize: 13, color: C.textMuted }}>{subtitle}</p>}
     </div>
   );
 }
@@ -659,9 +724,10 @@ function Input({ value, onChange, placeholder, type = 'text', style: extra, disa
     <input type={type} value={value || ''} onChange={e => onChange(e.target.value)}
       placeholder={placeholder} disabled={disabled}
       style={{
-        width: '100%', padding: '8px 12px', borderRadius: 7, fontSize: 13,
-        border: `1px solid ${C.border}`, background: disabled ? '#F8FAFC' : C.surface,
-        color: C.text, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+        width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
+        border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
+        color: C.text, fontFamily: 'inherit', boxSizing: 'border-box',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
         ...extra,
       }} />
   );
@@ -672,10 +738,11 @@ function Select({ value, onChange, options, placeholder, style: extra, disabled 
   return (
     <select value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled}
       style={{
-        width: '100%', padding: '8px 12px', borderRadius: 7, fontSize: 13,
-        border: `1px solid ${C.border}`, background: disabled ? '#F8FAFC' : C.surface,
-        color: value ? C.text : C.textMuted, outline: 'none', fontFamily: 'inherit',
-        boxSizing: 'border-box', ...extra,
+        width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
+        border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
+        color: value ? C.text : C.textMuted, fontFamily: 'inherit',
+        boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s',
+        ...extra,
       }}>
       {placeholder && <option value="">{placeholder}</option>}
       {options.map((o, i) => (
@@ -693,10 +760,10 @@ function Textarea({ value, onChange, placeholder, rows = 3 }) {
     <textarea value={value || ''} onChange={e => onChange(e.target.value)}
       placeholder={placeholder} rows={rows}
       style={{
-        width: '100%', padding: '8px 12px', borderRadius: 7, fontSize: 13,
-        border: `1px solid ${C.border}`, background: C.surface, color: C.text,
-        outline: 'none', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box',
-        lineHeight: 1.6,
+        width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
+        border: `1.5px solid ${C.border}`, background: C.surface, color: C.text,
+        fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.65,
+        transition: 'border-color 0.15s, box-shadow 0.15s',
       }} />
   );
 }
@@ -728,14 +795,15 @@ function CheckboxGroup({ options, selected, onChange, cols = 2 }) {
 // ── Tabs ─────────────────────────────────────────────
 function Tabs({ tabs, active, onChange }) {
   return (
-    <div style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
+    <div style={{ display: 'flex', gap: 4, padding: '4px', background: C.bgAlt, borderRadius: 12, marginBottom: 20, width: 'fit-content' }}>
       {tabs.map(t => (
         <button key={t.id} onClick={() => onChange(t.id)} style={{
-          padding: '10px 18px', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-          fontSize: 13, fontWeight: 600, background: 'none',
+          padding: '8px 18px', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 13, fontWeight: active === t.id ? 700 : 500, borderRadius: 9,
+          background: active === t.id ? C.surface : 'transparent',
           color: active === t.id ? C.primary : C.textMuted,
-          borderBottom: active === t.id ? `2px solid ${C.primary}` : '2px solid transparent',
-          transition: 'all 0.15s', marginBottom: -1,
+          boxShadow: active === t.id ? '0 1px 4px rgba(15,23,42,0.1)' : 'none',
+          transition: 'all 0.18s',
         }}>{t.label}</button>
       ))}
     </div>
@@ -743,21 +811,21 @@ function Tabs({ tabs, active, onChange }) {
 }
 
 // ── Table ─────────────────────────────────────────────
-function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle }) {
+function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, onRowClick }) {
   if (!rows || rows.length === 0) {
     return <EmptyState icon={emptyIcon || '📋'} title={emptyTitle || 'ไม่มีข้อมูล'} subtitle={emptySubtitle} />;
   }
   return (
-    <div style={{ overflowX: 'auto' }}>
+    <div style={{ overflowX: 'auto', borderRadius: 10, border: `1px solid ${C.border}` }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr>
             {cols.map((c, i) => (
               <th key={i} style={{
-                textAlign: c.align || 'left', padding: '10px 14px',
-                background: '#F8FAFC', borderBottom: `1px solid ${C.border}`,
-                color: C.textMuted, fontWeight: 600, fontSize: 11,
-                textTransform: 'uppercase', letterSpacing: '0.05em',
+                textAlign: c.align || 'left', padding: '10px 16px',
+                background: C.bgAlt, borderBottom: `1px solid ${C.border}`,
+                color: C.textMuted, fontWeight: 700, fontSize: 11,
+                textTransform: 'uppercase', letterSpacing: '0.06em',
                 whiteSpace: 'nowrap', width: c.width,
               }}>{c.label}</th>
             ))}
@@ -765,12 +833,13 @@ function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle }) {
         </thead>
         <tbody>
           {rows.map((row, ri) => (
-            <tr key={ri} style={{ borderBottom: `1px solid ${C.border}` }}
+            <tr key={ri} style={{ borderBottom: ri < rows.length-1 ? `1px solid ${C.border}` : 'none', cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.12s' }}
+              onClick={() => onRowClick && onRowClick(row)}
               onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               {cols.map((c, ci) => (
                 <td key={ci} style={{
-                  padding: '11px 14px', color: C.text, textAlign: c.align || 'left',
+                  padding: '12px 16px', color: C.text, textAlign: c.align || 'left',
                   verticalAlign: 'middle',
                 }}>
                   {c.render ? c.render(row) : row[c.key] ?? '—'}
@@ -798,21 +867,29 @@ function PageHeader({ title, subtitle, action }) {
 }
 
 // ── StatCard ──────────────────────────────────────────
-function StatCard({ label, value, sub, color, icon }) {
+function StatCard({ label, value, sub, color, icon, gradient }) {
+  const col = color || C.primary;
+  const grad = gradient || `linear-gradient(135deg, ${col}22 0%, ${col}10 100%)`;
   return (
-    <Card style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px' }}>
+    <div className="rx-card-hover" style={{
+      background: C.surface, borderRadius: 14, padding: '18px 20px',
+      boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.06)',
+      border: `1px solid ${C.border}`,
+      display: 'flex', alignItems: 'center', gap: 16,
+      borderLeft: `4px solid ${col}`,
+    }}>
       {icon && (
         <div style={{
-          width: 46, height: 46, borderRadius: 12, background: color ? `${color}18` : '#EFF6FF',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0,
+          width: 50, height: 50, borderRadius: 14, background: grad,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0,
         }}>{icon}</div>
       )}
-      <div>
-        <div style={{ fontSize: 26, fontWeight: 800, color: color || C.primary, lineHeight: 1.1 }}>{value}</div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, marginTop: 3 }}>{label}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: col, lineHeight: 1.1 }}>{value}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 3 }}>{label}</div>
         {sub && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{sub}</div>}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -9422,82 +9499,120 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
   const pending  = data.telepharmacy.filter(t => t.status === 'Pending').length;
   const badges   = { risk: highRisk, telepharmacy: pending };
 
-  const syncDot = { synced: '#4ADE80', syncing: '#60A5FA', error: '#F87171', offline: '#94A3B8' }[syncStatus] || '#94A3B8';
+  const syncCfg = {
+    synced:  { dot: '#4ADE80', label: 'ซิงค์แล้ว' },
+    syncing: { dot: '#60A5FA', label: 'กำลังซิงค์...' },
+    error:   { dot: '#F87171', label: 'ซิงค์ผิดพลาด' },
+    offline: { dot: '#94A3B8', label: 'Local Storage' },
+  }[syncStatus] || { dot: '#94A3B8', label: 'ออฟไลน์' };
+
+  // Nav groups
+  const mainNav  = NAV.slice(0, 6);
+  const extraNav = NAV.slice(6);
+
+  const NavBtn = ({ n }) => {
+    const active = view === n.id
+      || (view === 'visit-form'       && n.id === 'patients')
+      || (view === 'telepharmacy-add' && n.id === 'telepharmacy');
+    const badge = badges[n.id];
+    return (
+      <button onClick={() => navigate(n.id)} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+        padding: '9px 12px 9px 14px', borderRadius: 10, border: 'none',
+        cursor: 'pointer', textAlign: 'left', marginBottom: 1,
+        background: active ? 'rgba(255,255,255,0.12)' : 'transparent',
+        borderLeft: active ? '3px solid #60A5FA' : '3px solid transparent',
+        transition: 'all 0.15s',
+      }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderLeftColor = 'rgba(96,165,250,0.4)'; }}}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; }}}>
+        <span style={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.75 }}>{n.icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? '#FFFFFF' : '#A8C5DA', lineHeight: 1.3 }}>{n.label}</div>
+          <div style={{ fontSize: 10, color: active ? '#93C5FD' : '#4A6480', marginTop: 1 }}>{n.sub}</div>
+        </div>
+        {badge > 0 && (
+          <span style={{
+            background: n.id === 'risk' ? '#EF4444' : '#06B6D4',
+            color: '#fff', fontSize: 10, fontWeight: 700,
+            padding: '2px 8px', borderRadius: 20, flexShrink: 0,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+          }}>{badge}</span>
+        )}
+      </button>
+    );
+  };
 
   return (
     <aside style={{
-      width: 232, background: '#0B1D45', display: 'flex', flexDirection: 'column',
-      flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
+      width: 236, flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
+      display: 'flex', flexDirection: 'column',
+      background: 'linear-gradient(180deg, #0D1F4E 0%, #0B1D45 40%, #091535 100%)',
+      borderRight: '1px solid rgba(255,255,255,0.07)',
     }}>
       {/* Logo */}
-      <div style={{ padding: '18px 16px 14px', borderBottom: '1px solid #1A3060' }}>
+      <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#0EA5C9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🫁</div>
+          <div style={{
+            width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+            background: 'linear-gradient(135deg,#0284C7,#06B6D4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+            boxShadow: '0 4px 14px rgba(6,182,212,0.4)',
+          }}>🫁</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2 }}>Rx-COPD/Asthma</div>
-            <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 1 }}>Pharmaceutical Care</div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2, letterSpacing: '-0.2px' }}>Rx-COPD/Asthma</div>
+            <div style={{ fontSize: 10, color: 'rgba(148,163,184,0.8)', marginTop: 1 }}>Pharmaceutical Care</div>
           </div>
         </div>
       </div>
 
-      {/* Current user chip */}
+      {/* User chip */}
       {currentUser && (
-        <div style={{ margin: '10px 10px 0', padding: '8px 10px', background: 'rgba(255,255,255,0.06)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1848A0', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-            {currentUser.name.charAt(0)}
-          </div>
+        <div style={{ margin: '10px 10px 0', padding: '10px 12px', background: 'rgba(255,255,255,0.07)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.09)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+            background: 'linear-gradient(135deg,#1E40AF,#2563EB)',
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, fontWeight: 700,
+            boxShadow: '0 3px 10px rgba(37,99,235,0.45)',
+          }}>{currentUser.name.charAt(0)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentUser.prefix}{currentUser.name}
             </div>
-            <div style={{ fontSize: 9, color: '#4A6480', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: syncDot }} />
-              {syncStatus === 'synced' ? 'ซิงค์แล้ว' : syncStatus === 'syncing' ? 'กำลังซิงค์' : syncStatus === 'error' ? 'ซิงค์ผิดพลาด' : 'Local Storage'}
+            <div style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, color: '#4A6480' }}>
+              <div className={syncStatus === 'syncing' ? 'rx-pulse' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: syncCfg.dot, flexShrink: 0 }} />
+              <span>{syncCfg.label}</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Nav */}
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px' }}>
-        {NAV.map(n => {
-          const active = view === n.id
-            || (view === 'visit-form' && n.id === 'patients')
-            || (view === 'telepharmacy-add' && n.id === 'telepharmacy');
-          const badge = badges[n.id];
-          return (
-            <button key={n.id} onClick={() => navigate(n.id)} style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
-              borderRadius: 8, border: 'none', cursor: 'pointer', textAlign: 'left',
-              background: active ? '#1848A0' : 'transparent',
-              transition: 'background 0.15s', marginBottom: 2,
-            }}
-            onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#162B5E'; }}
-            onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
-              <span style={{ fontSize: 16, flexShrink: 0 }}>{n.icon}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: active ? 700 : 500, color: active ? '#FFFFFF' : '#A8C5DA', lineHeight: 1.2 }}>{n.label}</div>
-                <div style={{ fontSize: 10, color: active ? '#93C5FD' : '#4A6480', marginTop: 1 }}>{n.sub}</div>
-              </div>
-              {badge > 0 && (
-                <span style={{ background: n.id === 'risk' ? '#DC2626' : '#0EA5C9', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 20, flexShrink: 0 }}>{badge}</span>
-              )}
-            </button>
-          );
-        })}
+      {/* Nav main */}
+      <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px 4px' }}>
+        {mainNav.map(n => <NavBtn key={n.id} n={n} />)}
+
+        <div style={{ margin: '10px 12px 6px', fontSize: 10, fontWeight: 700, color: '#2D4A6E', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          เครื่องมือเพิ่มเติม
+        </div>
+        {extraNav.map(n => <NavBtn key={n.id} n={n} />)}
       </nav>
 
-      {/* Footer */}
-      <div style={{ padding: '10px 14px', borderTop: '1px solid #1A3060' }}>
-        <div style={{ fontSize: 10, color: '#4A6480', lineHeight: 1.7 }}>
-          <div>ผู้ป่วยทั้งหมด: <span style={{ color: '#A8C5DA', fontWeight: 600 }}>{data.patients.length} ราย</span></div>
-          <div>High Risk: <span style={{ color: '#FCA5A5', fontWeight: 600 }}>{highRisk} ราย</span></div>
+      {/* Footer stats */}
+      <div style={{ padding: '10px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '7px 10px' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#93C5FD' }}>{data.patients.length}</div>
+            <div style={{ fontSize: 9, color: '#4A6480', marginTop: 1 }}>ผู้ป่วยทั้งหมด</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(239,68,68,0.1)', borderRadius: 8, padding: '7px 10px', border: highRisk > 0 ? '1px solid rgba(239,68,68,0.2)' : 'none' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#FCA5A5' }}>{highRisk}</div>
+            <div style={{ fontSize: 9, color: '#4A6480', marginTop: 1 }}>High Risk</div>
+          </div>
         </div>
-        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #1A3060', fontSize: 9, color: '#6B8AAF', lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 700, color: '#93C5FD' }}>จัดทำโดย</div>
-          <div>ภก.อนัส มะยีแต</div>
-          <div style={{ opacity: 0.85 }}>ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค</div>
-          <div style={{ opacity: 0.85 }}>โรงพยาบาลกรงปินัง</div>
+        <div style={{ fontSize: 9, color: '#2D4A6E', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, color: 'rgba(147,197,253,0.6)', marginBottom: 1 }}>จัดทำโดย</div>
+          <div style={{ color: '#6B8AAF' }}>ภก.อนัส มะยีแต · โรงพยาบาลกรงปินัง</div>
         </div>
       </div>
     </aside>
@@ -9545,10 +9660,22 @@ function Dashboard({ data, navigate }) {
   const today    = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 
   return (
-    <div>
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ margin: 0, fontSize: 21, fontWeight: 800, color: C.primary }}>สวัสดี 👋 ยินดีต้อนรับสู่ Rx-COPD/Asthma Clinic</h1>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: C.textMuted }}>{today}</p>
+    <div className="rx-fade">
+      {/* Welcome banner */}
+      <div style={{
+        background: 'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 50%,#2563EB 100%)',
+        borderRadius: 18, padding: '20px 28px', marginBottom: 22,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        boxShadow: '0 8px 32px rgba(37,99,235,0.35)',
+        color: '#fff', overflow: 'hidden', position: 'relative',
+      }}>
+        <div style={{ position: 'absolute', right: -20, top: -20, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
+        <div style={{ position: 'absolute', right: 60, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
+        <div style={{ position: 'relative' }}>
+          <h1 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 800, color: '#fff' }}>สวัสดี 👋 ยินดีต้อนรับ</h1>
+          <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>{today}</p>
+        </div>
+        <div style={{ position: 'relative', fontSize: 52, opacity: 0.9 }}>🫁</div>
       </div>
 
       {/* "วันคลินิกวันนี้" Section */}
@@ -9624,10 +9751,10 @@ function Dashboard({ data, navigate }) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 22 }}>
-        <StatCard label="ผู้ป่วยทั้งหมด" value={pts.length}              icon="👥" />
-        <StatCard label="High Risk"       value={highRisk.length} color={C.high}  icon="🔴" sub="ต้องติดตามด่วน" />
-        <StatCard label="รอ Telepharmacy" value={pending.length}  color="#0369A1" icon="📞" sub="Pending calls" />
-        <StatCard label="บันทึกทั้งหมด"  value={vis.length}      color="#7C3AED" icon="📋" sub="Visit records" />
+        <StatCard label="ผู้ป่วยทั้งหมด" value={pts.length}              icon="👥" color={C.primary} />
+        <StatCard label="High Risk"       value={highRisk.length} color="#DC2626"  icon="🔴" sub="ต้องติดตามด่วน" />
+        <StatCard label="รอ Telepharmacy" value={pending.length}  color="#0891B2"  icon="📞" sub="Pending calls" />
+        <StatCard label="บันทึกทั้งหมด"  value={vis.length}      color="#7C3AED"  icon="📋" sub="Visit records" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -9968,66 +10095,77 @@ function App() {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} />
 
-      <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: '#F0F4F8' }}>
+      <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
         {/* Top bar */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 100,
-          background: 'rgba(240,244,248,0.94)', backdropFilter: 'blur(8px)',
+          background: 'rgba(241,245,249,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
           borderBottom: `1px solid ${C.border}`, padding: '0 28px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 52,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 54,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 13, color: C.textMuted }}>{NAV.find(n=>n.id===view)?.icon || '📄'}</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: C.primary }}>{crumb}</span>
+          {/* Breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: 'linear-gradient(135deg,#1E40AF,#2563EB)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+              boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+            }}>{NAV.find(n=>n.id===view)?.icon || '📄'}</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.primary, lineHeight: 1.2 }}>{crumb}</div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>{NAV.find(n=>n.id===view)?.sub || ''}</div>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Search */}
             <button onClick={() => setSearchOpen(true)} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '5px 10px 5px 12px', borderRadius: 7,
-              background: '#fff', border: `1px solid ${C.border}`,
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 14px',
+              borderRadius: 10, background: C.surface, border: `1.5px solid ${C.border}`,
               cursor: 'pointer', fontFamily: 'Sarabun, sans-serif',
-              fontSize: 12, color: C.textMuted, transition: 'all 0.15s', minWidth: 240,
+              fontSize: 12, color: C.textMuted, transition: 'all 0.15s', minWidth: 220,
+              boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background='#F0F9FF'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background='#fff'; }}>
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#2563EB'; e.currentTarget.style.boxShadow='0 0 0 3px rgba(37,99,235,0.12)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow='0 1px 3px rgba(15,23,42,0.06)'; }}>
               <span>🔍</span>
               <span style={{ flex: 1, textAlign: 'left' }}>ค้นหา HN / ชื่อผู้ป่วย...</span>
-              <span style={{
-                fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                background: '#F1F5F9', color: C.textMuted, fontFamily: 'monospace',
-              }}>⌘K</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: C.bgAlt, color: C.textMuted, fontFamily: 'monospace', border: `1px solid ${C.border}` }}>⌘K</span>
             </button>
+
+            {/* Offline badge */}
             {!isOnline && (
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                background: C.mediumBg, color: C.medium, border: `1px solid ${C.mediumBorder}`,
-              }}>⚫ ออฟไลน์ — บันทึกไว้ในเครื่อง</span>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: C.mediumBg, color: C.medium, border: `1px solid ${C.mediumBorder}` }}>
+                ⚫ ออฟไลน์
+              </span>
             )}
+
+            {/* Sync badge */}
             {syncStatus !== 'offline' && (
               <span style={{
-                fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
                 background: syncStatus==='synced'?C.lowBg : syncStatus==='syncing'?'#EFF6FF':C.highBg,
                 color:      syncStatus==='synced'?C.low   : syncStatus==='syncing'?'#0369A1':C.high,
+                border: `1px solid ${syncStatus==='synced'?C.lowBorder : syncStatus==='syncing'?'#BFDBFE':C.highBorder}`,
               }}>
                 {syncStatus==='synced'?'☁ ซิงค์แล้ว':syncStatus==='syncing'?'🔄 กำลังซิงค์...':'⚠ ซิงค์ผิดพลาด'}
               </span>
             )}
-            <span style={{ fontSize: 12, color: C.textMuted }}>
-              {new Date().toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'})}
-            </span>
-            <div style={{ display:'flex', alignItems:'center', gap:7, padding:'4px 12px 4px 6px', borderRadius:20, background:'#EFF6FF', border:'1px solid #BFDBFE' }}>
-              <div style={{ width:26,height:26,borderRadius:'50%',background:C.primary,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700 }}>
+
+            {/* User + logout */}
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 14px 5px 6px', borderRadius:24, background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border:'1px solid #BFDBFE', boxShadow:'0 1px 3px rgba(37,99,235,0.1)' }}>
+              <div style={{ width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,#1E40AF,#2563EB)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,boxShadow:'0 2px 6px rgba(37,99,235,0.35)' }}>
                 {currentUser.name.charAt(0)}
               </div>
-              <span style={{ fontSize:12,fontWeight:600,color:C.primary }}>{currentUser.prefix}{currentUser.name}</span>
+              <span style={{ fontSize:12.5,fontWeight:700,color:C.primary }}>{currentUser.prefix}{currentUser.name}</span>
             </div>
             <button onClick={handleLogout} style={{
-              background:'none', border:`1px solid ${C.border}`, borderRadius:7, cursor:'pointer',
-              padding:'5px 11px', fontSize:12, color:C.textMuted, fontFamily:'Sarabun,sans-serif',
+              background:'none', border:`1.5px solid ${C.border}`, borderRadius:10, cursor:'pointer',
+              padding:'5px 13px', fontSize:12, color:C.textMuted, fontFamily:'Sarabun,sans-serif',
               transition:'all 0.15s',
             }}
-            onMouseEnter={e=>e.currentTarget.style.background='#FEF2F2'}
-            onMouseLeave={e=>e.currentTarget.style.background='none'}>
+            onMouseEnter={e=>{e.currentTarget.style.background='#FEF2F2';e.currentTarget.style.color='#DC2626';e.currentTarget.style.borderColor='#FECACA';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>
               ออกจากระบบ
             </button>
           </div>
