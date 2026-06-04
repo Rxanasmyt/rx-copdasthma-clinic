@@ -10424,7 +10424,14 @@ function App() {
 
   // Firebase init — merge by timestamp, retry on failure
   const retryRef = useRef(null);
-  const applyingRemote = useRef(false); // กันการเขียนกลับ Firebase ตอนเพิ่งรับข้อมูลมา (echo loop)
+  // ลายเซ็นเนื้อหาข้อมูลที่ตรงกับ Firebase ล่าสุด (ไม่รวม _savedAt/_isSample)
+  // ใช้เทียบว่าเนื้อหาเปลี่ยนจริงไหม → กัน echo loop โดยไม่กลืนการแก้ของผู้ใช้
+  const lastSyncSig = useRef(null);
+  const dataSig = (d) => {
+    if (!d) return '';
+    const { _savedAt, _isSample, ...rest } = d;
+    try { return JSON.stringify(rest); } catch { return ''; }
+  };
 
   // ฟังก์ชัน apply data จาก Firebase → state (ใช้ทั้งใน initial load และ onSnapshot)
   const applyRemoteData = useCallback((remote, db) => {
@@ -10434,13 +10441,12 @@ function App() {
     const tookRemote = merged === remote; // เลือกข้อมูลจาก Firebase หรือไม่
 
     if (tookRemote) {
-      // รับข้อมูลจาก Firebase → อย่าเขียนกลับ (กัน echo loop) และคง _savedAt เดิม
-      applyingRemote.current = true;
+      // รับข้อมูลจาก Firebase → คง _savedAt เดิม และจำลายเซ็นว่า "ตรงกับ cloud แล้ว"
+      lastSyncSig.current = dataSig(merged);
       setData(merged);
       AppStore.cacheRemote(merged);
     } else {
-      // ข้อมูลในเครื่องใหม่กว่า (เช่น แก้ตอนออฟไลน์) → ปล่อยให้ persist effect เขียนขึ้น Firebase
-      applyingRemote.current = false;
+      // ข้อมูลในเครื่องใหม่กว่า (เช่น แก้ตอนออฟไลน์) → persist effect จะ push ขึ้น Firebase
       setData(merged);
       AppStore.save(merged);
     }
@@ -10504,18 +10510,19 @@ function App() {
   const isFirstRender = useRef(true);
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
-    // การเปลี่ยนแปลงนี้มาจาก Firebase (snapshot) → cache ไว้แล้ว ไม่ต้องเขียนกลับ (กัน echo loop / เวลาเพี้ยน)
-    if (applyingRemote.current) { applyingRemote.current = false; return; }
-    AppStore.save(data);
+    AppStore.save(data); // เก็บลงเครื่องเสมอ (ไม่กลืนการแก้ของผู้ใช้)
     // ห้ามเขียน Firebase จนกว่าจะ sync ครั้งแรกเสร็จ (ป้องกัน sample data เขียนทับข้อมูลจริง)
     if (dbRef.current && firebaseSynced.current) {
+      const sig = dataSig(data);
+      // เนื้อหาตรงกับ cloud อยู่แล้ว (เช่น เป็น echo จาก snapshot) → ไม่ต้องเขียนซ้ำ
+      if (sig === lastSyncSig.current) return;
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         setSyncStatus('syncing');
         const payload = { ...data, _savedAt: Date.now() };
         delete payload._isSample;
         dbRef.current.collection('clinic').doc('main').set(payload)
-          .then(() => setSyncStatus('synced'))
+          .then(() => { lastSyncSig.current = sig; setSyncStatus('synced'); })
           .catch(err => {
             console.error('Firebase save error:', err);
             setSyncStatus('error');
