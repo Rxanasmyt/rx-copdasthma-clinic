@@ -92,6 +92,24 @@
     .rx-login-hero      { display: none !important; }
     .rx-login-mobilelogo { display: block !important; }
   }
+
+  /* ── App interior background ── */
+  @keyframes rxOrbDrift {
+    0%   { transform: translate(0, 0)    scale(1); }
+    33%  { transform: translate(30px,-20px) scale(1.08); }
+    66%  { transform: translate(-20px,25px) scale(0.94); }
+    100% { transform: translate(0, 0)    scale(1); }
+  }
+  /* Stat card entrance */
+  @keyframes rxCardIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rx-stat-card { animation: rxCardIn 0.45s ease both; }
+  .rx-stat-card:nth-child(1) { animation-delay: 0.05s; }
+  .rx-stat-card:nth-child(2) { animation-delay: 0.12s; }
+  .rx-stat-card:nth-child(3) { animation-delay: 0.19s; }
+  .rx-stat-card:nth-child(4) { animation-delay: 0.26s; }
 </style>
 <!-- React + Babel -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -9767,6 +9785,149 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
   );
 }
 
+// ── Soft floating-orb background for main app area ────
+function AppBgCanvas() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let w, h, raf, t = 0;
+    const orbs = [
+      { px:0.12, py:0.15, r:340, col:'#93C5FD', spd:0.00028 },
+      { px:0.82, py:0.10, r:300, col:'#C4B5FD', spd:0.00022 },
+      { px:0.50, py:0.62, r:380, col:'#6EE7B7', spd:0.00018 },
+      { px:0.90, py:0.78, r:260, col:'#FDE68A', spd:0.00032 },
+      { px:0.05, py:0.88, r:240, col:'#F9A8D4', spd:0.00026 },
+      { px:0.60, py:0.38, r:200, col:'#BAE6FD', spd:0.00020 },
+    ];
+    const resize = () => {
+      w = window.innerWidth - 236; h = window.innerHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    const draw = () => {
+      t += 0.6;
+      ctx.clearRect(0, 0, w, h);
+      orbs.forEach((o, i) => {
+        const cx = (o.px + Math.sin(t * o.spd + i * 1.4) * 0.10) * w;
+        const cy = (o.py + Math.cos(t * o.spd * 0.8 + i * 0.9) * 0.08) * h;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, o.r);
+        g.addColorStop(0, o.col + '38'); // ~22% opacity
+        g.addColorStop(1, o.col + '00');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, o.r, 0, Math.PI * 2); ctx.fill();
+      });
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, []);
+  return (
+    <canvas ref={ref} style={{
+      position: 'fixed', top: 0, left: 236, pointerEvents: 'none', zIndex: 0,
+    }} />
+  );
+}
+
+// ── Animated counter (counts up from 0 on mount) ──────
+function AnimatedNumber({ target, duration = 900 }) {
+  const [val, setVal] = useState(0);
+  const rafRef = useRef(null);
+  useEffect(() => {
+    let start = null;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const prog = Math.min((ts - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - prog, 3);
+      setVal(Math.round(target * eased));
+      if (prog < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, duration]);
+  return val;
+}
+
+// ── Donut chart (canvas) ──────────────────────────────
+function DonutChart({ segments, size = 120, strokeWidth = 20, centerLabel, centerSub }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = size * dpr; canvas.height = size * dpr;
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = size / 2, cy = size / 2, r = (size - strokeWidth * 2.2) / 2;
+    const total = (segments || []).reduce((a, s) => a + (s.value || 0), 0);
+    ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = strokeWidth;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    if (!total) return;
+    let angle = -Math.PI / 2;
+    ctx.lineCap = 'round';
+    (segments || []).forEach((seg, i) => {
+      if (!seg.value) return;
+      const sweep = (seg.value / total) * Math.PI * 2 * 0.97;
+      ctx.shadowColor = seg.color + '66'; ctx.shadowBlur = 8;
+      ctx.strokeStyle = seg.color; ctx.lineWidth = strokeWidth;
+      ctx.beginPath(); ctx.arc(cx, cy, r, angle, angle + sweep); ctx.stroke();
+      ctx.shadowBlur = 0;
+      angle += (seg.value / total) * Math.PI * 2;
+    });
+  }, [segments, size, strokeWidth]);
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <canvas ref={ref} style={{ display: 'block' }} />
+      {centerLabel !== undefined && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ fontSize: size > 100 ? 22 : 16, fontWeight: 800, color: C.primary, lineHeight: 1 }}>{centerLabel}</div>
+          {centerSub && <div style={{ fontSize: 9, color: C.textMuted, marginTop: 3, textAlign: 'center' }}>{centerSub}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Visit trend bar chart (CSS bars) ─────────────────
+function VisitTrendBars({ visits }) {
+  const months = useMemo(() => {
+    const result = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+      const key = d.toISOString().slice(0, 7);
+      const count = visits.filter(v => (v.visitDate || '').startsWith(key)).length;
+      result.push({ label: d.toLocaleDateString('th-TH', { month: 'short' }), count });
+    }
+    return result;
+  }, [visits]);
+  const max = Math.max(...months.map(m => m.count), 1);
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 70, padding: '0 4px' }}>
+      {months.map((m, i) => (
+        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.text, opacity: m.count > 0 ? 1 : 0 }}>{m.count}</div>
+          <div style={{
+            width: '100%', borderRadius: '4px 4px 0 0',
+            height: Math.max(4, (m.count / max) * 44),
+            background: i === 5
+              ? 'linear-gradient(180deg,#2563EB,#1E40AF)'
+              : 'linear-gradient(180deg,#93C5FD,#BFDBFE)',
+            transition: 'height 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+            transitionDelay: i * 0.08 + 's',
+          }} />
+          <div style={{ fontSize: 9, color: C.textMuted, whiteSpace: 'nowrap' }}>{m.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Dashboard ─────────────────────────────────────────
 function Dashboard({ data, navigate }) {
   const pts = data.patients;
@@ -9807,163 +9968,274 @@ function Dashboard({ data, navigate }) {
   const getPt    = id => pts.find(p => p.id === id);
   const today    = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 
+  // Patient breakdown for donut chart
+  const copdCount   = pts.filter(p => p.diagnosis === 'COPD').length;
+  const asthmaCount = pts.filter(p => p.diagnosis === 'Asthma').length;
+  const bothCount   = pts.filter(p => p.diagnosis === 'Both').length;
+  const lowRisk = pts.filter(p => p.riskLevel === 'Low').length;
+  const medRisk = pts.filter(p => p.riskLevel === 'Medium').length;
+
+  const diagSegments = [
+    { value: copdCount,   color: '#0369A1', label: 'COPD' },
+    { value: asthmaCount, color: '#7C3AED', label: 'Asthma' },
+    { value: bothCount,   color: '#0F766E', label: 'ทั้งคู่' },
+  ];
+  const riskSegments = [
+    { value: lowRisk,            color: '#059669', label: 'Low' },
+    { value: medRisk,            color: '#D97706', label: 'Medium' },
+    { value: highRisk.length,    color: '#DC2626', label: 'High' },
+  ];
+
   return (
     <div className="rx-fade">
-      {/* Welcome banner */}
+      {/* ── Welcome banner ── */}
       <div style={{
-        background: 'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 50%,#2563EB 100%)',
-        borderRadius: 18, padding: '20px 28px', marginBottom: 22,
+        background: 'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 48%,#2563EB 100%)',
+        borderRadius: 20, padding: '22px 32px', marginBottom: 22,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        boxShadow: '0 8px 32px rgba(37,99,235,0.35)',
+        boxShadow: '0 10px 40px rgba(37,99,235,0.4)',
         color: '#fff', overflow: 'hidden', position: 'relative',
       }}>
-        <div style={{ position: 'absolute', right: -20, top: -20, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'absolute', right: 60, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'relative' }}>
-          <h1 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 800, color: '#fff' }}>สวัสดี 👋 ยินดีต้อนรับ</h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>{today}</p>
+        {/* Decorative circles */}
+        <div style={{ position:'absolute', right:-30, top:-30,  width:170, height:170, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+        <div style={{ position:'absolute', right:70,  bottom:-50, width:130, height:130, borderRadius:'50%', background:'rgba(255,255,255,0.05)' }} />
+        <div style={{ position:'absolute', left:'40%', top:-60,   width:200, height:200, borderRadius:'50%', background:'rgba(255,255,255,0.04)' }} />
+        <div style={{ position:'relative' }}>
+          <p style={{ margin:'0 0 2px', fontSize:12, fontWeight:600, color:'rgba(147,197,253,0.9)', textTransform:'uppercase', letterSpacing:'0.08em' }}>
+            🏥 Rx-COPD/Asthma Clinic
+          </p>
+          <h1 style={{ margin:'0 0 6px', fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.3px' }}>
+            สวัสดี 👋 ยินดีต้อนรับ
+          </h1>
+          <p style={{ margin:0, fontSize:13, color:'rgba(255,255,255,0.7)' }}>{today}</p>
         </div>
-        <div style={{ position: 'relative', fontSize: 52, opacity: 0.9 }}>🫁</div>
+        <div style={{ position:'relative', display:'flex', gap:20, textAlign:'center' }}>
+          {[
+            { n: pts.length,       label:'ผู้ป่วยทั้งหมด', icon:'👥' },
+            { n: scheduledToday.length, label:'นัดวันนี้',  icon:'📅' },
+          ].map(s => (
+            <div key={s.label} style={{ background:'rgba(255,255,255,0.12)', borderRadius:14, padding:'12px 18px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.18)' }}>
+              <div style={{ fontSize:9, color:'rgba(255,255,255,0.65)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{s.icon} {s.label}</div>
+              <div style={{ fontSize:26, fontWeight:800 }}>{s.n}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* "วันคลินิกวันนี้" Section */}
+      {/* ── Today's Clinic ── */}
       {scheduledToday.length > 0 && (
-        <Card style={{ marginBottom: 20, padding: 0, overflow: 'hidden', border: `2px solid ${C.accent}30` }}>
+        <div style={{
+          background:'linear-gradient(135deg,rgba(6,182,212,0.12),rgba(30,64,175,0.08))',
+          border:'1.5px solid rgba(6,182,212,0.3)', borderRadius:18,
+          marginBottom:20, overflow:'hidden',
+        }}>
           <div style={{
-            background: 'linear-gradient(135deg, #0EA5C9 0%, #1848A0 100%)',
-            color: '#fff', padding: '14px 20px',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background:'linear-gradient(135deg,#0891B2 0%,#1E40AF 100%)',
+            color:'#fff', padding:'14px 22px',
+            display:'flex', alignItems:'center', justifyContent:'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                📅 วันคลินิกวันนี้
-              </div>
-              <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>
-                ผู้ป่วยนัด {scheduledToday.length} คน
-              </div>
+              <div style={{ fontSize:11, fontWeight:700, opacity:0.85, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:2 }}>📅 วันคลินิกวันนี้</div>
+              <div style={{ fontSize:18, fontWeight:800 }}>ผู้ป่วยนัด {scheduledToday.length} คน</div>
             </div>
-            <div style={{ display: 'flex', gap: 16, fontSize: 12, textAlign: 'right' }}>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{checkedInCount}</div>
-                <div style={{ opacity: 0.85 }}>มาแล้ว</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>{waitingCount}</div>
-                <div style={{ opacity: 0.85 }}>รอ</div>
-              </div>
-            </div>
-          </div>
-          <div style={{ padding: '12px 16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {scheduledToday.map(({ patient: p, checkedIn }) => (
-                <div key={p.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
-                  background: checkedIn ? C.lowBg : C.surface,
-                  border: `1px solid ${checkedIn ? C.lowBorder : C.border}`,
-                  borderRadius: 8,
-                  opacity: checkedIn ? 0.75 : 1,
-                }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%',
-                    background: checkedIn ? C.low : (p.riskLevel === 'High' ? C.high : C.primary),
-                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 700, flexShrink: 0,
-                  }}>{checkedIn ? '✓' : p.firstName.charAt(0)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, color: C.text }}>
-                        {p.prefix}{p.firstName} {p.lastName}
-                      </span>
-                      <DiagBadge diagnosis={p.diagnosis} />
-                      <RiskBadge level={p.riskLevel || 'Low'} />
-                      {(p.allergies || []).filter(a => !a.startsWith('NKDA')).length > 0 && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: C.high, background: C.highBg, padding: '1px 7px', borderRadius: 12, border: `1px solid ${C.highBorder}` }}>
-                          ⚠ แพ้ยา
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                      HN: {p.hn} · {p.phone} · นัดวันนี้
-                    </div>
-                  </div>
-                  {checkedIn ? (
-                    <Btn size="sm" variant="ghost" onClick={() => navigate('history', p.id)}>ดูประวัติ</Btn>
-                  ) : (
-                    <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>📥 เช็คอิน</Btn>
-                  )}
+            <div style={{ display:'flex', gap:14 }}>
+              {[{n:checkedInCount,l:'มาแล้ว',c:'#4ADE80'},{n:waitingCount,l:'รอ',c:'#FDE68A'}].map(x => (
+                <div key={x.l} style={{ background:'rgba(255,255,255,0.15)', borderRadius:10, padding:'8px 16px', textAlign:'center' }}>
+                  <div style={{ fontSize:22, fontWeight:800, color:x.c }}>{x.n}</div>
+                  <div style={{ fontSize:10, opacity:0.85 }}>{x.l}</div>
                 </div>
               ))}
             </div>
           </div>
-        </Card>
+          <div style={{ padding:'12px 18px', display:'flex', flexDirection:'column', gap:6 }}>
+            {scheduledToday.map(({ patient: p, checkedIn }) => (
+              <div key={p.id} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'10px 14px',
+                background: checkedIn ? 'rgba(5,150,105,0.08)' : C.surface,
+                border:`1px solid ${checkedIn ? C.lowBorder : C.border}`,
+                borderRadius:12, opacity: checkedIn ? 0.75 : 1, cursor:'pointer',
+              }} onClick={() => navigate(checkedIn ? 'history' : 'visit-form', p.id)}>
+                <div style={{
+                  width:36, height:36, borderRadius:'50%', flexShrink:0,
+                  background: checkedIn ? C.low : p.riskLevel==='High' ? C.high : C.primaryLight,
+                  color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:14, fontWeight:700, boxShadow:`0 3px 10px ${checkedIn?C.low:p.riskLevel==='High'?C.high:C.primaryLight}44`,
+                }}>{checkedIn ? '✓' : p.firstName.charAt(0)}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    <span style={{ fontWeight:700, fontSize:13 }}>{p.prefix}{p.firstName} {p.lastName}</span>
+                    <DiagBadge diagnosis={p.diagnosis} />
+                    <RiskBadge level={p.riskLevel||'Low'} />
+                    {(p.allergies||[]).filter(a=>!a.startsWith('NKDA')).length > 0 &&
+                      <span style={{ fontSize:10, fontWeight:700, color:C.high, background:C.highBg, padding:'1px 7px', borderRadius:12, border:`1px solid ${C.highBorder}` }}>⚠ แพ้ยา</span>}
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>HN: {p.hn} · {p.phone}</div>
+                </div>
+                <Btn size="sm" variant={checkedIn?'ghost':'accent'} onClick={e => { e.stopPropagation(); navigate(checkedIn?'history':'visit-form', p.id); }}>
+                  {checkedIn ? 'ดูประวัติ' : '📥 เช็คอิน'}
+                </Btn>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 22 }}>
-        <StatCard label="ผู้ป่วยทั้งหมด" value={pts.length}              icon="👥" color={C.primary} />
-        <StatCard label="High Risk"       value={highRisk.length} color="#DC2626"  icon="🔴" sub="ต้องติดตามด่วน" />
-        <StatCard label="รอ Telepharmacy" value={pending.length}  color="#0891B2"  icon="📞" sub="Pending calls" />
-        <StatCard label="บันทึกทั้งหมด"  value={vis.length}      color="#7C3AED"  icon="📋" sub="Visit records" />
+      {/* ── Stat cards (animated) ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:22 }}>
+        {[
+          { label:'ผู้ป่วยทั้งหมด', value:pts.length,         color:C.primary,    icon:'👥', sub:'ราย' },
+          { label:'High Risk',       value:highRisk.length,    color:'#DC2626',    icon:'🔴', sub:'ต้องติดตามด่วน' },
+          { label:'รอ Telepharmacy', value:pending.length,     color:'#0891B2',    icon:'📞', sub:'Pending calls' },
+          { label:'บันทึกทั้งหมด',  value:vis.length,         color:'#7C3AED',    icon:'📋', sub:'Visit records' },
+        ].map((s, i) => (
+          <div key={i} className="rx-stat-card rx-card-hover" style={{
+            background:C.surface, borderRadius:16, padding:'18px 20px',
+            border:`1px solid ${C.border}`, borderLeft:`4px solid ${s.color}`,
+            boxShadow:'0 2px 12px rgba(15,23,42,0.07)',
+            display:'flex', alignItems:'center', gap:14,
+          }}>
+            <div style={{
+              width:52, height:52, borderRadius:16, flexShrink:0,
+              background:`linear-gradient(135deg,${s.color}22,${s.color}10)`,
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:26,
+            }}>{s.icon}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:30, fontWeight:800, color:s.color, lineHeight:1 }}>
+                <AnimatedNumber target={s.value} />
+              </div>
+              <div style={{ fontSize:12, fontWeight:700, color:C.text, marginTop:3 }}>{s.label}</div>
+              {s.sub && <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{s.sub}</div>}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-        {/* High risk */}
+      {/* ── Overview + High risk + Telepharmacy row ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:18, marginBottom:20 }}>
+
+        {/* Patient Overview card */}
         <Card>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🔴 ผู้ป่วย High Risk</h3>
+          <h3 style={{ margin:'0 0 14px', fontSize:14, fontWeight:700, color:C.primary }}>📊 สรุปภาพรวมผู้ป่วย</h3>
+
+          {/* Donut charts row */}
+          <div style={{ display:'flex', gap:16, alignItems:'center', marginBottom:14 }}>
+            <DonutChart segments={diagSegments} size={100} strokeWidth={16} centerLabel={pts.length} centerSub="ราย" />
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.textMuted, marginBottom:6 }}>ประเภทโรค</div>
+              {diagSegments.map(s => (
+                <div key={s.label} style={{ display:'flex', alignItems:'center', gap:7, marginBottom:5 }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:s.color, flexShrink:0 }} />
+                  <span style={{ fontSize:12, flex:1 }}>{s.label}</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:s.color }}>{s.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Risk donut */}
+          <div style={{ display:'flex', gap:16, alignItems:'center', paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+            <DonutChart segments={riskSegments} size={80} strokeWidth={14} centerLabel={pts.length} centerSub="" />
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:C.textMuted, marginBottom:6 }}>ระดับความเสี่ยง</div>
+              {riskSegments.map(s => (
+                <div key={s.label} style={{ display:'flex', alignItems:'center', gap:7, marginBottom:4 }}>
+                  <div style={{ width:8, height:8, borderRadius:'50%', background:s.color, flexShrink:0 }} />
+                  <span style={{ fontSize:11, flex:1, color:C.textMuted }}>{s.label}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:s.color }}>{s.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Visit trend */}
+          <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.textMuted, marginBottom:8 }}>📈 บันทึก 6 เดือนล่าสุด</div>
+            <VisitTrendBars visits={vis} />
+          </div>
+        </Card>
+
+        {/* High Risk */}
+        <Card>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+            <div>
+              <h3 style={{ margin:0, fontSize:14, fontWeight:700, color:'#DC2626' }}>🔴 High Risk</h3>
+              <p style={{ margin:'2px 0 0', fontSize:11, color:C.textMuted }}>ต้องติดตามด่วน</p>
+            </div>
             <Btn size="sm" variant="ghost" onClick={() => navigate('risk')}>ดูทั้งหมด</Btn>
           </div>
           {highRisk.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: C.textMuted, fontSize: 13 }}>✓ ไม่มีผู้ป่วย High Risk</div>
+            <div style={{ textAlign:'center', padding:'28px 0' }}>
+              <div style={{ fontSize:32 }}>✅</div>
+              <div style={{ fontSize:13, color:C.textMuted, marginTop:8, fontWeight:600 }}>ไม่มีผู้ป่วย High Risk</div>
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {highRisk.slice(0, 4).map(p => (
-                <div key={p.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-                  background: C.highBg, borderRadius: 8, border: `1px solid ${C.highBorder}`,
-                  cursor: 'pointer',
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {highRisk.slice(0,5).map(p => (
+                <div key={p.id} className="rx-card-hover" style={{
+                  display:'flex', alignItems:'center', gap:10, padding:'10px 12px',
+                  background:C.highBg, borderRadius:12, border:`1px solid ${C.highBorder}`, cursor:'pointer',
                 }} onClick={() => navigate('history', p.id)}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: C.high, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                    {p.firstName.charAt(0)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
-                    <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · {p.diagnosis}</div>
+                  <div style={{
+                    width:38, height:38, borderRadius:'50%', flexShrink:0,
+                    background:'linear-gradient(135deg,#DC2626,#EF4444)',
+                    color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:15, fontWeight:800, boxShadow:'0 3px 10px rgba(220,38,38,0.35)',
+                  }}>{p.firstName.charAt(0)}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:12 }}>{p.prefix}{p.firstName} {p.lastName}</div>
+                    <div style={{ fontSize:10, color:C.textMuted }}>HN: {p.hn}</div>
                   </div>
                   <DiagBadge diagnosis={p.diagnosis} />
                 </div>
               ))}
-              {highRisk.length > 4 && (
-                <button onClick={() => navigate('risk')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600, padding: '6px 0', textAlign: 'center' }}>
-                  ดูอีก {highRisk.length - 4} ราย →
+              {highRisk.length > 5 && (
+                <button onClick={() => navigate('risk')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:C.primaryLight, fontWeight:700, padding:'6px 0', textAlign:'center' }}>
+                  + {highRisk.length - 5} ราย →
                 </button>
               )}
             </div>
           )}
         </Card>
 
-        {/* Pending tele */}
+        {/* Telepharmacy */}
         <Card>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>📞 Telepharmacy ที่รอโทร</h3>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+            <div>
+              <h3 style={{ margin:0, fontSize:14, fontWeight:700, color:'#0891B2' }}>📞 Telepharmacy</h3>
+              <p style={{ margin:'2px 0 0', fontSize:11, color:C.textMuted }}>รอการโทรติดตาม</p>
+            </div>
             <Btn size="sm" variant="ghost" onClick={() => navigate('telepharmacy')}>ดูทั้งหมด</Btn>
           </div>
           {pending.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: C.textMuted, fontSize: 13 }}>✓ ไม่มีนัดรอโทร</div>
+            <div style={{ textAlign:'center', padding:'28px 0' }}>
+              <div style={{ fontSize:32 }}>✅</div>
+              <div style={{ fontSize:13, color:C.textMuted, marginTop:8, fontWeight:600 }}>ไม่มีนัดรอโทร</div>
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {pending.map(t => {
                 const pt = getPt(t.patientId);
-                const overdue = t.scheduledDate < new Date().toISOString().slice(0,10);
+                const overdue = t.scheduledDate < todayStr;
                 return (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: overdue ? C.highBg : '#EFF6FF', borderRadius: 8, border: `1px solid ${overdue ? C.highBorder : '#BFDBFE'}` }}>
-                    <span style={{ fontSize: 22 }}>📋</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</div>
-                      <div style={{ fontSize: 11, color: C.textMuted }}>{pt?.hn}</div>
+                  <div key={t.id} className="rx-card-hover" style={{
+                    display:'flex', alignItems:'center', gap:10, padding:'10px 12px',
+                    background: overdue ? C.highBg : '#EFF6FF',
+                    border:`1px solid ${overdue ? C.highBorder : '#BFDBFE'}`,
+                    borderRadius:12, cursor:'pointer',
+                  }} onClick={() => navigate('telepharmacy')}>
+                    <div style={{
+                      width:38, height:38, borderRadius:'50%', flexShrink:0,
+                      background: overdue ? 'linear-gradient(135deg,#DC2626,#EF4444)' : 'linear-gradient(135deg,#0284C7,#06B6D4)',
+                      color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:18, boxShadow:`0 3px 10px ${overdue?'rgba(220,38,38,0.3)':'rgba(6,182,212,0.35)'}`,
+                    }}>📞</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:12 }}>{pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</div>
+                      <div style={{ fontSize:10, color:C.textMuted }}>{pt?.hn}</div>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: overdue ? C.high : '#0369A1' }}>{t.scheduledDate}</div>
-                      {overdue && <div style={{ fontSize: 10, color: C.high }}>เกินกำหนด</div>}
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color: overdue ? C.high : '#0369A1' }}>{t.scheduledDate}</div>
+                      {overdue && <div style={{ fontSize:9, color:C.high, fontWeight:600 }}>เกินกำหนด</div>}
                     </div>
                   </div>
                 );
@@ -9973,50 +10245,55 @@ function Dashboard({ data, navigate }) {
         </Card>
       </div>
 
-      {/* Recent visits */}
+      {/* ── Recent visits table ── */}
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>📋 บันทึกการบริบาลล่าสุด</h3>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+          <div>
+            <h3 style={{ margin:0, fontSize:14, fontWeight:700, color:C.primary }}>📋 บันทึกการบริบาลล่าสุด</h3>
+            <p style={{ margin:'2px 0 0', fontSize:11, color:C.textMuted }}>5 รายการล่าสุด</p>
+          </div>
           <Btn size="sm" variant="ghost" onClick={() => navigate('patients')}>ดูทั้งหมด</Btn>
         </div>
         {recentV.length === 0 ? (
           <EmptyState icon="📋" title="ยังไม่มีบันทึกการเยี่ยม" subtitle="เริ่มต้นโดยเพิ่มผู้ป่วยและบันทึกการบริบาล" />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>{['วันที่','ผู้ป่วย','การวินิจฉัย','Exacerbation','Adherence','เทคนิคยาพ่น','Risk'].map(h => (
-                <th key={h} style={{ padding:'8px 12px', background:'#F8FAFC', borderBottom:`1px solid ${C.border}`, textAlign:'left', fontSize:11, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
-              ))}</tr>
-            </thead>
-            <tbody>
-              {recentV.map(v => {
-                const pt = getPt(v.patientId);
-                return (
-                  <tr key={v.id} style={{ borderBottom:`1px solid ${C.border}`, cursor:'pointer' }}
-                    onClick={() => navigate('history', v.patientId)}
-                    onMouseEnter={e => e.currentTarget.style.background='#F8FAFC'}
-                    onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                    <td style={{ padding:'10px 12px', fontFamily:'monospace', fontSize:12 }}>{v.visitDate}</td>
-                    <td style={{ padding:'10px 12px' }}>
-                      <div style={{ fontWeight:600 }}>{pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</div>
-                      <div style={{ fontSize:11, color:C.textMuted }}>{pt?.hn}</div>
-                    </td>
-                    <td style={{ padding:'10px 12px' }}><DiagBadge diagnosis={pt?.diagnosis} /></td>
-                    <td style={{ padding:'10px 12px', fontSize:12 }}>
-                      {v.exacerbation?.countThisYear ?? 0} ครั้ง/ปี
-                      {v.exacerbation?.hospitalized && <span style={{ marginLeft:6, color:C.high, fontSize:11 }}>นอน รพ.</span>}
-                    </td>
-                    <td style={{ padding:'10px 12px' }}><AdherenceBadge level={v.adherence?.level} /></td>
-                    <td style={{ padding:'10px 12px' }}>
-                      {(v.inhalerTechnique||[]).map((t,i) => <span key={i} style={{ marginRight:4 }}><TechniqueBadge score={t.overallScore} /></span>)}
-                      {(!v.inhalerTechnique||v.inhalerTechnique.length===0) && <span style={{ color:C.textMuted }}>—</span>}
-                    </td>
-                    <td style={{ padding:'10px 12px' }}><RiskBadge level={v.riskLevel} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ borderRadius:12, border:`1px solid ${C.border}`, overflow:'hidden' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+              <thead>
+                <tr>{['วันที่','ผู้ป่วย','โรค','Exacerbation','Adherence','เทคนิคยาพ่น','Risk'].map(h => (
+                  <th key={h} style={{ padding:'10px 14px', background:C.bgAlt, borderBottom:`1px solid ${C.border}`, textAlign:'left', fontSize:10, color:C.textMuted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap' }}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {recentV.map((v, ri) => {
+                  const pt = getPt(v.patientId);
+                  return (
+                    <tr key={v.id} style={{ borderBottom: ri < recentV.length-1 ? `1px solid ${C.border}` : 'none', cursor:'pointer', transition:'background 0.12s' }}
+                      onClick={() => navigate('history', v.patientId)}
+                      onMouseEnter={e => e.currentTarget.style.background='#F8FAFC'}
+                      onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                      <td style={{ padding:'12px 14px', fontFamily:'monospace', fontSize:11, color:C.textMuted }}>{v.visitDate}</td>
+                      <td style={{ padding:'12px 14px' }}>
+                        <div style={{ fontWeight:700, color:C.text }}>{pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</div>
+                        <div style={{ fontSize:10, color:C.textMuted }}>{pt?.hn}</div>
+                      </td>
+                      <td style={{ padding:'12px 14px' }}><DiagBadge diagnosis={pt?.diagnosis} /></td>
+                      <td style={{ padding:'12px 14px', fontSize:12 }}>
+                        {v.exacerbation?.countThisYear ?? 0} ครั้ง
+                        {v.exacerbation?.hospitalized && <span style={{ marginLeft:5, color:C.high, fontSize:10, fontWeight:700 }}>นอน รพ.</span>}
+                      </td>
+                      <td style={{ padding:'12px 14px' }}><AdherenceBadge level={v.adherence?.level} /></td>
+                      <td style={{ padding:'12px 14px' }}>
+                        {(v.inhalerTechnique||[]).map((t,i) => <span key={i} style={{ marginRight:4 }}><TechniqueBadge score={t.overallScore} /></span>)}
+                        {(!v.inhalerTechnique||v.inhalerTechnique.length===0) && <span style={{ color:C.textMuted }}>—</span>}
+                      </td>
+                      <td style={{ padding:'12px 14px' }}><RiskBadge level={v.riskLevel} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </div>
@@ -10241,13 +10518,14 @@ function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <AppBgCanvas />
       <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} />
 
-      <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
+      <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: 'transparent', position: 'relative', zIndex: 1 }}>
         {/* Top bar */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 100,
-          background: 'rgba(241,245,249,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+          background: 'rgba(241,245,249,0.85)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
           borderBottom: `1px solid ${C.border}`, padding: '0 28px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 54,
         }}>
