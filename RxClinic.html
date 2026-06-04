@@ -153,6 +153,71 @@
     background-attachment: local, local, scroll, scroll;
   }
 
+  /* ── Input / Select / Textarea focus ring ── */
+  .rx-field:focus {
+    outline: none;
+    border-color: #2563EB !important;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.15) !important;
+  }
+
+  /* ── Page view transition ── */
+  @keyframes rxViewIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rx-view { animation: rxViewIn 0.22s ease both; }
+
+  /* ── Collapsible sidebar ── */
+  .rx-sidebar-collapsed { width: 64px !important; }
+  .rx-sidebar-collapsed .rx-nav-label,
+  .rx-sidebar-collapsed .rx-nav-sub,
+  .rx-sidebar-collapsed .rx-logo-text,
+  .rx-sidebar-collapsed .rx-user-chip,
+  .rx-sidebar-collapsed .rx-footer-stats,
+  .rx-sidebar-collapsed .rx-nav-badge,
+  .rx-sidebar-collapsed .rx-nav-section { display: none !important; }
+  .rx-sidebar-collapsed .rx-nav-btn {
+    justify-content: center !important;
+    padding: 10px 0 !important;
+  }
+  .rx-sidebar-collapsed .rx-logo { justify-content: center !important; padding: 14px 0 !important; }
+  .rx-sidebar-collapsed .rx-collapse-btn { justify-content: center; }
+
+  /* ── Skeleton loader ── */
+  @keyframes rxSkelShimmer { from { background-position: -400px 0; } to { background-position: 400px 0; } }
+  .rx-skeleton {
+    background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+    background-size: 400px 100%;
+    animation: rxSkelShimmer 1.4s ease infinite;
+    border-radius: 6px;
+  }
+
+  /* ── Floating Action Button ── */
+  .rx-fab {
+    position: fixed; bottom: 24px; right: 20px; z-index: 900;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg,#1E40AF,#2563EB);
+    color: #fff; font-size: 24px; border: none; cursor: pointer;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.45);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .rx-fab:active { transform: scale(0.92); }
+  @media (min-width: 901px) { .rx-fab { display: none !important; } }
+
+  /* ── Keyboard shortcuts modal ── */
+  @keyframes rxKbIn {
+    from { opacity: 0; transform: translate(-50%,-48%) scale(0.96); }
+    to   { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  }
+
+  /* ── High-risk overdue alert banner ── */
+  @keyframes rxAlertPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.3); }
+    50%      { box-shadow: 0 0 0 6px rgba(220,38,38,0); }
+  }
+  .rx-alert-pulse { animation: rxAlertPulse 2.2s ease infinite; }
+
   /* ── Toast slide-in ── */
   @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
@@ -838,6 +903,24 @@ function EmptyState({ icon = '📋', title, subtitle, action }) {
   );
 }
 
+// ── SkeletonRow — placeholder loader ─────────────────
+function SkeletonRows({ count = 5 }) {
+  return (
+    <div style={{ padding: '4px 0' }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: `1px solid ${C.border}`, opacity: 1 - i * 0.15 }}>
+          <div className="rx-skeleton" style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0 }} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div className="rx-skeleton" style={{ height: 13, width: `${55 + (i % 3) * 12}%`, borderRadius: 6 }} />
+            <div className="rx-skeleton" style={{ height: 10, width: `${30 + (i % 4) * 8}%`, borderRadius: 6 }} />
+          </div>
+          <div className="rx-skeleton" style={{ width: 60, height: 22, borderRadius: 20, flexShrink: 0 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── FormField ─────────────────────────────────────────
 function FormField({ label, required, children, error, hint }) {
   return (
@@ -858,7 +941,7 @@ function FormField({ label, required, children, error, hint }) {
 function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled }) {
   return (
     <input type={type} value={value || ''} onChange={e => onChange(e.target.value)}
-      placeholder={placeholder} disabled={disabled}
+      placeholder={placeholder} disabled={disabled} className="rx-field"
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
         border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
@@ -872,7 +955,7 @@ function Input({ value, onChange, placeholder, type = 'text', style: extra, disa
 // ── Select ────────────────────────────────────────────
 function Select({ value, onChange, options, placeholder, style: extra, disabled }) {
   return (
-    <select value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled}
+    <select value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled} className="rx-field"
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
         border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
@@ -894,7 +977,7 @@ function Select({ value, onChange, options, placeholder, style: extra, disabled 
 function Textarea({ value, onChange, placeholder, rows = 3 }) {
   return (
     <textarea value={value || ''} onChange={e => onChange(e.target.value)}
-      placeholder={placeholder} rows={rows}
+      placeholder={placeholder} rows={rows} className="rx-field"
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
         border: `1.5px solid ${C.border}`, background: C.surface, color: C.text,
@@ -947,7 +1030,8 @@ function Tabs({ tabs, active, onChange }) {
 }
 
 // ── Table ─────────────────────────────────────────────
-function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, emptyAction, onRowClick }) {
+function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, emptyAction, onRowClick, loading }) {
+  if (loading) return <SkeletonRows count={5} />;
   if (!rows || rows.length === 0) {
     return <EmptyState icon={emptyIcon || '📋'} title={emptyTitle || 'ไม่มีข้อมูล'} subtitle={emptySubtitle} action={emptyAction} />;
   }
@@ -3762,6 +3846,8 @@ function PatientList({ data, onDataChange, navigate }) {
   const [search, setSearch]     = pvState('');
   const [filterDx, setFilterDx] = pvState('');
   const [filterRisk, setFilterRisk] = pvState('');
+  const [sortKey, setSortKey]   = pvState('name');
+  const [sortAsc, setSortAsc]   = pvState(true);
   const [addOpen, setAddOpen]   = pvState(false);
   const [editPt, setEditPt]     = pvState(null);
   const [delId, setDelId]       = pvState(null);
@@ -3822,6 +3908,24 @@ function PatientList({ data, onDataChange, navigate }) {
     return nameMatch && dxMatch && riskMatch;
   });
 
+  const riskOrder = { High: 0, Medium: 1, Low: 2 };
+  const sorted = [...filtered].sort((a, b) => {
+    let av, bv;
+    if (sortKey === 'name')      { av = a.firstName; bv = b.firstName; }
+    else if (sortKey === 'hn')   { av = a.hn;        bv = b.hn; }
+    else if (sortKey === 'risk') { av = riskOrder[a.riskLevel] ?? 3; bv = riskOrder[b.riskLevel] ?? 3; }
+    else if (sortKey === 'last') {
+      const vs = id => data.visits.filter(v => v.patientId === id).sort((x,y) => y.visitDate.localeCompare(x.visitDate));
+      av = vs(a.id)[0]?.visitDate || '0000'; bv = vs(b.id)[0]?.visitDate || '0000';
+    }
+    if (typeof av === 'number') return sortAsc ? av - bv : bv - av;
+    return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+  });
+
+  const toggleSort = (key) => { if (sortKey === key) setSortAsc(v => !v); else { setSortKey(key); setSortAsc(true); } };
+  const SortIcon = ({ k }) => sortKey !== k ? <span style={{ opacity: 0.3, marginLeft: 3 }}>↕</span>
+    : <span style={{ marginLeft: 3 }}>{sortAsc ? '↑' : '↓'}</span>;
+
   const handleAdd = (formData) => {
     const risk = AppStore.calculateRisk(formData, null);
     const newPt = {
@@ -3861,11 +3965,11 @@ function PatientList({ data, onDataChange, navigate }) {
 
   const cols = [
     {
-      key: 'hn', label: 'HN', width: 110,
+      key: 'hn', label: <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('hn')}>HN<SortIcon k="hn" /></span>, width: 110,
       render: p => <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{p.hn}</span>,
     },
     {
-      key: 'name', label: 'ชื่อ-นามสกุล',
+      key: 'name', label: <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('name')}>ชื่อ-นามสกุล<SortIcon k="name" /></span>,
       render: p => (
         <div>
           <div style={{ fontWeight: 600, color: C.text }}>{p.prefix}{p.firstName} {p.lastName}</div>
@@ -3884,7 +3988,7 @@ function PatientList({ data, onDataChange, navigate }) {
       ),
     },
     {
-      key: 'risk', label: 'ความเสี่ยง', width: 150,
+      key: 'risk', label: <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('risk')}>ความเสี่ยง<SortIcon k="risk" /></span>, width: 150,
       render: p => <RiskBadge level={p.riskLevel || 'Low'} />,
     },
     {
@@ -3892,7 +3996,7 @@ function PatientList({ data, onDataChange, navigate }) {
       render: p => <span style={{ fontSize: 12 }}>{p.insurance}</span>,
     },
     {
-      key: 'lastVisit', label: 'เยี่ยมล่าสุด', width: 150,
+      key: 'lastVisit', label: <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('last')}>เยี่ยมล่าสุด<SortIcon k="last" /></span>, width: 150,
       render: p => {
         const d = getLastVisit(p.id);
         const da = daysAgo(d);
@@ -3983,7 +4087,7 @@ function PatientList({ data, onDataChange, navigate }) {
 
       {/* Table */}
       <Card padding={0}>
-        <Table cols={cols} rows={filtered}
+        <Table cols={cols} rows={sorted}
           emptyIcon="👤" emptyTitle={search || filterDx || filterRisk ? 'ไม่พบผู้ป่วยที่ตรงกับตัวกรอง' : 'ยังไม่มีผู้ป่วยในระบบ'}
           emptySubtitle={search || filterDx || filterRisk ? 'ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง' : 'เริ่มต้นโดยเพิ่มผู้ป่วยรายแรกของคุณ'}
           emptyAction={search || filterDx || filterRisk
@@ -4948,23 +5052,26 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <Btn size="sm" variant="ghost" onClick={() => navigate('history', patientId)}>← กลับ</Btn>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.primary }}>
-            {isEditing ? '✏️ แก้ไขบันทึกการบริบาล' : 'บันทึกการบริบาลเภสัชกรรม'}
-          </h2>
-          <p style={{ margin: '2px 0 0', fontSize: 13, color: C.textMuted }}>
-            {patient.prefix}{patient.firstName} {patient.lastName} · HN: {patient.hn} · อายุ {patient.age} ปี
-            {isEditing && <span style={{ marginLeft: 8, color: C.medium, fontWeight: 600 }}>· กำลังแก้ไข Visit {editingVisit.visitDate}</span>}
-          </p>
+      {/* Sticky patient context bar */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50, marginBottom: 14,
+        background: 'rgba(248,250,252,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+        borderBottom: `1px solid ${C.border}`, borderRadius: '0 0 12px 12px',
+        padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        boxShadow: '0 2px 12px rgba(15,23,42,0.06)',
+      }}>
+        <Btn size="sm" variant="ghost" onClick={guardedLeave}>← กลับ</Btn>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isEditing ? '✏️ แก้ไข Visit' : '📝 บันทึกการบริบาล'} — {patient.prefix}{patient.firstName} {patient.lastName}
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted }}>HN: {patient.hn} · อายุ {patient.age} ปี{isEditing ? ` · ${editingVisit.visitDate}` : ''}</div>
         </div>
         <DiagBadge diagnosis={patient.diagnosis} />
-        <span style={{
-          padding: '4px 10px', borderRadius: 20, background: '#F1F5F9',
-          fontSize: 11, color: C.textMuted, fontWeight: 600,
-        }}>⌘+S เพื่อบันทึก</span>
+        <RiskBadge level={f.riskLevel} />
+        <span style={{ padding: '4px 10px', borderRadius: 20, background: '#F1F5F9', fontSize: 11, color: C.textMuted, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+          ⌘S บันทึก
+        </span>
       </div>
 
       {/* Allergy banner */}
@@ -9853,7 +9960,7 @@ const NAV = [
 ];
 
 // ── Sidebar ───────────────────────────────────────────
-function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false, open = false, onClose }) {
+function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false, open = false, onClose, collapsed = false, onToggleCollapse }) {
   const highRisk = data.patients.filter(p => p.riskLevel === 'High').length;
   const pending  = data.telepharmacy.filter(t => t.status === 'Pending').length;
   const badges   = { risk: highRisk, telepharmacy: pending };
@@ -9875,29 +9982,36 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
       || (view === 'telepharmacy-add' && n.id === 'telepharmacy');
     const badge = badges[n.id];
     return (
-      <button onClick={() => { navigate(n.id); if (mobile && onClose) onClose(); }} style={{
-        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-        padding: '9px 12px 9px 14px', borderRadius: 10, border: 'none',
-        cursor: 'pointer', textAlign: 'left', marginBottom: 1,
+      <button onClick={() => { navigate(n.id); if (mobile && onClose) onClose(); }} className="rx-nav-btn" title={collapsed ? n.label : undefined} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+        padding: collapsed ? '10px 0' : '9px 12px 9px 14px', borderRadius: 10, border: 'none',
+        cursor: 'pointer', textAlign: 'left', marginBottom: 1, justifyContent: collapsed ? 'center' : 'flex-start',
         background: active ? 'rgba(255,255,255,0.12)' : 'transparent',
         borderLeft: active ? '3px solid #60A5FA' : '3px solid transparent',
         transition: 'all 0.15s',
       }}
       onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderLeftColor = 'rgba(96,165,250,0.4)'; }}}
       onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; }}}>
-        <span style={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.75 }}>{n.icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? '#FFFFFF' : '#A8C5DA', lineHeight: 1.3 }}>{n.label}</div>
-          <div style={{ fontSize: 10, color: active ? '#93C5FD' : '#4A6480', marginTop: 1 }}>{n.sub}</div>
-        </div>
-        {badge > 0 && (
-          <span style={{
-            background: n.id === 'risk' ? '#EF4444' : '#06B6D4',
-            color: '#fff', fontSize: 10, fontWeight: 700,
-            padding: '2px 8px', borderRadius: 20, flexShrink: 0,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-          }}>{badge}</span>
-        )}
+        <span style={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.75, position: 'relative' }}>
+          {n.icon}
+          {badge > 0 && collapsed && (
+            <span style={{ position: 'absolute', top: -5, right: -5, width: 8, height: 8, borderRadius: '50%', background: n.id === 'risk' ? '#EF4444' : '#06B6D4', border: '1.5px solid #0D1F4E' }} />
+          )}
+        </span>
+        {!collapsed && <>
+          <div className="rx-nav-label" style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: active ? 700 : 500, color: active ? '#FFFFFF' : '#A8C5DA', lineHeight: 1.3 }}>{n.label}</div>
+            <div className="rx-nav-sub" style={{ fontSize: 10, color: active ? '#93C5FD' : '#4A6480', marginTop: 1 }}>{n.sub}</div>
+          </div>
+          {badge > 0 && (
+            <span className="rx-nav-badge" style={{
+              background: n.id === 'risk' ? '#EF4444' : '#06B6D4',
+              color: '#fff', fontSize: 10, fontWeight: 700,
+              padding: '2px 8px', borderRadius: 20, flexShrink: 0,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+            }}>{badge}</span>
+          )}
+        </>}
       </button>
     );
   };
@@ -9913,12 +10027,14 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
         borderRight: '1px solid rgba(255,255,255,0.07)',
         boxShadow: '4px 0 30px rgba(0,0,0,0.45)',
         animation: 'rxSlideDrawer 0.26s ease both',
+        transition: 'width 0.22s ease',
       }
     : {
-        width: 236, flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
+        width: collapsed ? 64 : 236, flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
         display: 'flex', flexDirection: 'column',
         background: 'linear-gradient(180deg, #0D1F4E 0%, #0B1D45 40%, #091535 100%)',
         borderRight: '1px solid rgba(255,255,255,0.07)',
+        transition: 'width 0.22s ease', overflow: 'hidden',
       };
 
   return (
@@ -9935,24 +10051,35 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
         }}>✕</button>
       )}
       {/* Logo */}
-      <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="rx-logo" style={{ padding: collapsed ? '14px 0' : '16px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10 }}>
           <div style={{
             width: 40, height: 40, borderRadius: 12, flexShrink: 0,
             background: 'linear-gradient(135deg,#0284C7,#06B6D4)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
             boxShadow: '0 4px 14px rgba(6,182,212,0.4)',
           }}>🫁</div>
-          <div>
+          {!collapsed && <div className="rx-logo-text">
             <div style={{ fontSize: 13.5, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2, letterSpacing: '-0.2px' }}>Rx-COPD/Asthma</div>
             <div style={{ fontSize: 10, color: 'rgba(148,163,184,0.8)', marginTop: 1 }}>Pharmaceutical Care</div>
-          </div>
+          </div>}
         </div>
+        {!mobile && (
+          <button onClick={onToggleCollapse} title={collapsed ? 'ขยาย sidebar' : 'ย่อ sidebar'} style={{
+            background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,0.5)',
+            fontSize: 16, padding: 4, lineHeight: 1, flexShrink: 0,
+            transition: 'color 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.color = '#93C5FD'}
+          onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,0.5)'}>
+            {collapsed ? '›' : '‹'}
+          </button>
+        )}
       </div>
 
       {/* User chip */}
-      {currentUser && (
-        <div style={{ margin: '10px 10px 0', padding: '10px 12px', background: 'rgba(255,255,255,0.07)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.09)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      {currentUser && !collapsed && (
+        <div className="rx-user-chip" style={{ margin: '10px 10px 0', padding: '10px 12px', background: 'rgba(255,255,255,0.07)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.09)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
             width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
             background: 'linear-gradient(135deg,#1E40AF,#2563EB)',
@@ -9976,14 +10103,12 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
       <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 8px 4px' }}>
         {mainNav.map(n => <NavBtn key={n.id} n={n} />)}
 
-        <div style={{ margin: '10px 12px 6px', fontSize: 10, fontWeight: 700, color: '#2D4A6E', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          เครื่องมือเพิ่มเติม
-        </div>
+        {!collapsed && <div className="rx-nav-section" style={{ margin: '10px 12px 6px', fontSize: 10, fontWeight: 700, color: '#2D4A6E', textTransform: 'uppercase', letterSpacing: '0.08em' }}>เครื่องมือเพิ่มเติม</div>}
         {extraNav.map(n => <NavBtn key={n.id} n={n} />)}
       </nav>
 
       {/* Footer stats */}
-      <div style={{ padding: '10px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      {!collapsed && <div className="rx-footer-stats" style={{ padding: '10px 14px 12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '7px 10px' }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: '#93C5FD' }}>{data.patients.length}</div>
@@ -9998,7 +10123,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
           <div style={{ fontWeight: 700, color: 'rgba(147,197,253,0.6)', marginBottom: 1 }}>จัดทำโดย</div>
           <div style={{ color: '#6B8AAF' }}>ภก.อนัส มะยีแต · โรงพยาบาลกรงปินัง</div>
         </div>
-      </div>
+      </div>}
     </aside>
     </React.Fragment>
   );
@@ -10547,6 +10672,8 @@ function App() {
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
   const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
   const [navOpen,      setNavOpen]      = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showKbHelp,   setShowKbHelp]   = useState(false);
   const [appToast,     setAppToast]     = useState(null);   // {msg,type} global toast
   const [refreshing,   setRefreshing]   = useState(false);
   const prevSync = useRef('syncing');
@@ -10726,8 +10853,10 @@ function App() {
     if (!currentUser) return;
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
+        e.preventDefault(); setSearchOpen(true);
+      }
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault(); setShowKbHelp(h => !h);
       }
     };
     window.addEventListener('keydown', handler);
@@ -10803,6 +10932,18 @@ function App() {
     }
   };
 
+  // ── High-risk overdue computation (>30 days no visit) ──
+  const overdueHighRisk = useMemo(() => {
+    const now = Date.now();
+    return data.patients.filter(p => {
+      if (p.riskLevel !== 'High') return false;
+      const visits = data.visits.filter(v => v.patientId === p.id);
+      if (visits.length === 0) return true;
+      const last = Math.max(...visits.map(v => new Date(v.visitDate).getTime()));
+      return (now - last) > 30 * 86400000;
+    });
+  }, [data.patients, data.visits]);
+
   // ── Breadcrumb ────────────────────────────────────
   const crumbMap = {
     dashboard: 'Dashboard', patients: 'ทะเบียนผู้ป่วย', risk: 'คัดกรองความเสี่ยง',
@@ -10817,8 +10958,8 @@ function App() {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <AppBgCanvas />
       {isMobile
-        ? <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} mobile open={navOpen} onClose={() => setNavOpen(false)} />
-        : <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} />
+        ? <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} mobile open={navOpen} onClose={() => setNavOpen(false)} collapsed={false} onToggleCollapse={() => {}} />
+        : <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(c => !c)} />
       }
 
       <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: 'transparent', position: 'relative', zIndex: 1 }}>
@@ -10934,11 +11075,69 @@ function App() {
         </div>
 
         {/* Content */}
-        <div className="rx-page-pad" style={{ padding: isMobile ? '16px 14px' : '24px 28px' }}>{renderView()}</div>
+        <div className="rx-page-pad" style={{ padding: isMobile ? '16px 14px' : '24px 28px' }}>
+          <div key={view} className="rx-view">{renderView()}</div>
+        </div>
       </main>
 
       <QuickSearch data={data} navigate={navigate}
         isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Floating Action Button — mobile quick-add patient */}
+      {isMobile && view !== 'visit-form' && (
+        <button className="rx-fab" onClick={() => navigate('patients')} aria-label="เพิ่มผู้ป่วย" title="ไปทะเบียนผู้ป่วย">＋</button>
+      )}
+
+      {/* Keyboard shortcuts modal */}
+      {showKbHelp && (
+        <div onClick={() => setShowKbHelp(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)',
+          zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: C.surface, borderRadius: 16, padding: '24px 28px', width: 380, maxWidth: 'calc(100vw - 32px)',
+            boxShadow: '0 24px 64px rgba(15,23,42,0.22)', border: `1px solid ${C.border}`,
+            animation: 'rxKbIn 0.2s ease both',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.primary }}>⌨️ Keyboard Shortcuts</div>
+              <button onClick={() => setShowKbHelp(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.textMuted }}>✕</button>
+            </div>
+            {[
+              ['⌘ K', 'ค้นหาผู้ป่วย'],
+              ['⌘ S', 'บันทึก Visit (ในฟอร์ม)'],
+              ['?', 'แสดง / ซ่อน shortcuts นี้'],
+              ['Esc', 'ปิด modal / dialog'],
+            ].map(([key, desc]) => (
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 13, color: C.text }}>{desc}</span>
+                <kbd style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, background: '#F1F5F9', border: `1px solid ${C.border}`, fontFamily: 'monospace', color: C.primary }}>{key}</kbd>
+              </div>
+            ))}
+            <div style={{ marginTop: 14, fontSize: 11, color: C.textMuted, textAlign: 'center' }}>กด ? หรือ Esc เพื่อปิด</div>
+          </div>
+        </div>
+      )}
+
+      {/* High-risk overdue alert banner */}
+      {overdueHighRisk.length > 0 && view === 'dashboard' && (
+        <div className="rx-alert-pulse" style={{
+          position: 'fixed', bottom: isMobile ? 80 : 24, left: '50%', transform: 'translateX(-50%)',
+          background: C.highBg, border: `1.5px solid ${C.highBorder}`, borderRadius: 12,
+          padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10,
+          boxShadow: '0 8px 24px rgba(220,38,38,0.15)', zIndex: 800,
+          maxWidth: 'calc(100vw - 32px)', cursor: 'pointer',
+        }} onClick={() => navigate('risk')}>
+          <span style={{ fontSize: 18 }}>🔴</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.high }}>
+              ผู้ป่วย High Risk ค้างนาน {overdueHighRisk.length} ราย (>30 วันไม่ได้เยี่ยม)
+            </div>
+            <div style={{ fontSize: 11, color: C.high, opacity: 0.8 }}>แตะเพื่อดูรายการคัดกรองความเสี่ยง</div>
+          </div>
+          <span style={{ fontSize: 12, color: C.high, fontWeight: 700, opacity: 0.7 }}>›</span>
+        </div>
+      )}
 
       {/* Global toast (sync status / refresh) */}
       {appToast && (
