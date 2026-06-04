@@ -110,6 +110,33 @@
   .rx-stat-card:nth-child(2) { animation-delay: 0.12s; }
   .rx-stat-card:nth-child(3) { animation-delay: 0.19s; }
   .rx-stat-card:nth-child(4) { animation-delay: 0.26s; }
+
+  /* ── Mobile drawer sidebar ── */
+  .rx-drawer-overlay {
+    position: fixed; inset: 0; background: rgba(5,11,30,0.55);
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    z-index: 1400; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+  }
+  .rx-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+  @keyframes rxSlideDrawer { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+  /* ── Responsive: phones & small tablets ── */
+  @media (max-width: 900px) {
+    /* stack multi-column card grids → single column (tables excluded: they start with 'auto') */
+    #main-scroll [style*="grid-template-columns: repeat"],
+    #main-scroll [style*="grid-template-columns:repeat"],
+    #main-scroll [style*="grid-template-columns: 1fr 1fr"],
+    #main-scroll [style*="grid-template-columns:1fr 1fr"],
+    #main-scroll [style*="grid-template-columns: 1fr 330px"],
+    #main-scroll [style*="grid-template-columns: 1fr 1.4fr"] {
+      grid-template-columns: 1fr !important;
+    }
+    /* keep small fixed numpad-style grids intact is fine; tables scroll horizontally */
+  }
+  @media (max-width: 640px) {
+    #main-scroll { padding-left: 0 !important; padding-right: 0 !important; }
+    .rx-page-pad { padding-left: 14px !important; padding-right: 14px !important; }
+  }
 </style>
 <!-- React + Babel -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -478,6 +505,8 @@ const AppStore = {
       visits: SAMPLE_VISITS,
       telepharmacy: SAMPLE_TELEPHARMACY,
       haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
+      _savedAt: 0,      // ข้อมูลตัวอย่าง — เก่าที่สุดเสมอ เพื่อให้ข้อมูลจริงจาก Firebase ชนะตอน merge
+      _isSample: true,  // ธงบอกว่าเป็นข้อมูลตัวอย่าง ยังไม่เคยถูกผู้ใช้แก้ไข
     };
   },
 
@@ -486,14 +515,15 @@ const AppStore = {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) return JSON.parse(raw);
     } catch (e) { /* ignore */ }
-    const def = this.getDefault();
-    this.save(def);
-    return def;
+    // เครื่องใหม่: คืนค่า default โดย "ไม่" บันทึกลง localStorage (ไม่ประทับ _savedAt)
+    // เพื่อให้ข้อมูลจริงจาก Firebase ชนะตอน merge เสมอ ผู้ใช้จึงไม่ต้องสมัครใหม่
+    return this.getDefault();
   },
 
   save(data) {
     try {
       const payload = { ...data, _savedAt: Date.now() };
+      delete payload._isSample; // เมื่อบันทึกจริงแล้วถือว่าไม่ใช่ข้อมูลตัวอย่างอีกต่อไป
       localStorage.setItem(STORE_KEY, JSON.stringify(payload));
     } catch (e) {
       console.error('AppStore.save error:', e);
@@ -503,8 +533,13 @@ const AppStore = {
   // Returns the data that is newer based on _savedAt timestamp.
   // If Firebase data is newer → use Firebase; otherwise keep local.
   merge(local, remote) {
-    const localTs  = local?._savedAt  || 0;
-    const remoteTs = remote?._savedAt || 0;
+    if (!remote) return local;
+    if (!local)  return remote;
+    // ถ้า local ยังเป็นข้อมูลตัวอย่าง (ยังไม่เคยถูกแก้) → ใช้ข้อมูลจริงจาก Firebase เสมอ
+    if (local._isSample) return remote;
+    if (remote._isSample) return local;
+    const localTs  = local._savedAt  || 0;
+    const remoteTs = remote._savedAt || 0;
     return remoteTs >= localTs ? remote : local;
   },
 
@@ -9660,7 +9695,7 @@ const NAV = [
 ];
 
 // ── Sidebar ───────────────────────────────────────────
-function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
+function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false, open = false, onClose }) {
   const highRisk = data.patients.filter(p => p.riskLevel === 'High').length;
   const pending  = data.telepharmacy.filter(t => t.status === 'Pending').length;
   const badges   = { risk: highRisk, telepharmacy: pending };
@@ -9682,7 +9717,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
       || (view === 'telepharmacy-add' && n.id === 'telepharmacy');
     const badge = badges[n.id];
     return (
-      <button onClick={() => navigate(n.id)} style={{
+      <button onClick={() => { navigate(n.id); if (mobile && onClose) onClose(); }} style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: 10,
         padding: '9px 12px 9px 14px', borderRadius: 10, border: 'none',
         cursor: 'pointer', textAlign: 'left', marginBottom: 1,
@@ -9709,13 +9744,38 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
     );
   };
 
+  // บนมือถือ: ถ้าปิดอยู่ไม่ต้อง render เลย (กัน orb/แอนิเมชันทำงานเปล่า)
+  if (mobile && !open) return null;
+
+  const asideStyle = mobile
+    ? {
+        width: 256, maxWidth: '82vw', height: '100vh', position: 'fixed', top: 0, left: 0,
+        zIndex: 1500, display: 'flex', flexDirection: 'column',
+        background: 'linear-gradient(180deg, #0D1F4E 0%, #0B1D45 40%, #091535 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.07)',
+        boxShadow: '4px 0 30px rgba(0,0,0,0.45)',
+        animation: 'rxSlideDrawer 0.26s ease both',
+      }
+    : {
+        width: 236, flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
+        display: 'flex', flexDirection: 'column',
+        background: 'linear-gradient(180deg, #0D1F4E 0%, #0B1D45 40%, #091535 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.07)',
+      };
+
   return (
-    <aside style={{
-      width: 236, flexShrink: 0, height: '100vh', position: 'sticky', top: 0,
-      display: 'flex', flexDirection: 'column',
-      background: 'linear-gradient(180deg, #0D1F4E 0%, #0B1D45 40%, #091535 100%)',
-      borderRight: '1px solid rgba(255,255,255,0.07)',
-    }}>
+    <React.Fragment>
+    {mobile && <div className="rx-drawer-overlay open" onClick={onClose} />}
+    <aside style={asideStyle}>
+      {mobile && (
+        <button onClick={onClose} aria-label="ปิดเมนู" style={{
+          position: 'absolute', top: 12, right: 12, zIndex: 2,
+          width: 32, height: 32, borderRadius: 9, cursor: 'pointer',
+          background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)',
+          color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>✕</button>
+      )}
       {/* Logo */}
       <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -9782,6 +9842,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
         </div>
       </div>
     </aside>
+    </React.Fragment>
   );
 }
 
@@ -9803,7 +9864,9 @@ function AppBgCanvas() {
       { px:0.60, py:0.38, r:200, col:'#BAE6FD', spd:0.00020 },
     ];
     const resize = () => {
-      w = window.innerWidth - 236; h = window.innerHeight;
+      const off = window.innerWidth <= 900 ? 0 : 236; // ไม่มี sidebar บนมือถือ → เต็มจอ
+      canvas.style.left = off + 'px';
+      w = window.innerWidth - off; h = window.innerHeight;
       canvas.width = w * dpr; canvas.height = h * dpr;
       canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -10304,7 +10367,8 @@ function Dashboard({ data, navigate }) {
 function App() {
   // Auth
   const [currentUser, setCurrentUser] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem('copd_user_v1')); } catch { return null; }
+    // ค้าง login ไว้บนเครื่องเดิม (localStorage) ไม่ต้อง login ใหม่ทุกครั้งที่เปิดแอพ
+    try { return JSON.parse(localStorage.getItem('copd_user_v1') || sessionStorage.getItem('copd_user_v1')); } catch { return null; }
   });
   // Data
   const [data, setData] = useState(() => AppStore.load());
@@ -10322,6 +10386,17 @@ function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [editVisitId,  setEditVisitId]  = useState(null);
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
+  const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
+  const [navOpen,      setNavOpen]      = useState(false);
+
+  // ติดตามขนาดหน้าจอ → สลับโหมดมือถือ/เดสก์ท็อป
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth <= 900);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  // ปิด drawer อัตโนมัติเมื่อกลับสู่เดสก์ท็อป
+  useEffect(() => { if (!isMobile) setNavOpen(false); }, [isMobile]);
 
   // Online/offline indicator
   useEffect(() => {
@@ -10337,8 +10412,8 @@ function App() {
 
   // Persist session
   useEffect(() => {
-    if (currentUser) sessionStorage.setItem('copd_user_v1', JSON.stringify(currentUser));
-    else             sessionStorage.removeItem('copd_user_v1');
+    if (currentUser) localStorage.setItem('copd_user_v1', JSON.stringify(currentUser));
+    else { localStorage.removeItem('copd_user_v1'); sessionStorage.removeItem('copd_user_v1'); }
   }, [currentUser]);
 
   // Firebase init — merge by timestamp, retry on failure
@@ -10419,6 +10494,7 @@ function App() {
       saveTimer.current = setTimeout(() => {
         setSyncStatus('syncing');
         const payload = { ...data, _savedAt: Date.now() };
+        delete payload._isSample;
         dbRef.current.collection('clinic').doc('main').set(payload)
           .then(() => setSyncStatus('synced'))
           .catch(err => {
@@ -10445,7 +10521,7 @@ function App() {
   }, []);
 
   const handleDataChange = useCallback(nd => setData(nd), []);
-  const handleLogout = () => { sessionStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
+  const handleLogout = () => { localStorage.removeItem('copd_user_v1'); sessionStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
 
   // Ctrl+K / Cmd+K to open QuickSearch
   useEffect(() => {
@@ -10519,18 +10595,29 @@ function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <AppBgCanvas />
-      <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} />
+      {isMobile
+        ? <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} mobile open={navOpen} onClose={() => setNavOpen(false)} />
+        : <Sidebar view={view} navigate={navigate} data={data} syncStatus={syncStatus} currentUser={currentUser} />
+      }
 
       <main id="main-scroll" style={{ flex: 1, overflowY: 'auto', background: 'transparent', position: 'relative', zIndex: 1 }}>
         {/* Top bar */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 100,
           background: 'rgba(241,245,249,0.85)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-          borderBottom: `1px solid ${C.border}`, padding: '0 28px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 54,
+          borderBottom: `1px solid ${C.border}`, padding: isMobile ? '0 14px' : '0 28px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 54, gap: 8,
         }}>
           {/* Breadcrumb */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {isMobile && (
+              <button onClick={() => setNavOpen(true)} aria-label="เปิดเมนู" style={{
+                width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
+                background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary,
+                fontSize: 17, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+              }}>☰</button>
+            )}
             <div style={{
               width: 30, height: 30, borderRadius: 8,
               background: 'linear-gradient(135deg,#1E40AF,#2563EB)',
@@ -10543,8 +10630,16 @@ function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {/* Search */}
+            {isMobile ? (
+              <button onClick={() => setSearchOpen(true)} aria-label="ค้นหา" style={{
+                width: 36, height: 36, borderRadius: 9, cursor: 'pointer',
+                background: C.surface, border: `1.5px solid ${C.border}`, fontSize: 15,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+              }}>🔍</button>
+            ) : (
             <button onClick={() => setSearchOpen(true)} style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 14px',
               borderRadius: 10, background: C.surface, border: `1.5px solid ${C.border}`,
@@ -10558,16 +10653,17 @@ function App() {
               <span style={{ flex: 1, textAlign: 'left' }}>ค้นหา HN / ชื่อผู้ป่วย...</span>
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: C.bgAlt, color: C.textMuted, fontFamily: 'monospace', border: `1px solid ${C.border}` }}>⌘K</span>
             </button>
+            )}
 
             {/* Offline badge */}
-            {!isOnline && (
+            {!isOnline && !isMobile && (
               <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: C.mediumBg, color: C.medium, border: `1px solid ${C.mediumBorder}` }}>
                 ⚫ ออฟไลน์
               </span>
             )}
 
             {/* Sync badge */}
-            {syncStatus !== 'offline' && (
+            {syncStatus !== 'offline' && !isMobile && (
               <span style={{
                 fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
                 background: syncStatus==='synced'?C.lowBg : syncStatus==='syncing'?'#EFF6FF':C.highBg,
@@ -10579,12 +10675,19 @@ function App() {
             )}
 
             {/* User + logout */}
-            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 14px 5px 6px', borderRadius:24, background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border:'1px solid #BFDBFE', boxShadow:'0 1px 3px rgba(37,99,235,0.1)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding: isMobile ? 4 : '5px 14px 5px 6px', borderRadius:24, background:'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border:'1px solid #BFDBFE', boxShadow:'0 1px 3px rgba(37,99,235,0.1)' }}>
               <div style={{ width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,#1E40AF,#2563EB)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,boxShadow:'0 2px 6px rgba(37,99,235,0.35)' }}>
                 {currentUser.name.charAt(0)}
               </div>
-              <span style={{ fontSize:12.5,fontWeight:700,color:C.primary }}>{currentUser.prefix}{currentUser.name}</span>
+              {!isMobile && <span style={{ fontSize:12.5,fontWeight:700,color:C.primary }}>{currentUser.prefix}{currentUser.name}</span>}
             </div>
+            {isMobile ? (
+            <button onClick={handleLogout} aria-label="ออกจากระบบ" style={{
+              width: 36, height: 36, borderRadius: 9, cursor: 'pointer', flexShrink: 0,
+              background: C.surface, border: `1.5px solid ${C.border}`, color: C.textMuted, fontSize: 15,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>⎋</button>
+            ) : (
             <button onClick={handleLogout} style={{
               background:'none', border:`1.5px solid ${C.border}`, borderRadius:10, cursor:'pointer',
               padding:'5px 13px', fontSize:12, color:C.textMuted, fontFamily:'Sarabun,sans-serif',
@@ -10594,11 +10697,12 @@ function App() {
             onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>
               ออกจากระบบ
             </button>
+            )}
           </div>
         </div>
 
         {/* Content */}
-        <div style={{ padding: '24px 28px' }}>{renderView()}</div>
+        <div className="rx-page-pad" style={{ padding: isMobile ? '16px 14px' : '24px 28px' }}>{renderView()}</div>
       </main>
 
       <QuickSearch data={data} navigate={navigate}
