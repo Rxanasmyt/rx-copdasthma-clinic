@@ -57,6 +57,41 @@
 
   /* Table row hover */
   tr.rx-row:hover td { background: #F8FAFC; }
+
+  /* ── Login page decorations ── */
+  @keyframes rxBlobFloat {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33%      { transform: translate(40px, -30px) scale(1.12); }
+    66%      { transform: translate(-30px, 24px) scale(0.92); }
+  }
+  @keyframes rxBreathe {
+    0%, 100% { transform: scale(1);    box-shadow: 0 8px 32px rgba(37,99,235,0.55); }
+    50%      { transform: scale(1.06); box-shadow: 0 12px 44px rgba(37,99,235,0.75); }
+  }
+  @keyframes rxShimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  .rx-blob {
+    position: absolute; border-radius: 50%; filter: blur(64px);
+    opacity: 0.5; z-index: 0; pointer-events: none;
+  }
+  .rx-blob-1 { width: 360px; height: 360px; background: radial-gradient(circle, #1D4ED8, transparent 70%); top: -90px; left: -70px; animation: rxBlobFloat 18s ease-in-out infinite; }
+  .rx-blob-2 { width: 320px; height: 320px; background: radial-gradient(circle, #06B6D4, transparent 70%); bottom: -70px; right: -50px; animation: rxBlobFloat 23s ease-in-out infinite reverse; }
+  .rx-blob-3 { width: 280px; height: 280px; background: radial-gradient(circle, #7C3AED, transparent 70%); top: 42%; left: 48%; animation: rxBlobFloat 27s ease-in-out infinite; }
+  .rx-login-hero { animation: rxFadeUp 0.5s ease both; }
+  .rx-login-card { animation: rxFadeUp 0.4s ease both; }
+  .rx-login-mobilelogo { display: none; }
+  .rx-breathe { animation: rxBreathe 4s ease-in-out infinite; }
+  .rx-shimmer {
+    background: linear-gradient(110deg, #fff 35%, #93C5FD 50%, #fff 65%);
+    background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; animation: rxShimmer 5s linear infinite;
+  }
+  @media (max-width: 900px) {
+    .rx-login-hero      { display: none !important; }
+    .rx-login-mobilelogo { display: block !important; }
+  }
 </style>
 <!-- React + Babel -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
@@ -2068,6 +2103,69 @@ const PINDot = ({ filled }) => (
   }} />
 );
 
+// ── Login animated particle background (constellation) ──
+function LoginCanvas() {
+  const ref = React.useRef(null);
+  stEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let w, h, raf, particles = [];
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      w = window.innerWidth; h = window.innerHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    const N = Math.min(80, Math.floor(w / 20));
+    for (let i = 0; i < N; i++) {
+      particles.push({
+        x: Math.random() * w, y: Math.random() * h,
+        r: Math.random() * 1.8 + 0.8,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+      });
+    }
+    const LINK = 130;
+    const draw = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > w) p.vx *= -1;
+        if (p.y < 0 || p.y > h) p.vy *= -1;
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const dx = p.x - q.x, dy = p.y - q.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < LINK) {
+            ctx.strokeStyle = 'rgba(96,165,250,' + (0.16 * (1 - dist / LINK)) + ')';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          }
+        }
+        ctx.fillStyle = 'rgba(147,197,253,0.55)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, []);
+  return <canvas ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
+}
+
+// ── Login feature list (shown on hero) ──
+const LOGIN_FEATURES = [
+  { i: '📋', t: 'บันทึกการบริบาลเภสัชกรรม', d: 'SOAP · เทคนิคยาพ่น · DRP · ความร่วมมือใช้ยา' },
+  { i: '🎯', t: 'คัดกรองความเสี่ยงอัตโนมัติ', d: 'GOLD 2023 ABE · GINA · CAT/mMRC/ACT' },
+  { i: '📞', t: 'Telepharmacy ติดตามผู้ป่วย', d: 'นัดหมาย · โทรติดตาม · บันทึกผลลัพธ์' },
+  { i: '☁️', t: 'ซิงค์ข้อมูลทุกอุปกรณ์', d: 'Cloud Sync ปลอดภัย · ใช้ได้ทุกที่ทุกเวลา' },
+];
+
 // ── Login Screen ──────────────────────────────────────
 function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
   const users = (data && data.users) || [];
@@ -2128,33 +2226,95 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
 
   const bgStyle = {
     position: 'fixed', inset: 0,
-    background: 'linear-gradient(145deg, #060E25 0%, #0B1D45 40%, #0E2558 70%, #091535 100%)',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    zIndex: 2000, padding: 16, fontFamily: 'Sarabun, sans-serif', overflow: 'hidden',
+    background: 'linear-gradient(145deg, #050B1E 0%, #0B1D45 38%, #0E2558 68%, #071230 100%)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 2000, padding: 20, fontFamily: 'Sarabun, sans-serif', overflow: 'hidden',
   };
   const cardStyle = {
-    background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(28px)',
-    WebkitBackdropFilter: 'blur(28px)',
-    border: '1px solid rgba(255,255,255,0.13)', borderRadius: 24,
+    background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(30px)',
+    WebkitBackdropFilter: 'blur(30px)',
+    border: '1px solid rgba(255,255,255,0.14)', borderRadius: 24,
     width: '100%', maxWidth: 400, padding: '28px 28px 32px',
-    boxShadow: '0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.12)',
+    boxShadow: '0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.14)',
   };
 
-  const Logo = () => (
-    <div style={{ textAlign: 'center', marginBottom: 26 }}>
-      <div style={{
-        width: 76, height: 76, borderRadius: '50%', margin: '0 auto 14px',
+  // Left hero panel (desktop) — app description + features
+  const Hero = () => (
+    <div className="rx-login-hero" style={{ flex: '0 1 440px', maxWidth: 460, color: '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 26 }}>
+        <div className="rx-breathe" style={{
+          width: 66, height: 66, borderRadius: 20, flexShrink: 0,
+          background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 55%, #2563EB 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34,
+        }}>🫁</div>
+        <div>
+          <h1 className="rx-shimmer" style={{ margin: 0, fontSize: 27, fontWeight: 800, letterSpacing: '-0.6px', lineHeight: 1.15 }}>
+            Rx-COPD/Asthma
+          </h1>
+          <p style={{ margin: '3px 0 0', fontSize: 13, color: 'rgba(147,197,253,0.85)', fontWeight: 600 }}>
+            ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด
+          </p>
+        </div>
+      </div>
+      <p style={{ fontSize: 14, lineHeight: 1.9, color: 'rgba(255,255,255,0.72)', marginBottom: 28 }}>
+        ระบบบริหารจัดการคลินิก <b style={{ color: '#fff' }}>COPD</b> และ <b style={{ color: '#fff' }}>Asthma</b> แบบครบวงจร
+        บันทึกการบริบาล ประเมินความเสี่ยง ติดตามผู้ป่วย พร้อมรายงานคุณภาพตามมาตรฐาน GOLD &amp; GINA
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {LOGIN_FEATURES.map(f => (
+          <div key={f.t} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 13, flexShrink: 0,
+              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21,
+            }}>{f.i}</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{f.t}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{f.d}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 30, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.42)', lineHeight: 1.75 }}>
+        <span style={{ color: 'rgba(147,197,253,0.65)', fontWeight: 700 }}>จัดทำโดย </span>
+        ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง
+      </div>
+    </div>
+  );
+
+  // Compact logo for mobile (hero hidden)
+  const MobileLogo = () => (
+    <div className="rx-login-mobilelogo" style={{ textAlign: 'center', marginBottom: 20 }}>
+      <div className="rx-breathe" style={{
+        width: 66, height: 66, borderRadius: '50%', margin: '0 auto 12px',
         background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 60%, #2563EB 100%)',
-        boxShadow: '0 8px 32px rgba(37,99,235,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32,
       }}>🫁</div>
-      <h1 style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
+      <h1 style={{ color: '#FFFFFF', fontSize: 19, fontWeight: 800, margin: 0, letterSpacing: '-0.3px' }}>
         Rx-COPD/Asthma Clinic
       </h1>
-      <p style={{ color: 'rgba(147,197,253,0.7)', fontSize: 12, margin: '0 0 8px' }}>ระบบบริบาลเภสัชกรรม</p>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', lineHeight: 1.8 }}>
-        <span style={{ color: 'rgba(147,197,253,0.5)', fontWeight: 600 }}>จัดทำโดย </span>
-        ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง
+      <p style={{ color: 'rgba(147,197,253,0.75)', fontSize: 12, margin: '4px 0 0' }}>ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด</p>
+    </div>
+  );
+
+  // Shell: animated background + hero + card column.
+  // NOTE: render function (not a component) so the card subtree is reconciled
+  // by position — keeps input focus & avoids restarting the canvas each keystroke.
+  const renderShell = (children) => (
+    <div style={bgStyle}>
+      <LoginCanvas />
+      <div className="rx-blob rx-blob-1" />
+      <div className="rx-blob rx-blob-2" />
+      <div className="rx-blob rx-blob-3" />
+      <div style={{
+        position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', gap: 56, width: '100%', maxWidth: 1000, flexWrap: 'wrap',
+      }}>
+        {Hero()}
+        <div className="rx-login-card" style={{ width: '100%', maxWidth: 400 }}>
+          {MobileLogo()}
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -2241,9 +2401,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
         }, 180);
       }
     };
-    return (
-      <div style={bgStyle}>
-        <Logo />
+    return renderShell(
         <div style={{ ...cardStyle, textAlign: 'center' }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🔐</div>
           <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#FFFFFF' }}>รหัสเข้าคลินิก</h3>
@@ -2254,15 +2412,12 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
           <ErrBadge msg={gateErr} />
           <Numpad onDigit={pushGate} onBack={() => { setGateInput(p => p.slice(0,-1)); setGateErr(''); }} />
         </div>
-      </div>
     );
   }
 
   // ── Select mode ────────────────────────────────────
   if (mode === 'select') {
-    return (
-      <div style={bgStyle}>
-        <Logo />
+    return renderShell(
         <div style={cardStyle}>
           <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#FFFFFF', textAlign: 'center' }}>
             เลือกผู้ใช้งาน
@@ -2313,7 +2468,6 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}>+ สมัครสมาชิกใหม่</button>
         </div>
-      </div>
     );
   }
 
@@ -2339,9 +2493,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
         }, 180);
       }
     };
-    return (
-      <div style={bgStyle}>
-        <Logo />
+    return renderShell(
         <div style={{ ...cardStyle, textAlign: 'center' }}>
           <BackBtn onClick={() => { setMode('select'); setPin(''); setPinErr(''); setAttempts(0); setLockUntil(0); }} />
           <div style={{
@@ -2369,7 +2521,6 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
             </>
           )}
         </div>
-      </div>
     );
   }
 
@@ -2422,9 +2573,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
       color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 14,
       outline: 'none', boxSizing: 'border-box', marginBottom: 10,
     };
-    return (
-      <div style={bgStyle}>
-        <Logo />
+    return renderShell(
         <div style={cardStyle}>
           <BackBtn onClick={() => { setMode('select'); setSelUser(null); setRegErr(''); setRegStep(1); }} />
           {regStep === 1 ? (
@@ -2473,7 +2622,6 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
             </div>
           )}
         </div>
-      </div>
     );
   }
 
