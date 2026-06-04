@@ -1994,6 +1994,7 @@ const PINDot = ({ filled }) => (
 // ── Login Screen ──────────────────────────────────────
 function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
   const users = (data && data.users) || [];
+  const clinicCode = (data && data.clinicCode) || '';
 
   // Migration: รัน หลัง Firebase sync เสร็จเท่านั้น (ป้องกันเขียนทับข้อมูลจริง)
   stEffect(() => {
@@ -2012,123 +2013,154 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
     }
   }, [syncStatus]);
 
-  const [mode, setMode]         = stState('username'); // username | pin | register
-  const [username, setUsername] = stState('');
+  // mode: 'gate' | 'select' | 'pin' | 'register'
+  const [mode, setMode]         = stState(clinicCode ? 'gate' : 'select');
+  const [gateInput, setGateInput] = stState('');
+  const [gateErr, setGateErr]   = stState('');
   const [selUser, setSelUser]   = stState(null);
   const [pin, setPin]           = stState('');
-  const [err, setErr]           = stState('');
+  const [pinErr, setPinErr]     = stState('');
+  const [attempts, setAttempts] = stState(0);
+  const [lockUntil, setLockUntil] = stState(0);
+  const [lockSecs, setLockSecs] = stState(0);
+  const [regStep, setRegStep]   = stState(1); // 1=info, 2=pin numpad
+  const [regPinStep, setRegPinStep] = stState('new'); // 'new'|'confirm'
+  const [regPfx,  setRegPfx]   = stState('ภก.');
+  const [regName, setRegName]   = stState('');
+  const [regUname, setRegUname] = stState('');
+  const [regPin,  setRegPin]    = stState('');
+  const [regConf, setRegConf]   = stState('');
+  const [regErr,  setRegErr]    = stState('');
 
-  // Register form
-  const [regPfx,    setRegPfx]    = stState('ภก.');
-  const [regName,   setRegName]   = stState('');
-  const [regUname,  setRegUname]  = stState('');
-  const [regPin,    setRegPin]    = stState('');
-  const [regConf,   setRegConf]   = stState('');
+  // Lockout countdown
+  stEffect(() => {
+    if (!lockUntil) return;
+    const iv = setInterval(() => {
+      const rem = Math.ceil((lockUntil - Date.now()) / 1000);
+      if (rem <= 0) { setLockSecs(0); setLockUntil(0); setAttempts(0); }
+      else setLockSecs(rem);
+    }, 500);
+    return () => clearInterval(iv);
+  }, [lockUntil]);
+
+  // Sync gate mode when clinicCode changes (e.g. first set via Firebase)
+  stEffect(() => {
+    if (clinicCode && mode === 'select') setMode('gate');
+    if (!clinicCode && mode === 'gate') setMode('select');
+  }, [clinicCode]);
 
   const bgStyle = {
     position: 'fixed', inset: 0,
-    background: 'linear-gradient(135deg, #071732 0%, #0B1D45 50%, #0E2D6B 100%)',
+    background: 'linear-gradient(145deg, #060E25 0%, #0B1D45 40%, #0E2558 70%, #091535 100%)',
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    zIndex: 2000, padding: 16, fontFamily: 'Sarabun, sans-serif',
+    zIndex: 2000, padding: 16, fontFamily: 'Sarabun, sans-serif', overflow: 'hidden',
   };
   const cardStyle = {
-    background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20,
-    width: '100%', maxWidth: 380, padding: 28,
+    background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(28px)',
+    WebkitBackdropFilter: 'blur(28px)',
+    border: '1px solid rgba(255,255,255,0.13)', borderRadius: 24,
+    width: '100%', maxWidth: 400, padding: '28px 28px 32px',
+    boxShadow: '0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.12)',
   };
 
-  // NBtn component for numpad
-  const NBtn = ({ label, onClick }) => (
-    <button onClick={onClick} style={{
-      width: 68, height: 68, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.2)',
-      background: 'rgba(255,255,255,0.08)', cursor: 'pointer', fontSize: 22, fontWeight: 600,
-      color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', transition: 'all 0.1s',
-    }}
-    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
-    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}>
-      {label}
-    </button>
-  );
-
   const Logo = () => (
-    <div style={{ textAlign: 'center', marginBottom: 24 }}>
-      <div style={{ fontSize: 52, marginBottom: 6 }}>🫁</div>
-      <h1 style={{ color: '#FFFFFF', fontSize: 21, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>
+    <div style={{ textAlign: 'center', marginBottom: 26 }}>
+      <div style={{
+        width: 76, height: 76, borderRadius: '50%', margin: '0 auto 14px',
+        background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 60%, #2563EB 100%)',
+        boxShadow: '0 8px 32px rgba(37,99,235,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38,
+      }}>🫁</div>
+      <h1 style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
         Rx-COPD/Asthma Clinic
       </h1>
-      <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 5 }}>ระบบบริบาลเภสัชกรรม</p>
-      <div style={{ marginTop: 12, fontSize: 10, color: 'rgba(255,255,255,0.32)', lineHeight: 1.6 }}>
-        <div style={{ fontWeight: 700, color: 'rgba(147,197,253,0.65)' }}>จัดทำโดย</div>
-        <div>ภก.อนัส มะยีแต</div>
-        <div>ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค</div>
-        <div>โรงพยาบาลกรงปินัง</div>
+      <p style={{ color: 'rgba(147,197,253,0.7)', fontSize: 12, margin: '0 0 8px' }}>ระบบบริบาลเภสัชกรรม</p>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', lineHeight: 1.8 }}>
+        <span style={{ color: 'rgba(147,197,253,0.5)', fontWeight: 600 }}>จัดทำโดย </span>
+        ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง
       </div>
     </div>
   );
 
-  // ── Mode: username ──────────────────────────────────
-  if (mode === 'username') {
-    const handleNext = () => {
-      const found = users.find(u => u.username === username.trim().toLowerCase());
-      if (!found) { setErr('ไม่พบชื่อผู้ใช้ในระบบ'); return; }
-      setSelUser(found); setPin(''); setErr('');
-      if (!found.pin) { setMode('register'); } else { setMode('pin'); }
-    };
-    return (
-      <div style={bgStyle}>
-        <Logo />
-        <div style={cardStyle}>
-          <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: '#FFFFFF', textAlign: 'center' }}>
-            เข้าสู่ระบบ
-          </h3>
-          <div style={{ position: 'relative', marginBottom: 14 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16 }}>👤</span>
-            <input
-              value={username}
-              onChange={e => { setUsername(e.target.value); setErr(''); }}
-              onKeyDown={e => e.key === 'Enter' && handleNext()}
-              placeholder="ชื่อผู้ใช้ (username)"
-              autoFocus
-              style={{
-                width: '100%', padding: '12px 14px 12px 38px', borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.08)',
-                color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 14,
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          {err && (
-            <div style={{
-              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: 20, padding: '6px 14px', fontSize: 12, color: '#FCA5A5',
-              textAlign: 'center', marginBottom: 12,
-            }}>{err}</div>
-          )}
-          <button onClick={handleNext} style={{
-            width: '100%', padding: '13px', borderRadius: 10,
-            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
-            color: '#fff', border: 'none', cursor: 'pointer',
-            fontSize: 14, fontWeight: 700, fontFamily: 'Sarabun, sans-serif',
-          }}>เข้าสู่ระบบ</button>
-        </div>
-        <button onClick={() => { setMode('register'); setSelUser(null); setErr(''); }} style={{
-          marginTop: 16, background: 'none', border: 'none', cursor: 'pointer',
-          color: 'rgba(147,197,253,0.8)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
-        }}>สมัครสมาชิก</button>
-      </div>
-    );
-  }
+  const NBtn = ({ label, onClick, disabled }) => (
+    <button onClick={onClick} disabled={disabled} style={{
+      width: 72, height: 72, borderRadius: '50%',
+      border: disabled ? '1.5px solid rgba(255,255,255,0.07)' : '1.5px solid rgba(255,255,255,0.18)',
+      background: disabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.09)',
+      cursor: disabled ? 'default' : 'pointer',
+      fontSize: label === '⌫' ? 20 : 24, fontWeight: 600,
+      color: disabled ? 'rgba(255,255,255,0.2)' : '#FFFFFF',
+      fontFamily: 'Sarabun, sans-serif', transition: 'all 0.12s',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}
+    onMouseEnter={e => !disabled && (e.currentTarget.style.background = 'rgba(255,255,255,0.2)')}
+    onMouseLeave={e => !disabled && (e.currentTarget.style.background = 'rgba(255,255,255,0.09)')}>
+      {label}
+    </button>
+  );
 
-  // ── Mode: pin ───────────────────────────────────────
-  if (mode === 'pin' && selUser) {
-    const pushDigit = (d) => {
-      if (pin.length >= 4) return;
-      const next = pin + d;
-      setPin(next);
-      if (next.length === 4) {
+  const PinDots = ({ count, filled }) => (
+    <div style={{ display: 'flex', gap: 14, justifyContent: 'center', margin: '18px 0 6px' }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{
+          width: 14, height: 14, borderRadius: '50%',
+          background: i < filled ? '#FFFFFF' : 'transparent',
+          border: i < filled ? 'none' : '2px solid rgba(255,255,255,0.3)',
+          boxShadow: i < filled ? '0 0 10px rgba(255,255,255,0.5)' : 'none',
+          transition: 'all 0.12s',
+        }} />
+      ))}
+    </div>
+  );
+
+  const ErrBadge = ({ msg }) => msg ? (
+    <div style={{
+      background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.35)',
+      borderRadius: 20, padding: '7px 16px', fontSize: 12, color: '#FCA5A5',
+      textAlign: 'center', margin: '10px 0',
+    }}>{msg}</div>
+  ) : null;
+
+  const PrimaryBtn = ({ children, onClick }) => (
+    <button onClick={onClick} style={{
+      width: '100%', padding: '14px', borderRadius: 12,
+      background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
+      boxShadow: '0 4px 18px rgba(37,99,235,0.4)',
+      color: '#fff', border: 'none', cursor: 'pointer',
+      fontSize: 15, fontWeight: 700, fontFamily: 'Sarabun, sans-serif', transition: 'all 0.15s',
+    }}
+    onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+    onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+    >{children}</button>
+  );
+
+  const BackBtn = ({ onClick }) => (
+    <button onClick={onClick} style={{
+      background: 'none', border: 'none', cursor: 'pointer',
+      color: 'rgba(147,197,253,0.7)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
+      display: 'flex', alignItems: 'center', gap: 5, padding: '0 0 16px',
+    }}>‹ กลับ</button>
+  );
+
+  const Numpad = ({ onDigit, onBack, disabled }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,72px)', gap: 10, justifyContent: 'center', marginTop: 16 }}>
+      {[1,2,3,4,5,6,7,8,9].map(n => <NBtn key={n} label={n} disabled={disabled} onClick={() => onDigit(String(n))} />)}
+      <div />
+      <NBtn label={0} disabled={disabled} onClick={() => onDigit('0')} />
+      <NBtn label="⌫" onClick={onBack} />
+    </div>
+  );
+
+  // ── Gate mode ──────────────────────────────────────
+  if (mode === 'gate') {
+    const pushGate = (d) => {
+      if (gateInput.length >= 6) return;
+      const next = gateInput + d;
+      setGateInput(next); setGateErr('');
+      if (next.length === clinicCode.length) {
         setTimeout(() => {
-          if (next === selUser.pin) { onLogin(selUser); }
-          else { setErr('รหัส PIN ไม่ถูกต้อง'); setPin(''); }
+          if (next === clinicCode) { setGateInput(''); setGateErr(''); setMode('select'); }
+          else { setGateErr('รหัสเข้าคลินิกไม่ถูกต้อง'); setGateInput(''); }
         }, 180);
       }
     };
@@ -2136,135 +2168,233 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
       <div style={bgStyle}>
         <Logo />
         <div style={{ ...cardStyle, textAlign: 'center' }}>
-          <button onClick={() => { setMode('username'); setPin(''); setErr(''); }} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.5)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
-            display: 'block', marginBottom: 14,
-          }}>← กลับ</button>
-          <div style={{
-            width: 60, height: 60, borderRadius: '50%', background: '#1848A0',
-            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontWeight: 700, margin: '0 auto 10px',
-          }}>{(selUser.name || '').charAt(0)}</div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#FFFFFF', marginBottom: 4 }}>
-            {selUser.prefix}{selUser.name}
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 22 }}>กรอก PIN 4 หลัก</div>
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 8 }}>
-            {[0,1,2,3].map(i => (
-              <div key={i} style={{
-                width: 24, height: 24, borderRadius: '50%',
-                background: i < pin.length ? '#FFFFFF' : 'rgba(255,255,255,0.2)',
-                transition: 'all 0.15s',
-              }} />
-            ))}
-          </div>
-          {err && (
-            <div style={{
-              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: 20, padding: '5px 14px', fontSize: 12, color: '#FCA5A5',
-              display: 'inline-block', marginBottom: 10,
-            }}>{err}</div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,68px)', gap: 10, justifyContent: 'center', marginTop: 16 }}>
-            {[1,2,3,4,5,6,7,8,9].map(n => <NBtn key={n} label={n} onClick={() => pushDigit(String(n))} />)}
-            <div />
-            <NBtn label={0} onClick={() => pushDigit('0')} />
-            <NBtn label="⌫" onClick={() => { setPin(p => p.slice(0,-1)); setErr(''); }} />
-          </div>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>🔐</div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#FFFFFF' }}>รหัสเข้าคลินิก</h3>
+          <p style={{ margin: '0 0 4px', fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
+            กรุณากรอกรหัส {clinicCode.length} หลักเพื่อเข้าใช้งาน
+          </p>
+          <PinDots count={clinicCode.length} filled={gateInput.length} />
+          <ErrBadge msg={gateErr} />
+          <Numpad onDigit={pushGate} onBack={() => { setGateInput(p => p.slice(0,-1)); setGateErr(''); }} />
         </div>
       </div>
     );
   }
 
-  // ── Mode: register ──────────────────────────────────
-  if (mode === 'register') {
-    const handleRegister = () => {
-      if (!regName.trim()) { setErr('กรุณากรอกชื่อ-นามสกุล'); return; }
-      if (!regUname.trim()) { setErr('กรุณากรอก username'); return; }
-      if (regPin.length !== 4) { setErr('กรุณากรอก PIN 4 หลัก'); return; }
-      if (regPin !== regConf) { setErr('PIN ไม่ตรงกัน'); return; }
-      const existingUsers = (data && data.users) || [];
-      if (existingUsers.find(u => u.username === regUname.trim().toLowerCase())) {
-        setErr('username นี้มีอยู่แล้ว'); return;
-      }
-      const newUser = {
-        id: AppStore.generateId(),
-        prefix: regPfx,
-        name: regName.trim(),
-        username: regUname.trim().toLowerCase(),
-        pin: regPin,
-      };
-      // If migrating existing user (selUser with empty pin), update them
-      let newUsers;
-      if (selUser && !selUser.pin) {
-        newUsers = existingUsers.map(u => u.id === selUser.id
-          ? { ...u, pin: regPin, username: regUname.trim().toLowerCase() || u.username }
-          : u
-        );
-        onDataChange({ ...data, users: newUsers });
-        onLogin({ ...selUser, pin: regPin });
-      } else {
-        newUsers = [...existingUsers, newUser];
-        onDataChange({ ...data, users: newUsers });
-        onLogin(newUser);
+  // ── Select mode ────────────────────────────────────
+  if (mode === 'select') {
+    return (
+      <div style={bgStyle}>
+        <Logo />
+        <div style={cardStyle}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#FFFFFF', textAlign: 'center' }}>
+            เลือกผู้ใช้งาน
+          </h3>
+          {users.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '16px 0 20px' }}>
+              <div style={{ fontSize: 38, marginBottom: 8 }}>👤</div>
+              <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0 }}>ยังไม่มีผู้ใช้ กรุณาสมัครสมาชิก</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 280, overflowY: 'auto' }}>
+              {users.map(u => (
+                <button key={u.id} onClick={() => {
+                  setSelUser(u); setPin(''); setPinErr(''); setAttempts(0); setLockUntil(0); setLockSecs(0);
+                  setMode(u.pin ? 'pin' : 'register');
+                }} style={{
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 14,
+                  border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)',
+                  cursor: 'pointer', width: '100%', textAlign: 'left', transition: 'all 0.15s',
+                  color: '#fff', fontFamily: 'Sarabun, sans-serif',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,0.14)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.28)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.12)'; }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                    background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 18, fontWeight: 700, color: '#fff',
+                    boxShadow: '0 4px 14px rgba(37,99,235,0.4)',
+                  }}>{(u.name || '?').charAt(0)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{u.prefix}{u.name}</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>@{u.username}</div>
+                  </div>
+                  <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.3)' }}>›</div>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => {
+            setSelUser(null); setRegPfx('ภก.'); setRegName(''); setRegUname('');
+            setRegPin(''); setRegConf(''); setRegStep(1); setRegPinStep('new'); setRegErr('');
+            setMode('register');
+          }} style={{
+            width: '100%', padding: '11px', borderRadius: 12,
+            border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)',
+            color: 'rgba(147,197,253,0.85)', fontFamily: 'Sarabun, sans-serif',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          }}>+ สมัครสมาชิกใหม่</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PIN mode ───────────────────────────────────────
+  if (mode === 'pin' && selUser) {
+    const isLocked = lockUntil > Date.now();
+    const pushDigit = (d) => {
+      if (isLocked || pin.length >= 4) return;
+      const next = pin + d;
+      setPin(next); setPinErr('');
+      if (next.length === 4) {
+        setTimeout(() => {
+          if (next === selUser.pin) { onLogin(selUser); return; }
+          const na = attempts + 1;
+          setAttempts(na); setPin('');
+          if (na >= 5) {
+            const until = Date.now() + 30000;
+            setLockUntil(until); setLockSecs(30);
+            setPinErr('ล็อกชั่วคราว 30 วินาที (พยายามผิดเกิน 5 ครั้ง)');
+          } else {
+            setPinErr(`PIN ไม่ถูกต้อง · เหลือ ${5 - na} ครั้ง`);
+          }
+        }, 180);
       }
     };
-    const inputStyle = {
-      width: '100%', padding: '10px 14px', borderRadius: 9,
+    return (
+      <div style={bgStyle}>
+        <Logo />
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          <BackBtn onClick={() => { setMode('select'); setPin(''); setPinErr(''); setAttempts(0); setLockUntil(0); }} />
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%', margin: '0 auto 10px',
+            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
+            boxShadow: '0 8px 24px rgba(37,99,235,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 24, fontWeight: 700, color: '#fff',
+          }}>{(selUser.name || '?').charAt(0)}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#FFFFFF', marginBottom: 2 }}>
+            {selUser.prefix}{selUser.name}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>กรอก PIN 4 หลัก</div>
+          {isLocked ? (
+            <div style={{ padding: '24px 0 8px' }}>
+              <div style={{ fontSize: 38, marginBottom: 8 }}>🔒</div>
+              <div style={{ color: '#FCA5A5', fontSize: 14, fontWeight: 700 }}>บัญชีถูกล็อกชั่วคราว</div>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 6 }}>ลองใหม่ใน {lockSecs} วินาที</div>
+            </div>
+          ) : (
+            <>
+              <PinDots count={4} filled={pin.length} />
+              <ErrBadge msg={pinErr} />
+              <Numpad onDigit={pushDigit} onBack={() => { setPin(p => p.slice(0,-1)); setPinErr(''); }} />
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Register mode ──────────────────────────────────
+  if (mode === 'register') {
+    const handleInfoNext = () => {
+      if (!regName.trim()) { setRegErr('กรุณากรอกชื่อ-นามสกุล'); return; }
+      if (!selUser) {
+        if (!regUname.trim()) { setRegErr('กรุณากรอก username'); return; }
+        const existing = (data && data.users) || [];
+        if (existing.find(u => u.username === regUname.trim().toLowerCase())) {
+          setRegErr('username นี้มีอยู่แล้ว'); return;
+        }
+      }
+      setRegErr(''); setRegPin(''); setRegConf(''); setRegPinStep('new'); setRegStep(2);
+    };
+    const pushRegPin = (d) => {
+      if (regPinStep === 'new') {
+        if (regPin.length >= 4) return;
+        const next = regPin + d;
+        setRegPin(next); setRegErr('');
+        if (next.length === 4) setTimeout(() => { setRegPinStep('confirm'); setRegConf(''); }, 200);
+      } else {
+        if (regConf.length >= 4) return;
+        const next = regConf + d;
+        setRegConf(next); setRegErr('');
+        if (next.length === 4) {
+          setTimeout(() => {
+            if (next !== regPin) {
+              setRegErr('PIN ไม่ตรงกัน ลองใหม่');
+              setRegPin(''); setRegConf(''); setRegPinStep('new'); return;
+            }
+            const existing = (data && data.users) || [];
+            if (selUser && !selUser.pin) {
+              const upd = { ...selUser, pin: regPin, username: regUname.trim().toLowerCase() || selUser.username };
+              onDataChange({ ...data, users: existing.map(u => u.id === selUser.id ? upd : u) });
+              onLogin(upd);
+            } else {
+              const nu = { id: AppStore.generateId(), prefix: regPfx, name: regName.trim(), username: regUname.trim().toLowerCase(), pin: regPin };
+              onDataChange({ ...data, users: [...existing, nu] });
+              onLogin(nu);
+            }
+          }, 200);
+        }
+      }
+    };
+    const iStyle = {
+      width: '100%', padding: '11px 14px', borderRadius: 10,
       border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)',
-      color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 13,
-      outline: 'none', boxSizing: 'border-box',
+      color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 14,
+      outline: 'none', boxSizing: 'border-box', marginBottom: 10,
     };
     return (
       <div style={bgStyle}>
         <Logo />
         <div style={cardStyle}>
-          <button onClick={() => { setMode('username'); setErr(''); setSelUser(null); }} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.5)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
-            marginBottom: 12, display: 'block',
-          }}>← กลับ</button>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
-            {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : 'สมัครสมาชิกใหม่'}
-          </h3>
-          {!(selUser && !selUser.pin) && (
+          <BackBtn onClick={() => { setMode('select'); setSelUser(null); setRegErr(''); setRegStep(1); }} />
+          {regStep === 1 ? (
             <>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <select value={regPfx} onChange={e => setRegPfx(e.target.value)} style={{
-                  ...inputStyle, width: 100,
-                  background: 'rgba(255,255,255,0.1)',
-                }}>
-                  <option>ภก.</option><option>ภกญ.</option>
-                </select>
-                <input value={regName} onChange={e => { setRegName(e.target.value); setErr(''); }}
-                  placeholder="ชื่อ นามสกุล" style={{ ...inputStyle, flex: 1 }} />
-              </div>
-              <input value={regUname} onChange={e => { setRegUname(e.target.value); setErr(''); }}
-                placeholder="username (ภาษาอังกฤษ)" style={{ ...inputStyle, marginBottom: 10 }} />
+              <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
+                {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : '✦ สมัครสมาชิกใหม่'}
+              </h3>
+              {!(selUser && !selUser.pin) && (
+                <>
+                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'block' }}>คำนำหน้า</label>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    {['ภก.','ภกญ.'].map(p => (
+                      <button key={p} onClick={() => setRegPfx(p)} style={{
+                        flex: 1, padding: '10px', borderRadius: 10,
+                        border: regPfx === p ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
+                        background: regPfx === p ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)',
+                        color: '#fff', fontFamily: 'Sarabun, sans-serif', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                      }}>{p}</button>
+                    ))}
+                  </div>
+                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4, display: 'block' }}>ชื่อ-นามสกุล</label>
+                  <input value={regName} onChange={e => { setRegName(e.target.value); setRegErr(''); }}
+                    placeholder="เช่น อนัส มะยีแต" autoFocus style={iStyle} />
+                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4, display: 'block' }}>Username (ภาษาอังกฤษ)</label>
+                  <input value={regUname} onChange={e => { setRegUname(e.target.value); setRegErr(''); }}
+                    placeholder="เช่น anas" style={iStyle} />
+                </>
+              )}
+              <ErrBadge msg={regErr} />
+              <PrimaryBtn onClick={handleInfoNext}>ถัดไป →</PrimaryBtn>
             </>
+          ) : (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#FFFFFF', marginBottom: 4 }}>
+                {regPinStep === 'new' ? '🔑 ตั้ง PIN 4 หลัก' : '✅ ยืนยัน PIN อีกครั้ง'}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
+                {regPinStep === 'new' ? 'กด PIN ที่ต้องการตั้ง' : 'กด PIN ซ้ำเพื่อยืนยัน'}
+              </div>
+              <PinDots count={4} filled={regPinStep === 'new' ? regPin.length : regConf.length} />
+              <ErrBadge msg={regErr} />
+              <Numpad
+                onDigit={pushRegPin}
+                onBack={() => { setRegErr(''); regPinStep === 'new' ? setRegPin(p => p.slice(0,-1)) : setRegConf(p => p.slice(0,-1)); }}
+              />
+            </div>
           )}
-          <input type="password" value={regPin} onChange={e => { setRegPin(e.target.value.replace(/\D/g,'').slice(0,4)); setErr(''); }}
-            placeholder="PIN 4 หลัก" maxLength={4} style={{
-              ...inputStyle, marginBottom: 10, textAlign: 'center', letterSpacing: 10, fontSize: 18,
-            }} />
-          <input type="password" value={regConf} onChange={e => { setRegConf(e.target.value.replace(/\D/g,'').slice(0,4)); setErr(''); }}
-            placeholder="ยืนยัน PIN" maxLength={4} style={{
-              ...inputStyle, marginBottom: 14, textAlign: 'center', letterSpacing: 10, fontSize: 18,
-            }} />
-          {err && (
-            <div style={{
-              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: 20, padding: '6px 14px', fontSize: 12, color: '#FCA5A5',
-              textAlign: 'center', marginBottom: 12,
-            }}>{err}</div>
-          )}
-          <button onClick={handleRegister} style={{
-            width: '100%', padding: '13px', borderRadius: 10,
-            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
-            color: '#fff', border: 'none', cursor: 'pointer',
-            fontSize: 14, fontWeight: 700, fontFamily: 'Sarabun, sans-serif',
-          }}>บันทึกและเข้าสู่ระบบ</button>
         </div>
       </div>
     );
@@ -2276,14 +2406,18 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
 // ── UserManager (Settings) ────────────────────────────
 function UserManager({ data, onDataChange, currentUser }) {
   const users = (data && data.users) || [];
-  const [adding,   setAdding]  = stState(false);
-  const [newPfx,   setNewPfx]  = stState('ภก.');
-  const [newNm,    setNewNm]   = stState('');
-  const [newUname, setNewUname] = stState('');
-  const [newPin,   setNewPin]  = stState('');
-  const [resetId,  setResetId] = stState(null);
-  const [resetPin, setResetPin] = stState('');
-  const [msg,      setMsg]     = stState('');
+  const clinicCode = (data && data.clinicCode) || '';
+  const [adding,    setAdding]    = stState(false);
+  const [newPfx,    setNewPfx]    = stState('ภก.');
+  const [newNm,     setNewNm]     = stState('');
+  const [newUname,  setNewUname]  = stState('');
+  const [newPin,    setNewPin]    = stState('');
+  const [resetId,   setResetId]   = stState(null);
+  const [resetPin,  setResetPin]  = stState('');
+  const [msg,       setMsg]       = stState('');
+  const [codeEdit,  setCodeEdit]  = stState(false);
+  const [newCode,   setNewCode]   = stState('');
+  const [codeMsg,   setCodeMsg]   = stState('');
 
   const handleAdd = () => {
     if (!newNm.trim() || !newUname.trim() || newPin.length !== 4) {
@@ -2292,13 +2426,9 @@ function UserManager({ data, onDataChange, currentUser }) {
     if (users.find(u => u.username === newUname.trim().toLowerCase())) {
       setMsg('username นี้มีอยู่แล้ว'); return;
     }
-    const newUser = { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim(), username: newUname.trim().toLowerCase(), pin: newPin };
-    onDataChange({ ...data, users: [...users, newUser] });
+    const nu = { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim(), username: newUname.trim().toLowerCase(), pin: newPin };
+    onDataChange({ ...data, users: [...users, nu] });
     setNewNm(''); setNewUname(''); setNewPin(''); setAdding(false); setMsg('');
-  };
-
-  const handleRemove = (id) => {
-    onDataChange({ ...data, users: users.filter(u => u.id !== id) });
   };
 
   const handleResetPIN = (id) => {
@@ -2307,77 +2437,134 @@ function UserManager({ data, onDataChange, currentUser }) {
     setResetId(null); setResetPin(''); setMsg('');
   };
 
+  const handleSaveCode = () => {
+    const c = newCode.replace(/\D/g, '');
+    if (c.length < 4 || c.length > 6) { setCodeMsg('รหัสต้องเป็นตัวเลข 4–6 หลัก'); return; }
+    onDataChange({ ...data, clinicCode: c });
+    setCodeEdit(false); setNewCode(''); setCodeMsg('');
+  };
+
   return (
-    <Card>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>รายชื่อผู้ใช้ในระบบ</h4>
-        <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่ม</Btn>
-      </div>
-      {adding && (
-        <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
-            <Input value={newNm} onChange={v => { setNewNm(v); setMsg(''); }} placeholder="ชื่อ นามสกุล" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Clinic Access Code */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🔐 รหัสเข้าคลินิก</h4>
+            <p style={{ margin: '3px 0 0', fontSize: 11, color: C.textMuted }}>
+              ป้องกันคนนอกเข้าดูข้อมูลผู้ป่วย · ตัวเลข 4–6 หลัก
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <Input value={newUname} onChange={v => { setNewUname(v); setMsg(''); }} placeholder="username" />
-            <input type="password" value={newPin} onChange={e => { setNewPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
-              placeholder="PIN 4 หลัก" maxLength={4} style={{
-                width: 120, padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
-                fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
-              }} />
-          </div>
-          {msg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Btn size="sm" variant="primary" onClick={handleAdd}>บันทึก</Btn>
-            <Btn size="sm" variant="ghost" onClick={() => { setAdding(false); setMsg(''); }}>ยกเลิก</Btn>
-          </div>
+          <Btn size="sm" variant={clinicCode ? 'ghost' : 'primary'} onClick={() => { setCodeEdit(!codeEdit); setNewCode(''); setCodeMsg(''); }}>
+            {clinicCode ? 'เปลี่ยน' : 'ตั้งรหัส'}
+          </Btn>
         </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {users.map(u => (
-          <div key={u.id} style={{
-            padding: '12px 14px', borderRadius: 8, border: `1px solid ${currentUser?.id === u.id ? '#BFDBFE' : C.border}`,
-            background: currentUser?.id === u.id ? '#EFF6FF' : '#F8FAFC',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 38, height: 38, borderRadius: '50%',
-                background: currentUser?.id === u.id ? C.primary : '#94A3B8',
-                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 15, fontWeight: 700, flexShrink: 0,
-              }}>{(u.name || '').charAt(0)}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>
-                  @{u.username} &nbsp;·&nbsp; {u.pin ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
-                  {currentUser?.id === u.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
+        <div style={{
+          padding: '10px 14px', borderRadius: 8,
+          background: clinicCode ? '#EFF6FF' : '#FEF2F2',
+          border: `1px solid ${clinicCode ? '#BFDBFE' : '#FECACA'}`,
+          fontSize: 13, fontWeight: 600,
+          color: clinicCode ? '#1E40AF' : '#DC2626',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          {clinicCode ? `🔒 ตั้งรหัสแล้ว (${clinicCode.length} หลัก)` : '🔓 ยังไม่ได้ตั้งรหัส — คนนอกสามารถเข้าได้'}
+          {clinicCode && (
+            <button onClick={() => { if (window.confirm('ลบรหัสเข้าคลินิก?')) onDataChange({ ...data, clinicCode: '' }); }} style={{
+              marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+              color: '#DC2626', fontSize: 11, fontFamily: 'Sarabun, sans-serif',
+            }}>ลบรหัส</button>
+          )}
+        </div>
+        {codeEdit && (
+          <div style={{ marginTop: 10 }}>
+            <input value={newCode} onChange={e => { setNewCode(e.target.value.replace(/\D/g,'').slice(0,6)); setCodeMsg(''); }}
+              placeholder="รหัสใหม่ 4–6 หลัก" maxLength={6} type="password" style={{
+                width: '100%', padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`,
+                fontFamily: 'Sarabun, sans-serif', fontSize: 16, textAlign: 'center', letterSpacing: 10,
+                boxSizing: 'border-box', marginBottom: 8,
+              }} />
+            {codeMsg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{codeMsg}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn size="sm" variant="primary" onClick={handleSaveCode}>บันทึก</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => { setCodeEdit(false); setCodeMsg(''); }}>ยกเลิก</Btn>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* User list */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>👤 รายชื่อผู้ใช้</h4>
+          <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่ม</Btn>
+        </div>
+        {adding && (
+          <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
+              <Input value={newNm} onChange={v => { setNewNm(v); setMsg(''); }} placeholder="ชื่อ นามสกุล" />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <Input value={newUname} onChange={v => { setNewUname(v); setMsg(''); }} placeholder="username" />
+              <input type="password" value={newPin} onChange={e => { setNewPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
+                placeholder="PIN 4 หลัก" maxLength={4} style={{
+                  width: 120, padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
+                  fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
+                }} />
+            </div>
+            {msg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn size="sm" variant="primary" onClick={handleAdd}>บันทึก</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => { setAdding(false); setMsg(''); }}>ยกเลิก</Btn>
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {users.map(u => (
+            <div key={u.id} style={{
+              padding: '12px 14px', borderRadius: 8,
+              border: `1px solid ${currentUser?.id === u.id ? '#BFDBFE' : C.border}`,
+              background: currentUser?.id === u.id ? '#EFF6FF' : '#F8FAFC',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: '50%',
+                  background: currentUser?.id === u.id ? C.primary : '#94A3B8',
+                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 15, fontWeight: 700, flexShrink: 0,
+                }}>{(u.name || '').charAt(0)}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>
+                    @{u.username} &nbsp;·&nbsp; {u.pin ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
+                    {currentUser?.id === u.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPin(''); setMsg(''); }}>
+                    รีเซ็ต PIN
+                  </Btn>
+                  {currentUser?.id !== u.id && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPin(''); setMsg(''); }}>
-                  รีเซ็ต PIN
-                </Btn>
-                {currentUser?.id !== u.id && <Btn size="sm" variant="danger" onClick={() => handleRemove(u.id)}>ลบ</Btn>}
-              </div>
+              {resetId === u.id && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="password" value={resetPin} onChange={e => { setResetPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
+                    placeholder="PIN ใหม่ 4 หลัก" maxLength={4} style={{
+                      width: 160, padding: '7px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
+                      fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
+                    }} />
+                  <Btn size="sm" variant="primary" onClick={() => handleResetPIN(u.id)}>บันทึก PIN</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => { setResetId(null); setMsg(''); }}>ยกเลิก</Btn>
+                  {msg && <span style={{ fontSize: 12, color: C.high }}>{msg}</span>}
+                </div>
+              )}
             </div>
-            {resetId === u.id && (
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="password" value={resetPin} onChange={e => { setResetPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
-                  placeholder="PIN ใหม่ 4 หลัก" maxLength={4} style={{
-                    width: 160, padding: '7px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
-                    fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
-                  }} />
-                <Btn size="sm" variant="primary" onClick={() => handleResetPIN(u.id)}>บันทึก PIN</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => { setResetId(null); setMsg(''); }}>ยกเลิก</Btn>
-                {msg && <span style={{ fontSize: 12, color: C.high }}>{msg}</span>}
-              </div>
-            )}
-          </div>
-        ))}
-        {users.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้ในระบบ" />}
-      </div>
-    </Card>
+          ))}
+          {users.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้ในระบบ" />}
+        </div>
+      </Card>
+    </div>
   );
 }
 
