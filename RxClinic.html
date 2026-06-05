@@ -11366,6 +11366,18 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [currentUser]);
 
+  // ⚠ Hooks ต้องอยู่ก่อน early-return ทุกอัน (Rules of Hooks) — ใช้ optional chaining กัน data=null
+  const overdueHighRisk = useMemo(() => {
+    const now = Date.now();
+    return (data?.patients || []).filter(p => {
+      if (p.riskLevel !== 'High') return false;
+      const visits = (data?.visits || []).filter(v => v.patientId === p.id);
+      if (visits.length === 0) return true;
+      const last = Math.max(...visits.map(v => new Date(v.visitDate).getTime()));
+      return (now - last) > 30 * 86400000;
+    });
+  }, [data]);
+
   // ── Loading — รอ Firebase โหลดครั้งแรก ───────────
   if (!fbReady) {
     return (
@@ -11444,17 +11456,6 @@ function App() {
   };
 
   // ── High-risk overdue computation (>30 days no visit) ──
-  const overdueHighRisk = useMemo(() => {
-    const now = Date.now();
-    return data.patients.filter(p => {
-      if (p.riskLevel !== 'High') return false;
-      const visits = data.visits.filter(v => v.patientId === p.id);
-      if (visits.length === 0) return true;
-      const last = Math.max(...visits.map(v => new Date(v.visitDate).getTime()));
-      return (now - last) > 30 * 86400000;
-    });
-  }, [data.patients, data.visits]);
-
   // ── Breadcrumb ────────────────────────────────────
   const crumbMap = {
     dashboard: 'Dashboard', patients: 'ทะเบียนผู้ป่วย', risk: 'คัดกรองความเสี่ยง',
