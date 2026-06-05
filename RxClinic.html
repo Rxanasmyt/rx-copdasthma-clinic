@@ -11434,6 +11434,9 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('syncing');
   const dbRef    = useRef(null);
   const unsubRef = useRef(null);
+  const persistTried = useRef(false);   // กัน enablePersistence ถูกเรียกซ้ำ
+  const currentUserRef = useRef(null);  // ใช้ใน callback ที่ไม่อยากผูก dep currentUser
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   // Nav
   const [view,         setView]         = useState('dashboard');
@@ -11492,7 +11495,24 @@ function App() {
   // ── Firebase init ──────────────────────────────────
   const retryRef  = useRef(null);
   const lastRemoteSig = useRef(null); // ลายเซ็นข้อมูลที่รับจาก Firebase ล่าสุด (กัน echo loop)
-  const dataSig = (d) => { try { const {_savedAt,...r}=d||{}; return JSON.stringify(r); } catch { return ''; } };
+  const dataSig = (d) => { try { const {_savedAt,_editedBy,_backupAt,...r}=d||{}; return JSON.stringify(r); } catch { return ''; } };
+
+  // Auto-backup — เก็บ snapshot หมุนเวียน 10 ช่อง ใน Firebase (best-effort, ทุก 6 ชม.)
+  const maybeAutoBackup = useCallback(async (db, snapshot) => {
+    if (!db || !snapshot) return;
+    try {
+      const KEY = 'copd_autobackup_v1';
+      const meta = JSON.parse(localStorage.getItem(KEY) || '{"slot":0,"at":0}');
+      if (Date.now() - (meta.at || 0) < 6 * 3600 * 1000) return; // ยังไม่ถึงรอบ (6 ชม.)
+      const slot = (meta.slot || 0) % 10;
+      await db.collection('clinic_backups').doc('slot_' + slot).set({
+        _backupAt: Date.now(),
+        _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '',
+        data: { ...snapshot, _savedAt: snapshot._savedAt || Date.now() },
+      });
+      localStorage.setItem(KEY, JSON.stringify({ slot: (slot + 1) % 10, at: Date.now() }));
+    } catch (e) { /* best-effort — ไม่ขัดจังหวะการใช้งาน */ }
+  }, []);
 
   const initFirebase = useCallback(async (config, attempt = 0) => {
     if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
@@ -11503,6 +11523,13 @@ function App() {
       else firebase.app();
       const db = firebase.firestore();
       dbRef.current = db;
+
+      // Offline persistence — เก็บข้อมูลใน IndexedDB, เน็ตหลุดยังใช้ได้ + queue การแก้ไขจนเน็ตกลับ
+      if (!persistTried.current) {
+        persistTried.current = true;
+        try { await db.enablePersistence({ synchronizeTabs: true }); }
+        catch (e) { /* multi-tab/unsupported → ออนไลน์ยังทำงานปกติ */ }
+      }
       setSyncStatus('syncing');
 
       // โหลดครั้งแรก
@@ -11529,11 +11556,19 @@ function App() {
       setFbReady(true);
       setSyncStatus('synced');
 
+      // Auto-backup ตอนโหลด (ถ้าถึงรอบ) — เก็บ snapshot หมุนเวียนใน Firebase
+      maybeAutoBackup(db, remote);
+
       // Realtime listener
       unsubRef.current = db.collection('clinic').doc('main').onSnapshot(
         doc => {
           if (!doc.exists) return;
           const d = doc.data();
+          // ── เตือน conflict: ข้อมูลถูกแก้จากอีกเครื่อง/คน ──
+          const me = currentUserRef.current?.name || currentUserRef.current?.username;
+          if (d._editedBy && me && d._editedBy !== me && d._savedAt && (Date.now() - d._savedAt) < 60000) {
+            setAppToast({ msg: `🔄 ข้อมูลถูกอัปเดตโดย ${d._editedBy} (อีกเครื่อง) — หน้าจอรีเฟรชแล้ว`, type: 'info' });
+          }
           lastRemoteSig.current = dataSig(d);
           setData(d);
           setCurrentUser(prev => {
@@ -11575,12 +11610,16 @@ function App() {
       const sig = dataSig(nd);
       if (sig === lastRemoteSig.current) return; // ข้อมูลไม่เปลี่ยน (echo) → ไม่เขียน
       setSyncStatus('syncing');
-      const payload = { ...nd, _savedAt: Date.now() };
+      const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
       dbRef.current.collection('clinic').doc('main').set(payload)
-        .then(() => { lastRemoteSig.current = dataSig(nd); setSyncStatus('synced'); })
+        .then(() => {
+          lastRemoteSig.current = dataSig(nd);
+          setSyncStatus('synced');
+          maybeAutoBackup(dbRef.current, payload); // เก็บ backup ถ้าถึงรอบ
+        })
         .catch(err => { console.error('Firebase save error:', err); setSyncStatus('error'); });
     }, 600);
-  }, [fbReady]);
+  }, [fbReady, maybeAutoBackup]);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
     if (target === 'telepharmacy-add') {
@@ -11925,12 +11964,12 @@ function App() {
         <div onClick={() => setAppToast(null)} style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer',
-          background: appToast.type === 'success' ? C.low : appToast.type === 'warning' ? C.medium : C.high,
+          background: appToast.type === 'success' ? C.low : appToast.type === 'warning' ? C.medium : appToast.type === 'info' ? C.primaryLight : C.high,
           color: '#fff', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.22)',
           fontSize: 13, fontWeight: 600, zIndex: 3000, maxWidth: 'calc(100vw - 32px)',
           animation: 'rxToastIn 0.25s ease both',
         }}>
-          <span style={{ fontSize: 15 }}>{appToast.type === 'success' ? '✅' : appToast.type === 'warning' ? '⚠️' : '⛔'}</span>
+          <span style={{ fontSize: 15 }}>{appToast.type === 'success' ? '✅' : appToast.type === 'warning' ? '⚠️' : appToast.type === 'info' ? '🔄' : '⛔'}</span>
           <span>{appToast.msg}</span>
         </div>
       )}
