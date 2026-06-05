@@ -1971,9 +1971,146 @@ function GINAClassifierCard({ actScore, exYear }) {
   );
 }
 
+// ── Clinical Decision Support ─────────────────────────
+// สังเคราะห์ข้อมูล visit + ผู้ป่วย → รายการ "สิ่งที่ควรทำ" เรียงตามความสำคัญ
+// ตามหลัก GOLD/GINA: ก่อน step-up ต้องตรวจ technique + adherence + trigger ก่อนเสมอ
+function buildCDS({ patient, medications, inhalerTechnique, adherence, exacerbation, assessments }) {
+  const items = [];
+  const a = assessments || {};
+  const ex = exacerbation || {};
+  const dx = patient?.diagnosis;
+  const techPoor = (inhalerTechnique || []).filter(t => t.overallScore === 'Poor');
+  const adhLevel = adherence?.level;
+  const adhPoor  = adhLevel === 'Poor';
+  const adhFair  = adhLevel === 'Fair' || adhLevel === 'Acceptable';
+  const hasMeds  = (medications || []).length > 0;
+  const exYear   = Number(ex.countThisYear) || 0;
+  const hosp     = !!ex.hospitalized;
+
+  // ระดับการควบคุมโรค
+  const goldGroup = (dx === 'COPD' || dx === 'Both')
+    ? AppStore.classifyGOLD({ catScore: a.cat?.allAnswered ? a.cat.score : null, mmrcGrade: a.mmrc?.grade, exYear, hospitalized: hosp }).group
+    : null;
+  const gina = (dx === 'Asthma' || dx === 'Both') && a.act?.allAnswered
+    ? AppStore.classifyGINA({ actScore: a.act.score, exYear }) : null;
+  const uncontrolled = goldGroup === 'E' || (gina && gina.label === 'ควบคุมไม่ได้');
+  const optimized = techPoor.length === 0 && !adhPoor && !adhFair; // technique+adherence ดีแล้ว
+
+  // 1) เทคนิคยาพ่นไม่ดี — ต้องสอนซ้ำก่อน step-up เสมอ
+  if (techPoor.length > 0) {
+    items.push({ p: 1, icon: '🌬️', color: C.high,
+      title: 'สอนเทคนิคยาพ่นซ้ำ (Re-education)',
+      detail: `พบเทคนิคไม่ผ่าน ${techPoor.length} อุปกรณ์: ${techPoor.map(t => AppStore.INHALER_CHECKLISTS[t.device]?.label || t.device).join(', ')} — แก้ก่อนพิจารณาปรับยา` });
+  }
+  // 2) Adherence
+  if (adhPoor) {
+    items.push({ p: 1, icon: '💊', color: C.high,
+      title: 'แก้ปัญหา Adherence (ความร่วมมือต่ำ)',
+      detail: 'ค้นหาสาเหตุ (ลืม/ผลข้างเคียง/ค่าใช้จ่าย/ความเข้าใจ) ก่อน step-up — พิจารณา simplify regimen, pill box, นัด Telepharmacy' });
+  } else if (adhFair) {
+    items.push({ p: 2, icon: '💊', color: C.medium,
+      title: 'เสริมแรง Adherence',
+      detail: 'ความร่วมมือปานกลาง — ย้ำความสำคัญของยาควบคุม (controller) และติดตามใกล้ชิด' });
+  }
+  // 3) Step up / down
+  if (uncontrolled && optimized) {
+    items.push({ p: 1, icon: '⬆️', color: C.high,
+      title: 'พิจารณา Step-up การรักษา',
+      detail: dx === 'Asthma' || (dx === 'Both' && gina)
+        ? (gina?.rx || 'เพิ่มขนาด ICS-LABA ตาม GINA')
+        : 'COPD Group E: LABA+LAMA (±ICS ถ้า eos ≥300 หรือ asthma overlap)' });
+  } else if (uncontrolled && !optimized) {
+    items.push({ p: 1, icon: '🔍', color: C.high,
+      title: 'ยังควบคุมไม่ได้ — ทบทวนก่อน step-up',
+      detail: 'ตาม GOLD/GINA ต้องแก้ technique + adherence + trigger ให้ครบก่อน จึงค่อยเพิ่มยา' });
+  }
+  if (gina && gina.step === 'คงระดับยา') {
+    items.push({ p: 3, icon: '⬇️', color: C.low,
+      title: 'พิจารณา Step-down',
+      detail: gina.rx });
+  }
+  // 4) Smoking cessation
+  if (patient?.smokingStatus === 'Current') {
+    items.push({ p: 1, icon: '🚭', color: C.high,
+      title: 'แนะนำเลิกบุหรี่ (สำคัญที่สุดใน COPD)',
+      detail: 'ให้คำปรึกษา 5A, พิจารณา NRT/ยาเลิกบุหรี่, ส่งคลินิกเลิกบุหรี่ — ชะลอการเสื่อมของปอดได้มากที่สุด' });
+  }
+  // 5) Exacerbation follow-up
+  if (exYear >= 2 || hosp) {
+    items.push({ p: 2, icon: '📞', color: C.medium,
+      title: 'ติดตามใกล้ชิด (Exacerbation บ่อย)',
+      detail: `${exYear} ครั้ง/ปี${hosp ? ' + เคยนอน รพ.' : ''} — นัด Telepharmacy, ทบทวน action plan, พิจารณายา rescue สำรองที่บ้าน` });
+  }
+  // 6) Vaccination
+  const vac = patient?.vaccinations || {};
+  const today = Date.now();
+  const overdueVac = (AppStore.VACCINATION_TYPES || []).filter(t => {
+    const d = vac[t.id];
+    if (!d) return t.id === 'flu' || t.id === 'pcv13' || t.id === 'ppsv23';
+    if (!t.recommendInterval) return false;
+    return (today - new Date(d).getTime()) / 86400000 >= t.recommendInterval;
+  });
+  if (overdueVac.length > 0) {
+    items.push({ p: 2, icon: '💉', color: C.medium,
+      title: 'แนะนำวัคซีน',
+      detail: `ควรได้รับ/กระตุ้น: ${overdueVac.map(v => v.label.split(' (')[0]).join(', ')} — ลด exacerbation จากการติดเชื้อ` });
+  }
+  // 7) Referral
+  if (uncontrolled && optimized && (exYear >= 2 || hosp)) {
+    items.push({ p: 2, icon: '🏥', color: C.medium,
+      title: 'พิจารณาส่งต่อแพทย์เฉพาะทาง',
+      detail: 'ควบคุมไม่ได้แม้ optimize ยา + technique + adherence แล้ว — ปรึกษาอายุรแพทย์ระบบหายใจ' });
+  }
+
+  return items.sort((x, y) => x.p - y.p);
+}
+
+function ClinicalDecisionSupport({ patient, medications, inhalerTechnique, adherence, exacerbation, assessments }) {
+  const items = buildCDS({ patient, medications, inhalerTechnique, adherence, exacerbation, assessments });
+  if (items.length === 0) {
+    return (
+      <Card style={{ padding: 0, overflow: 'hidden', border: `2px solid ${C.low}30` }}>
+        <div style={{ background: C.low, color: '#fff', padding: '10px 16px', fontSize: 13, fontWeight: 800 }}>
+          🧠 Clinical Decision Support
+        </div>
+        <div style={{ padding: '14px 16px', fontSize: 12, color: C.textMuted, textAlign: 'center' }}>
+          ✓ ยังไม่มีคำแนะนำเร่งด่วน — บันทึกการประเมินให้ครบเพื่อรับคำแนะนำอัตโนมัติ
+        </div>
+      </Card>
+    );
+  }
+  const pLabel = { 1: 'ด่วน', 2: 'ควรทำ', 3: 'ทางเลือก' };
+  return (
+    <Card style={{ padding: 0, overflow: 'hidden', border: `2px solid #7C3AED30` }}>
+      <div style={{ background: 'linear-gradient(135deg,#7C3AED,#5B21B6)', color: '#fff', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>🧠 Clinical Decision Support</span>
+        <span style={{ fontSize: 11, opacity: 0.85 }}>{items.length} คำแนะนำ</span>
+      </div>
+      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 11px', background: `${it.color}08`, border: `1px solid ${it.color}25`, borderRadius: 9, borderLeft: `3px solid ${it.color}` }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>{it.icon}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>{it.title}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, color: it.color, background: `${it.color}18`, padding: '1px 6px', borderRadius: 10 }}>{pLabel[it.p]}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.45 }}>{it.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: '7px 14px', borderTop: `1px solid ${C.border}`, fontSize: 10, color: C.textMuted }}>
+        * คำแนะนำอ้างอิง GOLD/GINA — เป็นเครื่องมือช่วยตัดสินใจ ไม่ทดแทนวิจารณญาณทางคลินิก
+      </div>
+    </Card>
+  );
+}
+
 Object.assign(window, {
   CATAssessment, MMRCAssessment, ACTAssessment,
   GOLDClassifierCard, GINAClassifierCard,
+  ClinicalDecisionSupport, buildCDS,
 });
 </script>
 <script type="text/babel">
@@ -3511,14 +3648,86 @@ function printMonthlyReport(data, yearMonth) {
 }
 
 // ── ExportSection Component ───────────────────────────
-function ExportSection({ data }) {
+function ExportSection({ data, onDataChange }) {
   const [selPt,    setSelPt]    = React.useState('');
   const [selMonth, setSelMonth] = React.useState(new Date().toISOString().slice(0,7));
+  const [restoreInfo, setRestoreInfo] = React.useState(null); // {parsed, counts} หลังเลือกไฟล์ → รอยืนยัน
+  const [restoreErr,  setRestoreErr]  = React.useState('');
+  const fileRef = React.useRef(null);
 
   const months = Array.from(new Set(
     data.visits.map(v => v.visitDate.slice(0,7))
   )).sort().reverse();
   if (!months.includes(selMonth)) months.unshift(selMonth);
+
+  // ── Backup: ดาวน์โหลดข้อมูลทั้งหมดเป็น JSON ──
+  const exportBackup = () => {
+    const payload = {
+      _meta: { app: 'Rx-COPD/Asthma Clinic', exportedAt: new Date().toISOString(), schema: 1 },
+      clinicCode: data.clinicCode || '',
+      users: data.users || [],
+      patients: data.patients || [],
+      visits: data.visits || [],
+      telepharmacy: data.telepharmacy || [],
+      haCompliance: data.haCompliance || {},
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url, download: `RxClinic_Backup_${new Date().toISOString().slice(0,10)}.json`,
+    });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // ── Restore: อ่านไฟล์ → ตรวจสอบ → แสดงสรุปเพื่อยืนยัน ──
+  const onFilePick = (e) => {
+    setRestoreErr(''); setRestoreInfo(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.patients)) {
+          setRestoreErr('ไฟล์ไม่ถูกต้อง — ต้องเป็นไฟล์ Backup ที่ export จากแอพนี้ (ไม่พบ patients)');
+          return;
+        }
+        setRestoreInfo({
+          parsed,
+          counts: {
+            patients: (parsed.patients || []).length,
+            visits: (parsed.visits || []).length,
+            telepharmacy: (parsed.telepharmacy || []).length,
+            users: (parsed.users || []).length,
+          },
+          exportedAt: parsed._meta?.exportedAt,
+        });
+      } catch (err) {
+        setRestoreErr('อ่านไฟล์ไม่ได้ — ไฟล์อาจเสียหายหรือไม่ใช่ JSON');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset เพื่อให้เลือกไฟล์เดิมซ้ำได้
+  };
+
+  const confirmRestore = () => {
+    if (!restoreInfo) return;
+    const p = restoreInfo.parsed;
+    const merged = {
+      ...data,
+      clinicCode:   p.clinicCode ?? data.clinicCode ?? '',
+      users:        p.users || [],
+      patients:     p.patients || [],
+      visits:       p.visits || [],
+      telepharmacy: p.telepharmacy || [],
+      haCompliance: p.haCompliance || data.haCompliance || {},
+    };
+    onDataChange(merged);
+    setRestoreInfo(null);
+    setRestoreErr('');
+    alert('✓ กู้คืนข้อมูลสำเร็จ — ข้อมูลถูกซิงค์ขึ้น Cloud แล้ว');
+  };
 
   return (
     <Card style={{ marginTop: 20 }}>
@@ -3585,6 +3794,56 @@ function ExportSection({ data }) {
           เมื่อกด "พิมพ์" จะเปิดหน้าต่างใหม่ → กด Ctrl+P (หรือ ⌘P) เพื่อบันทึกเป็น PDF
         </p>
       </div>
+
+      {onDataChange && (
+        <>
+          <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '18px 0' }} />
+          {/* Backup / Restore */}
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              สำรอง & กู้คืนข้อมูล (JSON)
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Btn size="sm" variant="primary" onClick={exportBackup}>💾 ดาวน์โหลด Backup ทั้งหมด</Btn>
+              <input ref={fileRef} type="file" accept="application/json,.json" onChange={onFilePick} style={{ display: 'none' }} />
+              <Btn size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>📂 เลือกไฟล์ Backup เพื่อกู้คืน</Btn>
+            </div>
+            <p style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
+              Backup รวมผู้ป่วย, บันทึกการเยี่ยม, Telepharmacy, ผู้ใช้ และ HA — ใช้สำหรับสำรอง/ย้ายเครื่อง/กู้คืน
+            </p>
+
+            {restoreErr && (
+              <div style={{ marginTop: 10, padding: '10px 12px', background: C.highBg, border: `1px solid ${C.highBorder}`, borderRadius: 8, fontSize: 12, color: C.high, fontWeight: 600 }}>
+                ⚠ {restoreErr}
+              </div>
+            )}
+
+            {restoreInfo && (
+              <div style={{ marginTop: 12, padding: '14px 16px', background: C.mediumBg, border: `2px solid ${C.mediumBorder}`, borderRadius: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+                  ⚠ ยืนยันการกู้คืนข้อมูล — จะ <span style={{ color: C.high }}>เขียนทับข้อมูลปัจจุบันทั้งหมด</span>
+                </div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>
+                  ไฟล์ Backup{restoreInfo.exportedAt ? ` (สร้างเมื่อ ${new Date(restoreInfo.exportedAt).toLocaleString('th-TH')})` : ''} มี:
+                </div>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, marginBottom: 12 }}>
+                  <span>👥 ผู้ป่วย <strong>{restoreInfo.counts.patients}</strong></span>
+                  <span>📝 การเยี่ยม <strong>{restoreInfo.counts.visits}</strong></span>
+                  <span>📞 Telepharmacy <strong>{restoreInfo.counts.telepharmacy}</strong></span>
+                  <span>🔑 ผู้ใช้ <strong>{restoreInfo.counts.users}</strong></span>
+                </div>
+                <div style={{ fontSize: 11, color: C.high, marginBottom: 12 }}>
+                  ปัจจุบันมีผู้ป่วย {data.patients.length} ราย, การเยี่ยม {data.visits.length} รายการ — ข้อมูลเหล่านี้จะถูกแทนที่
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <Btn size="sm" variant="ghost" onClick={() => { setRestoreInfo(null); setRestoreErr(''); }}>ยกเลิก</Btn>
+                  <Btn size="sm" variant="danger" onClick={confirmRestore}>ยืนยันกู้คืน (เขียนทับ)</Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </Card>
   );
 }
@@ -5682,6 +5941,16 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             <GINAClassifierCard actScore={a.act.score} exYear={f.exacerbation.countThisYear} />
           )}
 
+          {/* Clinical Decision Support — สังเคราะห์ action items */}
+          <ClinicalDecisionSupport
+            patient={patient}
+            medications={f.medications}
+            inhalerTechnique={f.inhalerTechnique}
+            adherence={f.adherence}
+            exacerbation={f.exacerbation}
+            assessments={a}
+          />
+
           {/* Beers Criteria for elderly */}
           {patient.age >= 65 && f.medications.length > 0 && (
             <BeersAlert patient={patient} medications={f.medications} />
@@ -6311,7 +6580,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
 }
 
 // ── ReportsView ───────────────────────────────────────
-function ReportsView({ data, navigate }) {
+function ReportsView({ data, navigate, onDataChange }) {
   const pts = data.patients;
   const vis = data.visits;
   const tel = data.telepharmacy;
@@ -6556,7 +6825,7 @@ function ReportsView({ data, navigate }) {
       })()}
 
       {/* Export Section */}
-      <ExportSection data={data} />
+      <ExportSection data={data} onDataChange={onDataChange} />
     </div>
   );
 }
@@ -11437,7 +11706,7 @@ function App() {
       case 'telepharmacy':
         return <TelepharmacyView data={data} onDataChange={handleDataChange} navigate={navigate} initPatientId={teleAddPtId} />;
       case 'reports':
-        return <ReportsView data={data} navigate={navigate} />;
+        return <ReportsView data={data} navigate={navigate} onDataChange={handleDataChange} />;
       case 'analytics':
         return <AnalyticsDashboard data={data} />;
       case 'ha':
