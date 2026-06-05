@@ -10834,7 +10834,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
         {mainNav.map(n => <NavBtn key={n.id} n={n} />)}
 
         {!collapsed && <div className="rx-nav-section" style={{ margin: '10px 12px 6px', fontSize: 10, fontWeight: 700, color: '#2D4A6E', textTransform: 'uppercase', letterSpacing: '0.08em' }}>เครื่องมือเพิ่มเติม</div>}
-        {extraNav.map(n => <NavBtn key={n.id} n={n} />)}
+        {extraNav.filter(n => n.id !== 'settings' || currentUser?.role === 'admin').map(n => <NavBtn key={n.id} n={n} />)}
       </nav>
 
       {/* Footer stats */}
@@ -11538,8 +11538,16 @@ function App() {
       // migration: ถ้าไม่มี admin เลย → user คนแรกในลิสต์เป็น admin อัตโนมัติ
       if (remote.users && remote.users.length > 0 && !remote.users.some(u => u.role === 'admin')) {
         remote = { ...remote, users: remote.users.map((u, i) => ({ ...u, role: i === 0 ? 'admin' : 'user' })) };
-        // บันทึก migration กลับ Firebase ทันที
         db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
+      }
+      // migration: ตั้ง ภก.อนัส มะยีแต เป็น sole admin — ลบบัญชีอื่นทั้งหมดออก (รันครั้งเดียว)
+      if (remote.users && remote.users.length > 1) {
+        const anasUser = remote.users.find(u => u.name && u.name.includes('อนัส มะยีแต'));
+        if (anasUser) {
+          const soloAdmin = { ...anasUser, role: 'admin' };
+          remote = { ...remote, users: [soloAdmin] };
+          db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
+        }
       }
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
@@ -11755,6 +11763,13 @@ function App() {
       case 'research':
         return <ResearchExportDashboard data={data} />;
       case 'settings':
+        if (currentUser?.role !== 'admin') return (
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:320, gap:12 }}>
+            <div style={{ fontSize:48 }}>🔒</div>
+            <div style={{ fontSize:16, fontWeight:700, color:'#1E40AF' }}>เฉพาะ Admin เท่านั้น</div>
+            <div style={{ fontSize:13, color:'#64748B' }}>หน้านี้สงวนไว้สำหรับผู้ดูแลระบบเท่านั้น</div>
+          </div>
+        );
         return <SettingsView data={data} onDataChange={handleDataChange}
           currentUser={currentUser} onSwitch={u => setCurrentUser(u)}
           onConfigSave={initFirebase} syncStatus={syncStatus} />;
