@@ -1634,6 +1634,16 @@ function TrendsSection({ visits }) {
     return { date: v.visitDate, value: avg };
   });
 
+  const catData = sorted.map(v => ({
+    date: v.visitDate,
+    value: v.assessments?.cat?.allAnswered ? v.assessments.cat.score : null,
+  })).filter(d => d.value !== null);
+
+  const actData = sorted.map(v => ({
+    date: v.visitDate,
+    value: v.assessments?.act?.allAnswered ? v.assessments.act.score : null,
+  })).filter(d => d.value !== null);
+
   const adhLabels = { 3: 'ดี', 2: 'พอใช้', 1: 'ต่ำ', 0: '—' };
   const techLabels = { 3: 'ดี', 2: 'พอใช้', 1: 'ต่ำ', 0: '—' };
 
@@ -1687,7 +1697,7 @@ function TrendsSection({ visits }) {
           currentLabel={adhLabels[lastAdh] || '—'}
           trendArrow={<TrendArrow delta={adhTrend} good="up" />}
           formatVal={v => adhLabels[v] || '—'} />
-        <Chart title="Exacerbation / 6 เดือน" data={exData} color={C.high}
+        <Chart title="Exacerbation / ปี" data={exData} color={C.high}
           currentLabel={`${lastEx ?? 0} ครั้ง`}
           trendArrow={<TrendArrow delta={exTrend} good="down" />}
           formatVal={v => `${v} ครั้ง`} />
@@ -1696,6 +1706,31 @@ function TrendsSection({ visits }) {
           trendArrow={<span style={{ color: C.textMuted }}>—</span>}
           formatVal={v => techLabels[Math.round(v)] || '—'} />
       </div>
+      {/* CAT & ACT score trends — shown only when data available */}
+      {(catData.length >= 2 || actData.length >= 2) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginTop: 12 }}>
+          {catData.length >= 2 && (() => {
+            const last = catData[catData.length - 1].value;
+            const prev = catData[catData.length - 2].value;
+            return (
+              <Chart title="CAT Score (0–40)" data={catData} color="#0369A1"
+                currentLabel={`${last} คะแนน`}
+                trendArrow={<TrendArrow delta={last - prev} good="down" />}
+                formatVal={v => `${v} คะแนน`} />
+            );
+          })()}
+          {actData.length >= 2 && (() => {
+            const last = actData[actData.length - 1].value;
+            const prev = actData[actData.length - 2].value;
+            return (
+              <Chart title="ACT Score (5–25)" data={actData} color="#7C3AED"
+                currentLabel={`${last} คะแนน`}
+                trendArrow={<TrendArrow delta={last - prev} good="up" />}
+                formatVal={v => `${v} คะแนน`} />
+            );
+          })()}
+        </div>
+      )}
     </Card>
   );
 }
@@ -4198,9 +4233,12 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           <DiagBadge diagnosis={patient.diagnosis} />
           <RiskBadge level={patient.riskLevel || 'Low'} />
           <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', patientId)}>+ บันทึกการเยี่ยมใหม่</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => printPatientReport(patient, data.visits, data.telepharmacy)}>
+            🖨️ สรุปผู้ป่วย
+          </Btn>
           {visits[0] && (
             <Btn size="sm" variant="ghost" onClick={() => printPatientTakeHome(patient, visits[0])}>
-              🖨️ สรุปกลับบ้าน
+              📄 สรุปกลับบ้าน
             </Btn>
           )}
         </div>
@@ -4254,8 +4292,9 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
       {/* Tabs */}
       <Tabs
         tabs={[
-          { id: 'visits', label: `บันทึกการเยี่ยม (${visits.length})` },
-          { id: 'tele',   label: `Telepharmacy (${tele.length})` },
+          { id: 'visits',   label: `บันทึกการเยี่ยม (${visits.length})` },
+          { id: 'medtimeline', label: '💊 Timeline ยา' },
+          { id: 'tele',     label: `Telepharmacy (${tele.length})` },
         ]}
         active={tab} onChange={setTab}
       />
@@ -4358,6 +4397,75 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           })()}
         </>
       )}
+
+      {tab === 'medtimeline' && (() => {
+        // Build unique drug list across all visits (sorted oldest→newest)
+        const sorted2 = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+        const allDrugs = [...new Set(sorted2.flatMap(v => (v.medications || []).map(m => m.name).filter(Boolean)))].sort();
+        if (allDrugs.length === 0) return <EmptyState icon="💊" title="ยังไม่มีข้อมูลยา" subtitle="บันทึก Visit พร้อมรายการยาเพื่อดู timeline" />;
+        return (
+          <Card padding={0}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC' }}>
+                    <th style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: C.primary, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: '#F8FAFC', zIndex: 1, minWidth: 160 }}>💊 ยา</th>
+                    {sorted2.map(v => (
+                      <th key={v.id} style={{ padding: '8px 10px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.textMuted, whiteSpace: 'nowrap', minWidth: 90 }}>{v.visitDate}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allDrugs.map(drug => {
+                    const firstIdx = sorted2.findIndex(v => (v.medications || []).some(m => m.name === drug));
+                    return (
+                      <tr key={drug} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '8px 14px', fontWeight: 600, color: C.text, position: 'sticky', left: 0, background: '#fff', zIndex: 1, whiteSpace: 'nowrap' }}>{drug}</td>
+                        {sorted2.map((v, vi) => {
+                          const med = (v.medications || []).find(m => m.name === drug);
+                          const prevMed = vi > 0 ? (sorted2[vi-1].medications || []).find(m => m.name === drug) : null;
+                          const isNew  = med && !prevMed && vi > firstIdx;
+                          const isStopped = !med && prevMed;
+                          const adh = med?.adherence;
+                          const adhColor = { Good: C.low, Fair: C.medium, Poor: C.high }[adh] || C.textMuted;
+                          return (
+                            <td key={v.id} style={{ padding: '6px 8px', textAlign: 'center' }}>
+                              {med ? (
+                                <div title={`${med.dose || ''}${adh ? ` · Adherence: ${adh}` : ''}`} style={{
+                                  display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                                }}>
+                                  <span style={{
+                                    display: 'inline-block', width: 24, height: 24, borderRadius: '50%',
+                                    background: isNew ? '#FEF3C7' : '#DBEAFE',
+                                    border: `2px solid ${isNew ? '#F59E0B' : '#3B82F6'}`,
+                                    fontSize: 12, lineHeight: '20px', fontWeight: 700, color: isNew ? '#92400E' : '#1E40AF',
+                                  }}>{isNew ? '★' : '●'}</span>
+                                  {adh && <span style={{ fontSize: 9, color: adhColor, fontWeight: 700 }}>{adh[0]}</span>}
+                                  {med.dose && <span style={{ fontSize: 9, color: C.textMuted, maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{med.dose}</span>}
+                                </div>
+                              ) : isStopped ? (
+                                <span style={{ color: C.high, fontSize: 16, fontWeight: 700 }} title="หยุดยา">✕</span>
+                              ) : (
+                                <span style={{ color: C.borderLight }}>—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: '10px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 16, fontSize: 11, color: C.textMuted }}>
+              <span><span style={{ color: '#1E40AF', fontWeight: 700 }}>●</span> ใช้ต่อเนื่อง</span>
+              <span><span style={{ color: '#92400E', fontWeight: 700 }}>★</span> เพิ่มใหม่</span>
+              <span><span style={{ color: C.high, fontWeight: 700 }}>✕</span> หยุดยา</span>
+              <span><span style={{ color: C.low }}>G</span>=Good <span style={{ color: C.medium }}>F</span>=Fair <span style={{ color: C.high }}>P</span>=Poor adherence</span>
+            </div>
+          </Card>
+        );
+      })()}
 
       {tab === 'tele' && (
         tele.length === 0
@@ -4526,6 +4634,15 @@ function DRPSection({ drp, onChange }) {
             <Textarea value={note} onChange={v => onChange({ ...drp, note: v })}
               placeholder="อธิบาย DRP ที่พบ สาเหตุ และแนวทางการแก้ไขสำหรับ Visit นี้..." rows={3} />
           </FormField>
+          {/* DRP Resolution status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: drp.resolved ? C.low : C.textMuted }}>
+              <input type="checkbox" checked={!!drp.resolved}
+                onChange={e => onChange({ ...drp, resolved: e.target.checked })}
+                style={{ accentColor: C.low, width: 15, height: 15 }} />
+              ✅ DRP ได้รับการแก้ไขแล้ว (Resolved)
+            </label>
+          </div>
         </>
       )}
     </div>
@@ -4926,6 +5043,13 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   const applyPrefill = () => {
     if (!lastVisit) return;
+    // Compute suggested nextVisit: 3 months for High/Medium, 6 months for Low
+    const suggestNextVisit = () => {
+      const d = new Date();
+      const months = (lastVisit.riskLevel === 'High' || lastVisit.riskLevel === 'Medium') ? 3 : 6;
+      d.setMonth(d.getMonth() + months);
+      return d.toISOString().slice(0, 10);
+    };
     setF(prev => ({
       ...prev,
       medications: (lastVisit.medications || []).map(m => ({ ...m, id: AppStore.generateId(), adherence: '' })),
@@ -4938,6 +5062,13 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         triggers: lastVisit.exacerbation?.triggers || [],
         rescueMedUse: lastVisit.exacerbation?.rescueMedUse || 'Never',
       },
+      soap: {
+        s: '',
+        o: lastVisit.soap?.o || '',
+        a: lastVisit.soap?.a || '',
+        p: lastVisit.soap?.p || '',
+      },
+      nextVisit: prev.nextVisit || suggestNextVisit(),
     }));
     setPrefillState('used');
     setShowToast({ msg: `✓ คัดลอกข้อมูลจาก Visit ${lastVisit.visitDate} แล้ว — กรุณาประเมิน Adherence และเทคนิคใหม่`, type: 'success' });
@@ -5276,6 +5407,66 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               </div>
             )}
             <Btn size="sm" variant="ghost" onClick={addMed}>+ เพิ่มยา</Btn>
+
+            {/* ── Real-time alerts ── */}
+            {f.medications.length > 0 && (() => {
+              const ixAlerts = checkInteractions(f.medications, patient);
+              const beers    = patient.age >= 65 ? checkBeers(patient, f.medications) : [];
+              const renal    = getRenalCategory(patient?.eGFR);
+              const renalWarn= renal && renal.sev !== 'ok';
+              const total    = ixAlerts.length + beers.length + (renalWarn ? 1 : 0);
+              if (total === 0) return null;
+              return (
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {ixAlerts.map((a, i) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 13px',
+                      borderRadius: 9, background: a.severity === 'High' ? C.highBg : C.mediumBg,
+                      border: `1.5px solid ${a.severity === 'High' ? C.highBorder : C.mediumBorder}`,
+                    }}>
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: a.severity === 'High' ? C.high : C.medium }}>
+                          Drug Interaction: {a.drug1} ↔ {a.drug2}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, lineHeight: 1.5 }}>{a.mechanism}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: a.severity === 'High' ? C.high : C.medium, marginTop: 2 }}>→ {a.action}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {beers.map((b, i) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 13px',
+                      borderRadius: 9, background: '#FFF7ED', border: '1.5px solid #FED7AA',
+                    }}>
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>👴</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#C2410C' }}>Beers Criteria: {b.drug}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, lineHeight: 1.5 }}>{b.reason}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C2410C', marginTop: 2 }}>→ {b.recommendation}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {renalWarn && (
+                    <div style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 13px',
+                      borderRadius: 9, background: renal.sev === 'alert' ? C.highBg : C.mediumBg,
+                      border: `1.5px solid ${renal.sev === 'alert' ? C.highBorder : C.mediumBorder}`,
+                    }}>
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>🩺</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: renal.color }}>
+                          Renal Impairment: eGFR {patient.eGFR} ({renal.stage} — {renal.label})
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>
+                          ตรวจสอบขนาดยาที่ต้องปรับใน CKD ก่อนสั่งจ่าย
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </Card>
 
           {/* ⑤ Inhaler Technique */}
@@ -5740,6 +5931,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
   const [selectedId, setSelectedId] = trState(null);
   const [preselPt,   setPreselPt]   = trState(initPatientId || '');
   const [filterStatus, setFilterStatus] = trState('');
+  const [batchOpen,    setBatchOpen]    = trState(false);
 
   const getPatient = (pid) => data.patients.find(p => p.id === pid);
 
@@ -5789,6 +5981,65 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => { setSchedOpen(false); setPreselPt(''); }}>ยกเลิก</Btn>
           <Btn variant="primary" onClick={handleSave}>บันทึกนัด</Btn>
+        </div>
+      </div>
+    );
+  };
+
+  // Batch scheduler form — schedule multiple High Risk patients at once
+  const BatchSchedForm = () => {
+    const highRiskPts = data.patients.filter(p => p.riskLevel === 'High' || p.riskLevel === 'Medium');
+    const [batchDate, setBatchDate] = trState('');
+    const [batchNote, setBatchNote] = trState('');
+    const [selected, setSelected]   = trState([]);
+    const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    const handleSave = () => {
+      if (!batchDate || selected.length === 0) return;
+      const newRecs = selected.map(pid => ({
+        id: AppStore.generateId(), patientId: pid,
+        scheduledDate: batchDate, actualDate: null, callTime: null,
+        status: 'Pending', symptoms: '', exacerbation: false, rescueUse: '',
+        medicationProblems: '', counseling: '', nextFollowup: null,
+        pharmacistNote: batchNote,
+      }));
+      const updPts = data.patients.map(p => selected.includes(p.id) ? { ...p, nextTelepharmacy: batchDate } : p);
+      onDataChange({ ...data, telepharmacy: [...data.telepharmacy, ...newRecs], patients: updPts });
+      setBatchOpen(false);
+    };
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>เลือกผู้ป่วยที่ต้องการนัด Telepharmacy พร้อมกัน</div>
+        <FormField label="วันที่นัดโทร (ทุกคน)" required>
+          <Input type="date" value={batchDate} onChange={setBatchDate} />
+        </FormField>
+        <FormField label="บันทึก / วัตถุประสงค์">
+          <Textarea value={batchNote} onChange={setBatchNote} placeholder="เช่น ติดตามการใช้ยาประจำเดือน..." rows={2} />
+        </FormField>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+          เลือกผู้ป่วย ({selected.length} คน)
+        </div>
+        <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+          {highRiskPts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่มีผู้ป่วย High/Medium Risk</div>}
+          {highRiskPts.map(p => {
+            const checked = selected.includes(p.id);
+            return (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? '#EFF6FF' : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
+                <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} style={{ accentColor: C.primary, width: 15, height: 15 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · {p.phone}</div>
+                </div>
+                <RiskBadge level={p.riskLevel || 'Low'} />
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+          <button onClick={() => setSelected(highRiskPts.map(p => p.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600 }}>เลือกทั้งหมด</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn variant="ghost" onClick={() => setBatchOpen(false)}>ยกเลิก</Btn>
+            <Btn variant="primary" onClick={handleSave} disabled={!batchDate || selected.length === 0}>บันทึกนัด {selected.length > 0 ? `(${selected.length} คน)` : ''}</Btn>
+          </div>
         </div>
       </div>
     );
@@ -5938,12 +6189,88 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
     },
   ];
 
+  // Calendar view state
+  const [calView, setCalView] = trState('list'); // 'list' | 'calendar'
+  const [calMonth, setCalMonth] = trState(new Date().toISOString().slice(0, 7));
+
+  // Build calendar grid
+  const CalendarView = () => {
+    const [yr, mo] = calMonth.split('-').map(Number);
+    const firstDay = new Date(yr, mo - 1, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(yr, mo, 0).getDate();
+    const thMonth = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][mo];
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+    const todayD = new Date().toISOString().slice(0, 10);
+
+    return (
+      <Card style={{ marginTop: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <Btn size="sm" variant="ghost" onClick={() => {
+            const d = new Date(yr, mo - 2, 1); setCalMonth(d.toISOString().slice(0, 7));
+          }}>‹</Btn>
+          <span style={{ fontWeight: 700, fontSize: 14, color: C.primary }}>{thMonth} {yr + 543}</span>
+          <Btn size="sm" variant="ghost" onClick={() => {
+            const d = new Date(yr, mo, 1); setCalMonth(d.toISOString().slice(0, 7));
+          }}>›</Btn>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+          {['อา','จ','อ','พ','พฤ','ศ','ส'].map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: C.textMuted, padding: '4px 0' }}>{d}</div>
+          ))}
+          {cells.map((day, i) => {
+            if (!day) return <div key={`e${i}`} />;
+            const dateStr = `${yr}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const dayRecs = records.filter(r => r.scheduledDate === dateStr);
+            const isToday = dateStr === todayD;
+            const isPast  = dateStr < todayD;
+            return (
+              <div key={day} style={{
+                minHeight: 64, padding: '4px 5px', borderRadius: 6,
+                background: isToday ? '#EFF6FF' : C.surface,
+                border: `1px solid ${isToday ? '#BFDBFE' : C.border}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? C.primary : isPast ? C.textMuted : C.text, marginBottom: 2 }}>{day}</div>
+                {dayRecs.map(r => {
+                  const pt = getPatient(r.patientId);
+                  const sc = r.status === 'Pending' ? '#0369A1' : r.status === 'Success' ? C.low : C.high;
+                  return (
+                    <div key={r.id} title={pt ? `${pt.firstName} ${pt.lastName} — ${r.status}` : r.status}
+                      onClick={() => { setSelectedId(r.id); setRecordOpen(true); }}
+                      style={{ fontSize: 9, fontWeight: 600, background: `${sc}15`, color: sc, border: `1px solid ${sc}30`, borderRadius: 4, padding: '1px 4px', marginBottom: 2, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {pt ? pt.firstName : '—'}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 14, marginTop: 12, fontSize: 11, color: C.textMuted }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0369A1', display: 'inline-block' }} />รอโทร</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: C.low, display: 'inline-block' }} />สำเร็จ</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: C.high, display: 'inline-block' }} />ไม่รับสาย/ยกเลิก</span>
+        </div>
+      </Card>
+    );
+  };
+
   return (
     <div>
       <SectionHeader
         title="Telepharmacy"
         subtitle="ติดตามการใช้ยาผ่านโทรศัพท์สำหรับผู้ป่วยความเสี่ยงสูง"
-        action={<Btn variant="primary" onClick={() => setSchedOpen(true)}>+ นัด Telepharmacy</Btn>}
+        action={<div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', background: C.bg, borderRadius: 7, padding: 2 }}>
+            {[['list','☰ รายการ'],['calendar','📅 ปฏิทิน']].map(([v, lbl]) => (
+              <button key={v} onClick={() => setCalView(v)} style={{ padding: '5px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: calView === v ? C.surface : 'transparent', color: calView === v ? C.primary : C.textMuted, boxShadow: calView === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>{lbl}</button>
+            ))}
+          </div>
+          <Btn variant="ghost" onClick={() => setBatchOpen(true)}>📋 นัดหมู่</Btn>
+          <Btn variant="primary" onClick={() => setSchedOpen(true)}>+ นัด Telepharmacy</Btn>
+        </div>}
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
@@ -5952,27 +6279,32 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         <StatCard label="ไม่รับสาย"        value={noAnswerCount} color={C.medium} icon="📵" />
       </div>
 
-      <Card padding={0}>
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>รายการทั้งหมด</span>
-          <Select value={filterStatus} onChange={setFilterStatus} placeholder="ทุกสถานะ"
-            options={[
-              { value: 'Pending',    label: 'รอโทร' },
-              { value: 'Success',    label: 'โทรสำเร็จ' },
-              { value: 'No Answer',  label: 'ไม่รับสาย' },
-              { value: 'Cancelled',  label: 'ยกเลิก' },
-            ]} style={{ width: 180 }} />
-        </div>
-        <Table cols={cols} rows={filtered} emptyIcon="📞"
-          emptyTitle="ยังไม่มีบันทึก Telepharmacy"
-          emptySubtitle="กดปุ่ม '+ นัด Telepharmacy' เพื่อเพิ่มการนัดหมาย" />
-      </Card>
+      {calView === 'calendar' ? <CalendarView /> : (
+        <Card padding={0}>
+          <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>รายการทั้งหมด</span>
+            <Select value={filterStatus} onChange={setFilterStatus} placeholder="ทุกสถานะ"
+              options={[
+                { value: 'Pending',    label: 'รอโทร' },
+                { value: 'Success',    label: 'โทรสำเร็จ' },
+                { value: 'No Answer',  label: 'ไม่รับสาย' },
+                { value: 'Cancelled',  label: 'ยกเลิก' },
+              ]} style={{ width: 180 }} />
+          </div>
+          <Table cols={cols} rows={filtered} emptyIcon="📞"
+            emptyTitle="ยังไม่มีบันทึก Telepharmacy"
+            emptySubtitle="กดปุ่ม '+ นัด Telepharmacy' เพื่อเพิ่มการนัดหมาย" />
+        </Card>
+      )}
 
       <Modal open={schedOpen} onClose={() => { setSchedOpen(false); setPreselPt(''); }} title="นัด Telepharmacy" width={480}>
         <SchedForm />
       </Modal>
       <Modal open={recordOpen} onClose={() => { setRecordOpen(false); setSelectedId(null); }} title="บันทึกผลการโทร" width={580}>
         <RecordForm />
+      </Modal>
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="📋 นัด Telepharmacy หมู่" width={520}>
+        <BatchSchedForm />
       </Modal>
     </div>
   );
@@ -6094,6 +6426,135 @@ function ReportsView({ data, navigate }) {
           ))}
         </div>
       </Card>
+      {/* DRP Analytics */}
+      {(() => {
+        const drpVis = vis.filter(v => v.drp?.noDRP === false && (v.drp?.items || []).length > 0);
+        const drpResolved = drpVis.filter(v => v.drp?.resolved).length;
+        const drpRate = drpVis.length > 0 ? Math.round(drpResolved / drpVis.length * 100) : 0;
+        const drpTypes = {};
+        drpVis.forEach(v => (v.drp?.items || []).forEach(it => { drpTypes[it] = (drpTypes[it] || 0) + 1; }));
+        const sortedTypes = Object.entries(drpTypes).sort((a,b) => b[1]-a[1]).slice(0, 6);
+        const maxDT = sortedTypes[0]?.[1] || 1;
+        return drpVis.length > 0 ? (
+          <Card style={{ marginBottom: 20 }}>
+            <h4 style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 700, color: C.primary }}>🔍 Drug-Related Problems (DRP)</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div>
+                <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+                  {[
+                    { label: 'พบ DRP ทั้งหมด', value: drpVis.length, color: C.high },
+                    { label: 'Resolved', value: drpResolved, color: C.low },
+                    { label: 'อัตรา Resolve', value: `${drpRate}%`, color: C.primary },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ flex: 1, textAlign: 'center', padding: '10px 8px', background: `${color}08`, borderRadius: 8, border: `1px solid ${color}20` }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, marginTop: 2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: C.bg, borderRadius: 8, padding: '6px 10px', overflow: 'hidden' }}>
+                  <div style={{ height: 6, borderRadius: 20, background: '#F1F5F9', overflow: 'hidden' }}>
+                    <div style={{ width: `${drpRate}%`, height: '100%', background: C.low, borderRadius: 20, transition: 'width 0.6s' }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Resolution Rate: {drpRate}%</div>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>DRP ที่พบบ่อย</div>
+                {sortedTypes.map(([type, cnt]) => (
+                  <div key={type} style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+                      <span style={{ color: C.text }}>{type}</span><span style={{ fontWeight: 700, color: C.high }}>{cnt}</span>
+                    </div>
+                    <div style={{ background: '#F1F5F9', borderRadius: 20, height: 5, overflow: 'hidden' }}>
+                      <div style={{ width: `${(cnt/maxDT)*100}%`, height: '100%', background: C.high, borderRadius: 20 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        ) : null;
+      })()}
+
+      {/* Monthly Time-series Analytics */}
+      {(() => {
+        const monthSet = new Set(vis.map(v => v.visitDate.slice(0, 7)));
+        const months = [...monthSet].sort().slice(-12);
+        if (months.length < 2) return null;
+        const thM = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+        const mLabel = m => { const [y,mo] = m.split('-'); return `${thM[parseInt(mo)]}'${String(parseInt(y)+543).slice(-2)}`; };
+        const mData = months.map(m => {
+          const mVis = vis.filter(v => v.visitDate.startsWith(m));
+          const exTotal = mVis.reduce((s,v) => s + (v.exacerbation?.countThisYear || 0), 0);
+          const poorAdh = mVis.filter(v => v.adherence?.level === 'Poor').length;
+          const drpCount = mVis.filter(v => v.drp?.noDRP === false).length;
+          return { month: m, label: mLabel(m), visits: mVis.length, exacerbation: exTotal, poorAdh, drpCount };
+        });
+        const maxV = Math.max(...mData.map(d => d.visits), 1);
+        const SparkLine = ({ data: sd, valueKey, color, max }) => {
+          const pts = sd.map((d, i) => {
+            const x = (i / (sd.length - 1)) * 100;
+            const y = max > 0 ? 100 - (d[valueKey] / max) * 90 : 100;
+            return `${x},${y}`;
+          }).join(' ');
+          return (
+            <svg viewBox="0 0 100 100" style={{ width: '100%', height: 60 }} preserveAspectRatio="none">
+              <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              {sd.map((d, i) => {
+                const x = (i / (sd.length - 1)) * 100;
+                const y = max > 0 ? 100 - (d[valueKey] / max) * 90 : 100;
+                return <circle key={i} cx={x} cy={y} r="3.5" fill={color} />;
+              })}
+            </svg>
+          );
+        };
+        return (
+          <Card style={{ marginBottom: 20 }}>
+            <h4 style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 700, color: C.primary }}>📈 แนวโน้มรายเดือน (12 เดือนล่าสุด)</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              {[
+                { title: 'จำนวนบันทึก/เดือน', key: 'visits', color: C.primary, max: maxV },
+                { title: 'Exacerbation/เดือน', key: 'exacerbation', color: C.high, max: Math.max(...mData.map(d => d.exacerbation), 1) },
+                { title: 'Adherence ต่ำ/เดือน', key: 'poorAdh', color: C.medium, max: Math.max(...mData.map(d => d.poorAdh), 1) },
+              ].map(({ title, key, color, max }) => (
+                <div key={key} style={{ background: C.bg, borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>{title}</div>
+                  <SparkLine data={mData} valueKey={key} color={color} max={max} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: C.textMuted, marginTop: 2 }}>
+                    <span>{mData[0]?.label}</span><span>{mData[mData.length-1]?.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color, marginTop: 4, textAlign: 'right' }}>
+                    ล่าสุด: {mData[mData.length-1]?.[key] ?? 0}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Month-by-month table */}
+            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr>{['เดือน','บันทึก','Exacerbation','Adherence ต่ำ','DRP'].map(h => (
+                    <th key={h} style={{ padding: '5px 8px', background: '#F8FAFC', borderBottom: `1px solid ${C.border}`, textAlign: 'center', fontWeight: 600, color: C.textMuted }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {mData.map(d => (
+                    <tr key={d.month} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 600 }}>{d.label}</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'center', color: C.primary }}>{d.visits}</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'center', color: d.exacerbation > 0 ? C.high : C.textMuted }}>{d.exacerbation}</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'center', color: d.poorAdh > 0 ? C.medium : C.textMuted }}>{d.poorAdh}</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'center', color: d.drpCount > 0 ? C.high : C.textMuted }}>{d.drpCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Export Section */}
       <ExportSection data={data} />
     </div>
@@ -10331,6 +10792,17 @@ function Dashboard({ data, navigate }) {
     { value: medRisk,            color: '#D97706', label: 'Medium' },
     { value: highRisk.length,    color: '#DC2626', label: 'High' },
   ];
+  // Next visit reminders: patients whose latest nextVisit is within 7 days (but not today — already in scheduledToday)
+  const upcomingVisits = useMemo(() => {
+    const in7 = new Date(); in7.setDate(in7.getDate() + 7);
+    const in7str = in7.toISOString().slice(0, 10);
+    return pts.map(p => {
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
+      return latestNextVisit && latestNextVisit > todayStr && latestNextVisit <= in7str
+        ? { patient: p, nextVisit: latestNextVisit } : null;
+    }).filter(Boolean).sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
+  }, [pts, vis, todayStr]);
 
   return (
     <div className="rx-fade">
@@ -10424,6 +10896,37 @@ function Dashboard({ data, navigate }) {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Upcoming visit reminders */}
+      {upcomingVisits.length > 0 && (
+        <Card style={{ marginBottom: 20, padding: 0, overflow: 'hidden', border: `2px solid #7C3AED30` }}>
+          <div style={{ background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)', color: '#fff', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🔔 นัดหมายใน 7 วัน</div>
+              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2 }}>{upcomingVisits.length} ราย</div>
+            </div>
+          </div>
+          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {upcomingVisits.map(({ patient: p, nextVisit }) => {
+              const daysLeft = Math.round((new Date(nextVisit) - new Date(todayStr)) / 86400000);
+              return (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: daysLeft <= 2 ? C.mediumBg : '#F5F3FF', border: `1px solid ${daysLeft <= 2 ? C.mediumBorder : '#DDD6FE'}`, borderRadius: 8, cursor: 'pointer' }}
+                  onClick={() => navigate('history', p.id)}>
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: daysLeft <= 2 ? C.medium : '#7C3AED', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                    {daysLeft}d
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · นัด {nextVisit}</div>
+                  </div>
+                  <RiskBadge level={p.riskLevel || 'Low'} />
+                  <Btn size="sm" variant="accent" onClick={e => { e.stopPropagation(); navigate('visit-form', p.id); }}>📥 เช็คอิน</Btn>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
       )}
 
       {/* ── Stat cards (animated) ── */}
