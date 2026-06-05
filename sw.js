@@ -1,7 +1,7 @@
 // sw.js — Service Worker for Rx-COPD/Asthma Clinic
 // Caches app shell + assets for offline use (cache-first strategy)
 
-const CACHE_VERSION = 'rxcopd-v4';
+const CACHE_VERSION = 'rxcopd-v5';
 const APP_SHELL = [
   './',
   './index.html',
