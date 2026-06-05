@@ -11394,7 +11394,15 @@ function App() {
     return <LoginScreen onLogin={u => setCurrentUser(u)} data={data} onDataChange={handleDataChange} syncStatus={syncStatus} />;
   }
 
-  // ── Render view ───────────────────────────────────
+  // Safety: data still null after fbReady (should not happen, but guard anyway)
+  if (!data) {
+    return (
+      <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'#F0F4F8', fontFamily:'Sarabun,sans-serif' }}>
+        <div style={{fontSize:40}}>🫁</div>
+        <div style={{fontSize:15,fontWeight:700,color:'#1E3A8A'}}>กำลังโหลดข้อมูล...</div>
+      </div>
+    );
+  }
   const renderView = () => {
     switch (view) {
       case 'dashboard':
