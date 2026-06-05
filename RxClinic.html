@@ -2528,29 +2528,6 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
   const users = (data && data.users) || [];
   const clinicCode = (data && data.clinicCode) || '';
 
-  // Migration: enforce admin-only — keeps only ภก.อนัส มะยีแต with role=admin, removes all others.
-  // Runs once after Firebase sync to ensure Firestore reflects the sole admin account.
-  stEffect(() => {
-    if (syncStatus !== 'synced') return;
-    if (!data) return;
-    const existingUsers = data.users || [];
-    const alreadyMigrated = existingUsers.length === 1
-      && existingUsers[0].name === 'อนัส มะยีแต'
-      && existingUsers[0].role === 'admin';
-    if (alreadyMigrated) return;
-    // Keep only ภก.อนัส มะยีแต; if found preserve PIN, else create fresh
-    const existing = existingUsers.find(u => u.name === 'อนัส มะยีแต');
-    const soloAdmin = [{
-      id: existing?.id || AppStore.generateId(),
-      prefix: 'ภก.',
-      name: 'อนัส มะยีแต',
-      username: 'anas',
-      pin: existing?.pin || '',
-      role: 'admin',
-    }];
-    onDataChange({ ...data, users: soloAdmin });
-  }, [syncStatus]);
-
   // mode: 'gate' | 'select' | 'pin' | 'register'
   const [mode, setMode]         = stState(clinicCode ? 'gate' : 'select');
   const [gateInput, setGateInput] = stState('');
@@ -11591,15 +11568,6 @@ function App() {
       if (remote.users && remote.users.length > 0 && !remote.users.some(u => u.role === 'admin')) {
         remote = { ...remote, users: remote.users.map((u, i) => ({ ...u, role: i === 0 ? 'admin' : 'user' })) };
         db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
-      }
-      // migration: ตั้ง ภก.อนัส มะยีแต เป็น sole admin — ลบบัญชีอื่นทั้งหมดออก (รันครั้งเดียว)
-      if (remote.users && remote.users.length > 1) {
-        const anasUser = remote.users.find(u => u.name && u.name.includes('อนัส มะยีแต'));
-        if (anasUser) {
-          const soloAdmin = { ...anasUser, role: 'admin' };
-          remote = { ...remote, users: [soloAdmin] };
-          db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
-        }
       }
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
