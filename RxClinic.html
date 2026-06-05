@@ -2111,7 +2111,14 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
         background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 60%, #2563EB 100%)',
         boxShadow: '0 8px 32px rgba(37,99,235,0.55)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38,
-      }}>🫁</div>
+      }}>
+        <svg viewBox="0 0 48 48" width="42" height="42" fill="#FFFFFF" aria-label="lungs">
+          <rect x="22.5" y="6" width="3" height="14" rx="1.5"/>
+          <rect x="16" y="11" width="16" height="3" rx="1.5"/>
+          <path d="M21 14c0 6-1 9-4 13s-6 6-6 11c0 3 2 5 5 5 4 0 5-3 5-8V14z"/>
+          <path d="M27 14c0 6 1 9 4 13s6 6 6 11c0 3-2 5-5 5-4 0-5-3-5-8V14z"/>
+        </svg>
+      </div>
       <h1 style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
         Rx-COPD/Asthma Clinic
       </h1>
@@ -2400,7 +2407,7 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
                 <>
                   <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'block' }}>คำนำหน้า</label>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                    {['ภก.','ภกญ.'].map(p => (
+                    {['ภก.','ภญ.'].map(p => (
                       <button key={p} onClick={() => setRegPfx(p)} style={{
                         flex: 1, padding: '10px', borderRadius: 10,
                         border: regPfx === p ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
@@ -2487,8 +2494,8 @@ function UserManager({ data, onDataChange, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Clinic Access Code */}
-      <Card>
+      {/* Clinic Access Code — admin only */}
+      {isAdmin && <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div>
             <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🔐 รหัสเข้าคลินิก</h4>
@@ -2531,7 +2538,7 @@ function UserManager({ data, onDataChange, currentUser }) {
             </div>
           </div>
         )}
-      </Card>
+      </Card>}
 
       {/* User list */}
       <Card>
@@ -2542,7 +2549,7 @@ function UserManager({ data, onDataChange, currentUser }) {
         {adding && (
           <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภกญ.']} style={{ width: 90 }} />
+              <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภญ.']} style={{ width: 90 }} />
               <Input value={newNm} onChange={v => { setNewNm(v); setMsg(''); }} placeholder="ชื่อ นามสกุล" />
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -2605,6 +2612,22 @@ function UserManager({ data, onDataChange, currentUser }) {
           {users.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้ในระบบ" />}
         </div>
       </Card>
+
+      {/* Danger zone — admin only: clear all patient data */}
+      {isAdmin && (
+        <Card>
+          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.high }}>⚠️ ล้างข้อมูลทั้งหมด</h4>
+          <p style={{ margin: '4px 0 10px', fontSize: 11, color: C.textMuted }}>
+            ลบข้อมูลผู้ป่วย การเยี่ยม และ Telepharmacy ทั้งหมดออกจากระบบ (เก็บบัญชีผู้ใช้และรหัสคลินิกไว้) — ใช้กรณีต้องการเริ่มต้นใหม่ด้วยข้อมูลจริงเท่านั้น
+          </p>
+          <Btn size="sm" variant="danger" onClick={() => {
+            if (!window.confirm('ยืนยันลบข้อมูลผู้ป่วย/การเยี่ยม/Telepharmacy ทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้')) return;
+            if (!window.confirm('ยืนยันอีกครั้ง — ข้อมูลผู้ป่วยทั้งหมดจะถูกลบถาวร')) return;
+            onDataChange({ ...data, patients: [], visits: [], telepharmacy: [],
+              haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
+          }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
+        </Card>
+      )}
     </div>
   );
 }
@@ -4781,7 +4804,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 <Input type="date" value={f.visitDate} onChange={v => set('visitDate', v)} />
               </FormField>
               <FormField label="ชื่อเภสัชกร" required>
-                <Input value={f.pharmacist} onChange={v => set('pharmacist', v)} placeholder="ภก./ภกญ. ชื่อ นามสกุล" />
+                <Input value={f.pharmacist} onChange={v => set('pharmacist', v)} placeholder="ภก./ภญ. ชื่อ นามสกุล" />
               </FormField>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -4869,7 +4892,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                     <AssessmentCollapsible
                       title="mMRC Dyspnea Scale"
                       subtitle="Grade 0–4 · ใช้คู่กับ CAT เพื่อ classify GOLD"
-                      icon="🫁" color="#1848A0"
+                      icon="💨" color="#1848A0"
                       hasData={a.mmrc?.grade != null}
                       summary={a.mmrc?.grade != null ? `Grade ${a.mmrc.grade}` : null}
                       onClear={() => setAssessment('mmrc', { grade: null })}
@@ -6771,7 +6794,7 @@ const QualityKPIsDashboard = ({ data }) => {
 
   const metrics = [
     {
-      key: 'copdExacerbRate', icon: '🫁',
+      key: 'copdExacerbRate', icon: '💨',
       targetLabel: '< 110 /100 ผู้ป่วย',
       desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง',
     },
@@ -9914,7 +9937,14 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser }) {
       {/* Logo */}
       <div style={{ padding: '18px 16px 14px', borderBottom: '1px solid #1A3060' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#0EA5C9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🫁</div>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#0EA5C9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+            <svg viewBox="0 0 48 48" width="24" height="24" fill="#FFFFFF" aria-label="lungs">
+              <rect x="22.5" y="6" width="3" height="14" rx="1.5"/>
+              <rect x="16" y="11" width="16" height="3" rx="1.5"/>
+              <path d="M21 14c0 6-1 9-4 13s-6 6-6 11c0 3 2 5 5 5 4 0 5-3 5-8V14z"/>
+              <path d="M27 14c0 6 1 9 4 13s6 6 6 11c0 3-2 5-5 5-4 0-5-3-5-8V14z"/>
+            </svg>
+          </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#FFFFFF', lineHeight: 1.2 }}>Rx-COPD/Asthma</div>
             <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 1 }}>Pharmaceutical Care</div>
