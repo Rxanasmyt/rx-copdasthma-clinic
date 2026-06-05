@@ -11523,7 +11523,8 @@ function App() {
 
   // ── Firebase init ──────────────────────────────────
   const retryRef  = useRef(null);
-  const lastRemoteSig = useRef(null); // ลายเซ็นข้อมูลที่รับจาก Firebase ล่าสุด (กัน echo loop)
+  const lastRemoteSig  = useRef(null); // ลายเซ็นข้อมูลที่รับจาก Firebase ล่าสุด (กัน echo loop)
+  const initLoadDone   = useRef(false); // กัน handleDataChange เขียน Firebase ก่อนโหลดครั้งแรกเสร็จ
   const dataSig = (d) => { try { const {_savedAt,_editedBy,_backupAt,...r}=d||{}; return JSON.stringify(r); } catch { return ''; } };
 
   // Auto-backup — เก็บ snapshot หมุนเวียน 10 ช่อง ใน Firebase (best-effort, ทุก 6 ชม.)
@@ -11553,12 +11554,8 @@ function App() {
       const db = firebase.firestore();
       dbRef.current = db;
 
-      // Offline persistence — เก็บข้อมูลใน IndexedDB, เน็ตหลุดยังใช้ได้ + queue การแก้ไขจนเน็ตกลับ
-      if (!persistTried.current) {
-        persistTried.current = true;
-        try { await db.enablePersistence({ synchronizeTabs: true }); }
-        catch (e) { /* multi-tab/unsupported → ออนไลน์ยังทำงานปกติ */ }
-      }
+      // Offline persistence ถูกปิดไว้เพื่อป้องกัน IndexedDB pending-write queue
+      // เขียนข้อมูลเก่ากลับ Firebase โดยไม่ตั้งใจ — ใช้ onSnapshot realtime แทน
       setSyncStatus('syncing');
 
       // โหลดครั้งแรก
@@ -11570,6 +11567,7 @@ function App() {
         db.collection('clinic').doc('main').set({ ...remote, _savedAt: Date.now() }).catch(() => {});
       }
       lastRemoteSig.current = dataSig(remote);
+      initLoadDone.current = true;
       setData(remote);
       // Sync currentUser role from Firebase (localStorage session may have stale/missing role)
       setCurrentUser(prev => {
@@ -11632,7 +11630,7 @@ function App() {
   const saveTimer = useRef(null);
   const handleDataChange = useCallback((nd) => {
     setData(nd);
-    if (!dbRef.current || !fbReady) return;
+    if (!dbRef.current || !fbReady || !initLoadDone.current) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const sig = dataSig(nd);
