@@ -11594,7 +11594,6 @@ const NAV = [
   { id: 'reports',      icon: '📈', label: 'รายงาน & Export',     sub: 'Reports' },
   { id: 'analytics',    icon: '📊', label: 'Analytics',           sub: 'วิเคราะห์ผลลัพธ์' },
   { id: 'ha',           icon: '🏥', label: 'HA Compliance',        sub: 'PSGs + Documentation' },
-  { id: 'training',     icon: '🎓', label: 'Training',            sub: 'ฝึกฝน & ทดสอบ' },
   { id: 'research',     icon: '🔬', label: 'Research',            sub: 'Export งานวิจัย' },
   { id: 'settings',     icon: '⚙️', label: 'ตั้งค่า',             sub: 'Pharmacist & Cloud' },
 ];
@@ -12657,8 +12656,6 @@ function App() {
         return <AnalyticsDashboard data={data} />;
       case 'ha':
         return <HAComplianceDashboard data={data} onDataChange={handleDataChange} currentUser={currentUser} />;
-      case 'training':
-        return <TrainingModeDashboard />;
       case 'research':
         return <ResearchExportDashboard data={data} />;
       case 'settings':
@@ -12683,7 +12680,7 @@ function App() {
     dashboard: 'Dashboard', patients: 'ทะเบียนผู้ป่วย', risk: 'คัดกรองความเสี่ยง',
     telepharmacy: 'Telepharmacy', history: 'ประวัติการเยี่ยม',
     reports: 'รายงาน & Export', analytics: 'Analytics', ha: 'HA Compliance',
-    training: 'Training Mode', research: 'Research Export',
+    research: 'Research Export',
     settings: 'ตั้งค่า', 'visit-form': 'บันทึกการบริบาล',
   };
   const crumb = crumbMap[view] || '';
