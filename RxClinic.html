@@ -5496,6 +5496,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
       <Tabs
         tabs={[
           { id: 'visits',   label: `บันทึกการเยี่ยม (${visits.length})` },
+          { id: 'outcomes', label: '📊 ผลลัพธ์' },
           { id: 'medtimeline', label: '💊 Timeline ยา' },
           { id: 'tele',     label: `Telepharmacy (${tele.length})` },
         ]}
@@ -5670,30 +5671,223 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
         );
       })()}
 
+      {tab === 'outcomes' && (() => {
+        if (visits.length === 0) return <EmptyState icon="📊" title="ยังไม่มีข้อมูล" subtitle="บันทึกการเยี่ยมอย่างน้อย 1 ครั้งเพื่อดูผลลัพธ์" />;
+        const sorted = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+        // Collect all DRPs per visit
+        const drpHistory = sorted.map(v => ({
+          date: v.visitDate,
+          drps: (typeof window.detectDRP === 'function') ? window.detectDRP(v, patient) : [],
+          riskLevel: v.riskLevel,
+        }));
+        const highDRPVisits = drpHistory.filter(x => x.drps.some(d => d.severity === 'High'));
+        const totalDRPsEver = drpHistory.reduce((s, x) => s + x.drps.length, 0);
+        const avgDRPPerVisit = sorted.length > 0 ? (totalDRPsEver / sorted.length).toFixed(1) : 0;
+        const lastDRPs = drpHistory[drpHistory.length - 1]?.drps || [];
+
+        // CAT/ACT trend data
+        const catPts = sorted.map(v => ({ date: v.visitDate, v: v.assessments?.cat?.allAnswered ? v.assessments.cat.score : null })).filter(x => x.v !== null);
+        const actPts = sorted.map(v => ({ date: v.visitDate, v: v.assessments?.act?.allAnswered ? v.assessments.act.score : null })).filter(x => x.v !== null);
+
+        // Full SVG line chart with zone bands
+        const LineChart = ({ pts, minV, maxV, color, zones, title, unit, W = 520, H = 110 }) => {
+          const pad = { t: 14, b: 28, l: 36, r: 14 };
+          const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+          const xOf = (i) => pad.l + (pts.length > 1 ? (i / (pts.length - 1)) * cW : cW / 2);
+          const yOf = (v) => pad.t + cH - ((v - minV) / Math.max(maxV - minV, 1)) * cH;
+          const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${yOf(p.v).toFixed(1)}`).join(' ');
+          const areaD = pts.length > 1
+            ? `${pathD} L${xOf(pts.length - 1).toFixed(1)},${(pad.t + cH).toFixed(1)} L${xOf(0).toFixed(1)},${(pad.t + cH).toFixed(1)} Z`
+            : '';
+          const ticks = [minV, Math.round((minV + maxV) / 2), maxV];
+          return (
+            <div style={{ position: 'relative' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{title}</div>
+              <svg width={W} height={H} style={{ overflow: 'visible', display: 'block' }}>
+                {/* Zone bands */}
+                {(zones || []).map((z, i) => (
+                  <rect key={i}
+                    x={pad.l} y={yOf(z.max)}
+                    width={cW} height={Math.max(0, yOf(z.min) - yOf(z.max))}
+                    fill={z.color} opacity={0.12} />
+                ))}
+                {/* Grid lines */}
+                {ticks.map((t, i) => (
+                  <g key={i}>
+                    <line x1={pad.l} y1={yOf(t)} x2={pad.l + cW} y2={yOf(t)} stroke={C.border} strokeWidth={1} strokeDasharray="4,3" />
+                    <text x={pad.l - 4} y={yOf(t) + 4} textAnchor="end" fontSize={9} fill={C.textMuted}>{t}</text>
+                  </g>
+                ))}
+                {/* Area fill */}
+                {areaD && <path d={areaD} fill={color} opacity={0.08} />}
+                {/* Line */}
+                {pts.length > 1 && <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
+                {/* Dots + labels */}
+                {pts.map((p, i) => (
+                  <g key={i}>
+                    <circle cx={xOf(i)} cy={yOf(p.v)} r={4} fill={color} stroke="#fff" strokeWidth={1.5} />
+                    <text x={xOf(i)} y={yOf(p.v) - 8} textAnchor="middle" fontSize={9} fill={color} fontWeight="700">{p.v}</text>
+                    <text x={xOf(i)} y={H - 2} textAnchor="middle" fontSize={8} fill={C.textMuted}>{p.date.slice(5)}</text>
+                  </g>
+                ))}
+                {/* X axis */}
+                <line x1={pad.l} y1={pad.t + cH} x2={pad.l + cW} y2={pad.t + cH} stroke={C.border} strokeWidth={1} />
+              </svg>
+              {/* Zone legend */}
+              {zones && (
+                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                  {zones.map((z, i) => (
+                    <span key={i} style={{ fontSize: 10, color: z.textColor || C.textMuted, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: z.color, display: 'inline-block', opacity: 0.7 }} />
+                      {z.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* KPI row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              {[
+                { icon: '📋', label: 'Visits ทั้งหมด', value: sorted.length, color: C.primary },
+                { icon: '⚠️', label: 'DRP สะสม (ทุก visit)', value: totalDRPsEver, color: C.high },
+                { icon: '📉', label: 'DRP เฉลี่ย/visit', value: avgDRPPerVisit, color: C.medium },
+                { icon: '🔴', label: 'Visit ที่พบ High DRP', value: highDRPVisits.length, color: C.high },
+              ].map((k, i) => (
+                <div key={i} style={{ padding: '12px 16px', borderRadius: 10, background: `${k.color}08`, border: `1px solid ${k.color}25` }}>
+                  <div style={{ fontSize: 18 }}>{k.icon}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: k.color, marginTop: 4 }}>{k.value}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* CAT Chart */}
+            {catPts.length > 0 && (
+              <Card>
+                <LineChart pts={catPts} minV={0} maxV={40} color="#F59E0B" title="CAT Score — COPD Assessment Test (ต่ำ = ดี)" unit="คะแนน"
+                  zones={[
+                    { min: 0, max: 10, color: '#059669', label: '<10 ผลกระทบต่ำ', textColor: '#059669' },
+                    { min: 10, max: 20, color: '#D97706', label: '10–19 ปานกลาง', textColor: '#D97706' },
+                    { min: 20, max: 30, color: '#DC2626', label: '20–29 สูง', textColor: '#DC2626' },
+                    { min: 30, max: 40, color: '#7F1D1D', label: '30–40 สูงมาก', textColor: '#991B1B' },
+                  ]} />
+              </Card>
+            )}
+
+            {/* ACT Chart */}
+            {actPts.length > 0 && (
+              <Card>
+                <LineChart pts={actPts} minV={5} maxV={25} color="#3B82F6" title="ACT Score — Asthma Control Test (สูง = ดี)" unit="คะแนน"
+                  zones={[
+                    { min: 5, max: 15, color: '#DC2626', label: '<15 ควบคุมไม่ได้', textColor: '#DC2626' },
+                    { min: 15, max: 20, color: '#D97706', label: '15–19 ควบคุมได้บางส่วน', textColor: '#D97706' },
+                    { min: 20, max: 25, color: '#059669', label: '≥20 ควบคุมได้ดี', textColor: '#059669' },
+                  ]} />
+              </Card>
+            )}
+
+            {/* DRP History Timeline */}
+            <Card>
+              <h4 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: C.primary }}>⚠️ ประวัติ DRP ตามการเยี่ยม</h4>
+              {drpHistory.every(x => x.drps.length === 0)
+                ? <div style={{ color: C.textMuted, fontSize: 13, textAlign: 'center', padding: 24 }}>ไม่พบ DRP ในทุก visit</div>
+                : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                    {[...drpHistory].reverse().map((vh, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: 14, paddingBottom: 16, position: 'relative' }}>
+                        {/* Timeline spine */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: vh.drps.length === 0 ? '#ECFDF5' : vh.drps.some(d => d.severity === 'High') ? '#FEE2E2' : '#FFFBEB',
+                            border: `2px solid ${vh.drps.length === 0 ? '#A7F3D0' : vh.drps.some(d => d.severity === 'High') ? '#FCA5A5' : '#FDE68A'}`,
+                            fontSize: 14, fontWeight: 700,
+                          }}>{vh.drps.length === 0 ? '✓' : vh.drps.length}</div>
+                          {idx < drpHistory.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 12, background: C.border, marginTop: 4 }} />}
+                        </div>
+                        <div style={{ flex: 1, paddingTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: vh.drps.length > 0 ? 8 : 0 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: C.primary }}>{vh.date}</span>
+                            <RiskBadge level={vh.riskLevel || 'Low'} />
+                            {vh.drps.length === 0 && <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>✓ ไม่พบ DRP</span>}
+                          </div>
+                          {vh.drps.map((d, di) => (
+                            <div key={di} style={{
+                              display: 'flex', gap: 8, alignItems: 'flex-start',
+                              padding: '6px 10px', borderRadius: 6, marginBottom: 4,
+                              background: d.severity === 'High' ? '#FEF2F2' : d.severity === 'Medium' ? '#FFFBEB' : '#F8FAFC',
+                              border: `1px solid ${d.severity === 'High' ? '#FECACA' : d.severity === 'Medium' ? '#FDE68A' : C.border}`,
+                            }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
+                                background: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B',
+                                color: '#fff' }}>{d.code}</span>
+                              <div style={{ flex: 1, fontSize: 12, color: C.text }}>{d.problemTh}</div>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B', whiteSpace: 'nowrap' }}>{d.severity}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+            </Card>
+          </div>
+        );
+      })()}
+
       {tab === 'tele' && (
         tele.length === 0
           ? <EmptyState icon="📞" title="ยังไม่มีบันทึก Telepharmacy" />
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {tele.map(t => (
-                <Card key={t.id} style={{ padding: '16px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div>
-                      <span style={{ fontWeight: 700, color: C.primary }}>นัดโทร: {t.scheduledDate}</span>
-                      {t.actualDate && <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>โทรจริง: {t.actualDate} {t.callTime}</span>}
+              {tele.map(t => {
+                const copyText = [
+                  `[Telepharmacy] ${t.actualDate || t.scheduledDate} ${t.callTime || ''}`,
+                  `Pt: ${patient.prefix}${patient.firstName} ${patient.lastName} HN:${patient.hn}`,
+                  t.symptoms ? `อาการ: ${t.symptoms}` : '',
+                  t.exacerbation ? '⚠ มี Exacerbation' : '',
+                  t.rescueUse && t.rescueUse !== 'None' ? `Rescue: ${t.rescueUse}` : '',
+                  t.medicationProblems ? `ปัญหายา: ${t.medicationProblems}` : '',
+                  t.counseling ? `แนะนำ: ${t.counseling}` : '',
+                  t.nextFollowup ? `นัดต่อ: ${t.nextFollowup}` : '',
+                  t.callDuration > 0 ? `ระยะเวลาโทร: ${Math.floor(t.callDuration/60)}:${String(t.callDuration%60).padStart(2,'0')} นาที` : '',
+                ].filter(Boolean).join('\n');
+                return (
+                  <Card key={t.id} style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div>
+                        <span style={{ fontWeight: 700, color: C.primary }}>นัดโทร: {t.scheduledDate}</span>
+                        {t.actualDate && <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>โทรจริง: {t.actualDate} {t.callTime}</span>}
+                        {t.callDuration > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: C.textMuted }}>⏱ {Math.floor(t.callDuration/60)}:{String(t.callDuration%60).padStart(2,'0')} นาที</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <StatusBadge status={t.status} />
+                        <button onClick={() => { navigator.clipboard?.writeText(copyText); }}
+                          style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 11, color: C.textMuted, fontFamily: 'inherit' }}
+                          title="คัดลอกสรุปการโทร">📋 Copy</button>
+                      </div>
                     </div>
-                    <StatusBadge status={t.status} />
-                  </div>
-                  {t.status === 'Success' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      {t.symptoms && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>อาการ: </span><span style={{ fontSize: 13 }}>{t.symptoms}</span></div>}
-                      {t.counseling && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>คำแนะนำ: </span><span style={{ fontSize: 13 }}>{t.counseling}</span></div>}
-                    </div>
-                  )}
-                  {t.pharmacistNote && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: C.textMuted, fontStyle: 'italic' }}>{t.pharmacistNote}</div>
-                  )}
-                </Card>
-              ))}
+                    {t.status === 'Success' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        {t.symptoms && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>อาการ: </span><span style={{ fontSize: 13 }}>{t.symptoms}</span></div>}
+                        {t.exacerbation && <div style={{ color: C.high, fontSize: 12, fontWeight: 600 }}>⚠ มี Exacerbation</div>}
+                        {t.rescueUse && t.rescueUse !== 'None' && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>Rescue: </span><span style={{ fontSize: 13 }}>{t.rescueUse}</span></div>}
+                        {t.medicationProblems && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>ปัญหายา: </span><span style={{ fontSize: 13 }}>{t.medicationProblems}</span></div>}
+                        {t.counseling && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>คำแนะนำ: </span><span style={{ fontSize: 13 }}>{t.counseling}</span></div>}
+                        {t.nextFollowup && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>นัดต่อ: </span><span style={{ fontSize: 13, color: C.primary, fontWeight: 600 }}>{t.nextFollowup}</span></div>}
+                      </div>
+                    )}
+                    {t.pharmacistNote && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: C.textMuted, fontStyle: 'italic' }}>{t.pharmacistNote}</div>
+                    )}
+                  </Card>
+                );
+              })}
             </div>
       )}
     </div>
@@ -7263,7 +7457,7 @@ Object.assign(window, { VisitForm });
 // TelepharmacyReports.jsx — Risk Screening · Telepharmacy · Reports
 // Requires: window.* from Shared.jsx, AppStore from store.js
 
-const { useState: trState, useMemo: trMemo } = React;
+const { useState: trState, useMemo: trMemo, useEffect: trEffect, useRef: trRef } = React;
 
 // ── RiskScreeningView ─────────────────────────────────
 function RiskScreeningView({ data, navigate }) {
@@ -7419,6 +7613,8 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
   const pendingCount  = records.filter(r => r.status === 'Pending').length;
   const successCount  = records.filter(r => r.status === 'Success').length;
   const noAnswerCount = records.filter(r => r.status === 'No Answer').length;
+  const todayStr      = new Date().toISOString().slice(0, 10);
+  const overdueCount  = records.filter(r => r.status === 'Pending' && r.scheduledDate < todayStr).length;
 
   // Schedule form
   const SchedForm = () => {
@@ -7529,16 +7725,42 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
     if (!rec) return null;
     const pt = getPatient(rec.patientId);
     const today = new Date().toISOString().slice(0, 10);
+    const nowTime = new Date().toTimeString().slice(0, 5);
     const [rf, setRf] = trState({
-      actualDate: today, callTime: '', status: 'Success',
+      actualDate: rec.actualDate || today, callTime: rec.callTime || nowTime, status: rec.status === 'Pending' ? 'Success' : rec.status,
       symptoms: rec.symptoms || '', exacerbation: rec.exacerbation || false,
       rescueUse: rec.rescueUse || '', medicationProblems: rec.medicationProblems || '',
       counseling: rec.counseling || '', nextFollowup: rec.nextFollowup || '',
-      pharmacistNote: rec.pharmacistNote || '',
+      pharmacistNote: rec.pharmacistNote || '', callDuration: rec.callDuration || 0,
     });
     const setR = (k, v) => setRf(p => ({ ...p, [k]: v }));
+
+    // Call timer
+    const [timerRunning, setTimerRunning] = trState(false);
+    const [elapsed, setElapsed] = trState(rec.callDuration || 0);
+    const timerRef = trRef(null);
+    trEffect(() => {
+      if (timerRunning) {
+        timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+      } else if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    }, [timerRunning]);
+    const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    const startCall = () => { if (!rf.callTime) setR('callTime', new Date().toTimeString().slice(0, 5)); setTimerRunning(true); };
+    const stopCall = () => { setTimerRunning(false); setR('callDuration', elapsed); };
+
+    // DRP context from patient's most recent visit
+    const ptVisits = (data.visits || []).filter(v => v.patientId === rec.patientId)
+      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const lastVisit = ptVisits[0];
+    const drpContext = (lastVisit && pt && typeof window.detectDRP === 'function')
+      ? window.detectDRP(lastVisit, pt) : [];
+
     const handleSave = () => {
-      const updated = data.telepharmacy.map(t => t.id === selectedId ? { ...t, ...rf } : t);
+      const finalDuration = timerRunning ? elapsed : (rf.callDuration || elapsed);
+      const updated = data.telepharmacy.map(t => t.id === selectedId ? { ...t, ...rf, callDuration: finalDuration } : t);
       onDataChange({ ...data, telepharmacy: updated });
       setRecordOpen(false); setSelectedId(null);
     };
@@ -7547,10 +7769,50 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         {pt && (
           <div style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
             <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
-            <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate}</span>
+            <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate} · {pt.phone || 'ไม่มีเบอร์'}</span>
             {rec.pharmacistNote && <div style={{ marginTop: 4, color: C.textMuted, fontSize: 12 }}>วัตถุประสงค์: {rec.pharmacistNote}</div>}
           </div>
         )}
+
+        {/* Call timer */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: timerRunning ? '#ECFDF5' : '#F8FAFC',
+          border: `1px solid ${timerRunning ? '#A7F3D0' : C.border}`, borderRadius: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 22 }}>{timerRunning ? '📞' : '⏱️'}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>ระยะเวลาการโทร (Call Timer)</div>
+            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: timerRunning ? '#059669' : C.text, letterSpacing: '0.04em' }}>
+              {fmtTime(elapsed)}
+            </div>
+          </div>
+          {!timerRunning ? (
+            <Btn size="sm" variant="primary" onClick={startCall}>{elapsed > 0 ? '▶ โทรต่อ' : '▶ เริ่มโทร'}</Btn>
+          ) : (
+            <Btn size="sm" variant="danger" onClick={stopCall}>⏹ หยุด</Btn>
+          )}
+          {elapsed > 0 && !timerRunning && (
+            <Btn size="sm" variant="ghost" onClick={() => { setElapsed(0); setR('callDuration', 0); }}>รีเซ็ต</Btn>
+          )}
+        </div>
+
+        {/* DRP context — what to discuss */}
+        {drpContext.length > 0 && (
+          <div style={{ padding: '12px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
+              💡 ประเด็นที่ควรติดตาม (จาก visit {lastVisit.visitDate})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {drpContext.slice(0, 5).map((d, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: '#78350F', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
+                    background: d.severity === 'High' ? '#FEE2E2' : d.severity === 'Medium' ? '#FEF3C7' : '#F1F5F9',
+                    color: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B' }}>{d.severity}</span>
+                  <span>{d.problemTh} → <span style={{ color: '#92400E', fontWeight: 600 }}>{d.actionTh}</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <FormField label="สถานะการโทร" required>
             <Select value={rf.status} onChange={v => setR('status', v)}
@@ -7639,10 +7901,27 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         return pt ? <RiskBadge level={pt.riskLevel || 'Low'} /> : null;
       },
     },
-    { key: 'scheduledDate', label: 'วันนัดโทร', width: 120 },
+    {
+      key: 'scheduledDate', label: 'วันนัดโทร', width: 130,
+      render: r => {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const isOverdue = r.status === 'Pending' && r.scheduledDate < todayStr;
+        if (!isOverdue) return <span style={{ fontSize: 12 }}>{r.scheduledDate}</span>;
+        const daysLate = Math.floor((new Date(todayStr) - new Date(r.scheduledDate)) / 86400000);
+        return (
+          <div>
+            <span style={{ fontSize: 12, color: C.high, fontWeight: 600 }}>{r.scheduledDate}</span>
+            <div style={{ fontSize: 10, color: C.high, fontWeight: 700 }}>⏰ เลย {daysLate} วัน</div>
+          </div>
+        );
+      },
+    },
     {
       key: 'actualDate', label: 'โทรจริง', width: 140,
-      render: r => r.actualDate ? `${r.actualDate} ${r.callTime || ''}` : <span style={{ color: C.textMuted }}>—</span>,
+      render: r => r.actualDate
+        ? <div><div style={{ fontSize: 12 }}>{r.actualDate} {r.callTime || ''}</div>
+            {r.callDuration > 0 && <div style={{ fontSize: 10, color: C.textMuted }}>⏱ {Math.floor(r.callDuration / 60)}:{String(r.callDuration % 60).padStart(2, '0')} นาที</div>}</div>
+        : <span style={{ color: C.textMuted }}>—</span>,
     },
     {
       key: 'status', label: 'สถานะ', width: 120,
@@ -7751,8 +8030,9 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         </div>}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
         <StatCard label="รอโทร (Pending)" value={pendingCount}  color="#0369A1" icon="📋" />
+        <StatCard label="เลยกำหนด (Overdue)" value={overdueCount} color={C.high} icon="⏰" sub={overdueCount > 0 ? 'ต้องโทรด่วน' : 'ไม่มีค้าง'} />
         <StatCard label="โทรสำเร็จ"       value={successCount}  color={C.low}   icon="✅" />
         <StatCard label="ไม่รับสาย"        value={noAnswerCount} color={C.medium} icon="📵" />
       </div>

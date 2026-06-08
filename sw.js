@@ -2,7 +2,7 @@
 // HTML/navigation: network-first (always latest when online)
 // CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v21';
+const CACHE_VERSION = 'rxcopd-v22';
 const APP_SHELL = [
   './',
   './index.html',
