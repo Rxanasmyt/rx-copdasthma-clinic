@@ -162,10 +162,10 @@
 
   /* ── Page view transition ── */
   @keyframes rxViewIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(12px) scale(0.995); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
   }
-  .rx-view { animation: rxViewIn 0.22s ease both; }
+  .rx-view { animation: rxViewIn 0.34s cubic-bezier(0.16,1,0.3,1) both; }
 
   /* ── Collapsible sidebar ── */
   .rx-sidebar-collapsed { width: 64px !important; }
@@ -204,6 +204,25 @@
   }
   .rx-fab:active { transform: scale(0.92); }
   @media (min-width: 901px) { .rx-fab { display: none !important; } }
+
+  /* ── Quick-actions speed dial (all screens) ── */
+  .rx-qa-fab {
+    position: fixed; bottom: 26px; right: 24px; z-index: 1200;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg,#1E40AF,#2563EB);
+    color: #fff; font-size: 26px; border: none; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(37,99,235,0.5);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s;
+  }
+  .rx-qa-fab:hover { box-shadow: 0 8px 30px rgba(37,99,235,0.6); transform: translateY(-2px); }
+  .rx-qa-fab.open { transform: rotate(135deg); }
+  .rx-qa-item {
+    display: flex; align-items: center; gap: 10px;
+    animation: rxQaItemIn 0.26s cubic-bezier(0.16,1,0.3,1) both;
+  }
+  @keyframes rxQaItemIn { from { opacity: 0; transform: translateY(12px) scale(0.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .rx-qa-overlay { position: fixed; inset: 0; z-index: 1150; background: rgba(11,29,69,0.18); backdrop-filter: blur(2px); animation: rxFadeUp 0.2s ease both; }
 
   /* ── Keyboard shortcuts modal ── */
   @keyframes rxKbIn {
@@ -246,6 +265,30 @@
   /* ── Patient Trend Chart (sparkline) ── */
   .rx-sparkline { transition: opacity 0.2s; }
   .rx-sparkline:hover { opacity: 0.8; }
+
+  /* ── Glassmorphism hero ── */
+  .rx-glass-hero {
+    position: relative; overflow: hidden;
+    background: linear-gradient(135deg, rgba(30,64,175,0.92), rgba(37,99,235,0.88) 55%, rgba(6,182,212,0.82));
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.18);
+  }
+  .rx-glass-hero::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(circle at 78% 18%, rgba(255,255,255,0.22), transparent 42%);
+  }
+
+  /* ── Toast stack ── */
+  @keyframes rxToastPop {
+    from { opacity: 0; transform: translateX(24px) scale(0.96); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
+  }
+  @keyframes rxToastOut {
+    from { opacity: 1; transform: translateX(0); }
+    to   { opacity: 0; transform: translateX(24px); }
+  }
+  .rx-toast { animation: rxToastPop 0.32s cubic-bezier(0.16,1,0.3,1) both; }
+  .rx-toast.leaving { animation: rxToastOut 0.25s ease forwards; }
 
   /* ── Toast slide-in ── */
   @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -1176,6 +1219,56 @@ function EmptyState({ icon = '📋', title, subtitle, action }) {
   );
 }
 
+// ── Global Toast System ───────────────────────────────
+// Usage anywhere: window.rxToast('บันทึกสำเร็จ', 'success')
+function RxToastHost() {
+  const [toasts, setToasts] = React.useState([]);
+  React.useEffect(() => {
+    const onToast = (e) => {
+      const { msg, type = 'info', duration = 3200 } = e.detail || {};
+      const id = Date.now() + Math.random();
+      setToasts(t => [...t, { id, msg, type, leaving: false }]);
+      setTimeout(() => {
+        setToasts(t => t.map(x => x.id === id ? { ...x, leaving: true } : x));
+        setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 280);
+      }, duration);
+    };
+    window.addEventListener('rx-toast', onToast);
+    return () => window.removeEventListener('rx-toast', onToast);
+  }, []);
+
+  const cfg = {
+    success: { icon: '✅', bg: '#ECFDF5', border: '#A7F3D0', color: '#065F46', bar: '#10B981' },
+    error:   { icon: '⛔', bg: '#FEF2F2', border: '#FECACA', color: '#991B1B', bar: '#EF4444' },
+    warn:    { icon: '⚠️', bg: '#FFFBEB', border: '#FDE68A', color: '#92400E', bar: '#F59E0B' },
+    info:    { icon: 'ℹ️', bg: '#EFF6FF', border: '#BFDBFE', color: '#1E40AF', bar: '#3B82F6' },
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 3000, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
+      {toasts.map(t => {
+        const c = cfg[t.type] || cfg.info;
+        return (
+          <div key={t.id} className={`rx-toast${t.leaving ? ' leaving' : ''}`} style={{
+            display: 'flex', alignItems: 'center', gap: 10, minWidth: 260, maxWidth: 380,
+            padding: '12px 16px', borderRadius: 12, background: c.bg, border: `1px solid ${c.border}`,
+            boxShadow: '0 8px 28px rgba(15,23,42,0.16)', pointerEvents: 'auto',
+            borderLeft: `4px solid ${c.bar}`,
+          }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>{c.icon}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: c.color, lineHeight: 1.4 }}>{t.msg}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// Global helper
+if (typeof window !== 'undefined') {
+  window.rxToast = (msg, type = 'info', duration = 3200) =>
+    window.dispatchEvent(new CustomEvent('rx-toast', { detail: { msg, type, duration } }));
+}
+
 // ── SkeletonRow — placeholder loader ─────────────────
 function SkeletonRows({ count = 5 }) {
   return (
@@ -1391,6 +1484,7 @@ Object.assign(window, {
   C, RiskBadge, DiagBadge, StatusBadge, AdherenceBadge, TechniqueBadge,
   Modal, ConfirmModal, Btn, Card, SectionHeader, PageHeader, EmptyState,
   FormField, Input, Select, Textarea, CheckboxGroup, Tabs, Table, StatCard,
+  RxToastHost, SkeletonRows,
 });
 </script>
 <script type="text/babel">
@@ -8341,12 +8435,32 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
     }
   }, [isOpen]);
 
-  // Filter patients
+  // Navigation / action commands
+  const commands = [
+    { id: 'cmd-dashboard', icon: '🏠', label: 'ไปที่ Dashboard', hint: 'หน้าหลัก', keywords: 'dashboard home หน้าหลัก', run: () => navigate('dashboard') },
+    { id: 'cmd-patients',  icon: '👥', label: 'ทะเบียนผู้ป่วย', hint: 'รายชื่อผู้ป่วยทั้งหมด', keywords: 'patients ผู้ป่วย ทะเบียน list', run: () => navigate('patients') },
+    { id: 'cmd-risk',      icon: '🎯', label: 'คัดกรองความเสี่ยง', hint: 'Risk Screening', keywords: 'risk คัดกรอง ความเสี่ยง screening', run: () => navigate('risk') },
+    { id: 'cmd-tele',      icon: '📞', label: 'Telepharmacy', hint: 'ติดตามทางโทรศัพท์', keywords: 'telepharmacy โทร ติดตาม นัด', run: () => navigate('telepharmacy') },
+    { id: 'cmd-reports',   icon: '📑', label: 'รายงาน & Export', hint: 'สรุปรายงาน', keywords: 'reports รายงาน export', run: () => navigate('reports') },
+    { id: 'cmd-analytics', icon: '📊', label: 'Analytics', hint: 'วิเคราะห์เชิงลึก', keywords: 'analytics insights วิเคราะห์ dashboard', run: () => navigate('analytics') },
+    { id: 'cmd-ha',        icon: '🏥', label: 'HA Compliance', hint: 'มาตรฐาน HA', keywords: 'ha compliance มาตรฐาน', run: () => navigate('ha') },
+    { id: 'cmd-research',  icon: '🔬', label: 'Research Export', hint: 'ส่งออกข้อมูลวิจัย', keywords: 'research วิจัย export', run: () => navigate('research') },
+  ];
+
+  // Filter patients + commands
   const q = query.trim().toLowerCase();
-  const results = !q ? data.patients.slice(0, 8) : data.patients.filter(p => {
+  const patientResults = !q ? data.patients.slice(0, 6) : data.patients.filter(p => {
     const hay = `${p.hn} ${p.firstName} ${p.lastName}`.toLowerCase();
     return hay.includes(q);
-  }).slice(0, 10);
+  }).slice(0, 8);
+  const cmdResults = !q ? commands : commands.filter(c =>
+    (c.label + ' ' + c.keywords).toLowerCase().includes(q));
+
+  // Combined flat list for keyboard navigation: commands first, then patients
+  const items = [
+    ...cmdResults.map(c => ({ type: 'cmd', data: c })),
+    ...patientResults.map(p => ({ type: 'patient', data: p })),
+  ];
 
   // Get last visit info per patient
   const getLastVisit = (id) => {
@@ -8356,30 +8470,34 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
   };
   const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
 
+  const runItem = (item) => {
+    if (!item) return;
+    if (item.type === 'cmd') { item.data.run(); onClose(); }
+    else { navigate('visit-form', item.data.id); onClose(); }
+  };
+
   // Keyboard nav
   qsEffect(() => {
     if (!isOpen) return;
     const handler = (e) => {
       if (e.key === 'Escape') { onClose(); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); setHovered(h => Math.min(h + 1, results.length - 1)); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); setHovered(h => Math.min(h + 1, items.length - 1)); }
       else if (e.key === 'ArrowUp')   { e.preventDefault(); setHovered(h => Math.max(h - 1, 0)); }
       else if (e.key === 'Enter') {
         e.preventDefault();
-        const pt = results[hovered];
-        if (pt) {
-          navigate('visit-form', pt.id);
-          onClose();
-        }
+        runItem(items[hovered]);
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [isOpen, results, hovered, navigate, onClose]);
+  }, [isOpen, items, hovered, navigate, onClose]);
 
   // Reset hover when query changes
   qsEffect(() => { setHovered(0); }, [query]);
 
   if (!isOpen) return null;
+
+  let flatIdx = -1; // running index across both sections
 
   return (
     <div onClick={onClose} style={{
@@ -8397,9 +8515,9 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
           display: 'flex', alignItems: 'center', gap: 12,
           padding: '14px 18px', borderBottom: `1px solid ${C.border}`,
         }}>
-          <span style={{ fontSize: 20, color: C.textMuted }}>🔍</span>
+          <span style={{ fontSize: 20, color: C.textMuted }}>⌘</span>
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="พิมพ์ HN, ชื่อ, หรือนามสกุล..."
+            placeholder="ค้นหาผู้ป่วย หรือพิมพ์คำสั่ง เช่น Telepharmacy, Analytics..."
             style={{
               flex: 1, padding: '6px 0', border: 'none', outline: 'none',
               fontSize: 15, fontFamily: 'Sarabun, sans-serif', color: C.text,
@@ -8412,73 +8530,120 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
         </div>
 
         {/* Results */}
-        <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-          {results.length === 0 ? (
+        <div style={{ maxHeight: 440, overflowY: 'auto' }}>
+          {items.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: C.textMuted }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>🔎</div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>ไม่พบผู้ป่วย</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>ไม่พบผลลัพธ์</div>
               <div style={{ fontSize: 12, marginTop: 4 }}>ลองค้นหาด้วยคำอื่น</div>
             </div>
           ) : (
-            results.map((p, i) => {
-              const lv = getLastVisit(p.id);
-              const da = daysAgo(lv?.visitDate);
-              const isHover = i === hovered;
-              return (
-                <button key={p.id}
-                  onClick={() => { navigate('visit-form', p.id); onClose(); }}
-                  onMouseEnter={() => setHovered(i)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 14, width: '100%',
-                    padding: '12px 18px', border: 'none', cursor: 'pointer',
-                    background: isHover ? '#EFF6FF' : 'transparent',
-                    textAlign: 'left', fontFamily: 'Sarabun, sans-serif',
-                    borderLeft: `3px solid ${isHover ? C.primary : 'transparent'}`,
-                    transition: 'all 0.1s',
-                  }}>
-                  <div style={{
-                    width: 38, height: 38, borderRadius: '50%',
-                    background: p.riskLevel === 'High' ? C.high : p.riskLevel === 'Medium' ? C.medium : C.primary,
-                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, fontWeight: 700, flexShrink: 0,
-                  }}>{p.firstName.charAt(0)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                        {p.prefix}{p.firstName} {p.lastName}
-                      </span>
-                      <DiagBadge diagnosis={p.diagnosis} />
-                    </div>
-                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                      HN: <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{p.hn}</span>
-                      <span style={{ margin: '0 6px' }}>·</span>
-                      อายุ {p.age} ปี
-                      {lv && (
-                        <>
-                          <span style={{ margin: '0 6px' }}>·</span>
-                          <span style={{ color: da > 90 ? C.high : da > 30 ? C.medium : C.low, fontWeight: 600 }}>
-                            เยี่ยมล่าสุด {da} วันก่อน
-                          </span>
-                        </>
-                      )}
-                      {!lv && (
-                        <>
-                          <span style={{ margin: '0 6px' }}>·</span>
-                          <span style={{ color: '#0369A1', fontWeight: 600 }}>ผู้ป่วยใหม่</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <RiskBadge level={p.riskLevel || 'Low'} />
-                  <span style={{
-                    fontSize: 10, color: isHover ? C.primary : C.textMuted,
-                    fontWeight: 600, padding: '3px 8px', borderRadius: 5,
-                    border: `1px solid ${isHover ? '#BFDBFE' : C.border}`,
-                    background: isHover ? '#fff' : '#F8FAFC', flexShrink: 0,
-                  }}>↵ บันทึก</span>
-                </button>
-              );
-            })
+            <>
+              {/* Commands section */}
+              {cmdResults.length > 0 && (
+                <>
+                  <div style={{ padding: '8px 18px 4px', fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>ไปยังหน้า / คำสั่ง</div>
+                  {cmdResults.map((c) => {
+                    flatIdx++;
+                    const idx = flatIdx;
+                    const isHover = idx === hovered;
+                    return (
+                      <button key={c.id}
+                        onClick={() => runItem({ type: 'cmd', data: c })}
+                        onMouseEnter={() => setHovered(idx)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+                          padding: '10px 18px', border: 'none', cursor: 'pointer',
+                          background: isHover ? '#EFF6FF' : 'transparent',
+                          textAlign: 'left', fontFamily: 'Sarabun, sans-serif',
+                          borderLeft: `3px solid ${isHover ? C.primary : 'transparent'}`,
+                          transition: 'all 0.1s',
+                        }}>
+                        <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{c.icon}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13.5, color: C.text }}>{c.label}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted }}>{c.hint}</div>
+                        </div>
+                        <span style={{
+                          fontSize: 10, color: isHover ? C.primary : C.textMuted, fontWeight: 600,
+                          padding: '3px 8px', borderRadius: 5,
+                          border: `1px solid ${isHover ? '#BFDBFE' : C.border}`,
+                          background: isHover ? '#fff' : '#F8FAFC', flexShrink: 0,
+                        }}>↵ ไป</span>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Patients section */}
+              {patientResults.length > 0 && (
+                <>
+                  <div style={{ padding: '10px 18px 4px', fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>ผู้ป่วย</div>
+                  {patientResults.map((p) => {
+                    flatIdx++;
+                    const idx = flatIdx;
+                    const lv = getLastVisit(p.id);
+                    const da = daysAgo(lv?.visitDate);
+                    const isHover = idx === hovered;
+                    return (
+                      <button key={p.id}
+                        onClick={() => { navigate('visit-form', p.id); onClose(); }}
+                        onMouseEnter={() => setHovered(idx)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 14, width: '100%',
+                          padding: '12px 18px', border: 'none', cursor: 'pointer',
+                          background: isHover ? '#EFF6FF' : 'transparent',
+                          textAlign: 'left', fontFamily: 'Sarabun, sans-serif',
+                          borderLeft: `3px solid ${isHover ? C.primary : 'transparent'}`,
+                          transition: 'all 0.1s',
+                        }}>
+                        <div style={{
+                          width: 38, height: 38, borderRadius: '50%',
+                          background: p.riskLevel === 'High' ? C.high : p.riskLevel === 'Medium' ? C.medium : C.primary,
+                          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 14, fontWeight: 700, flexShrink: 0,
+                        }}>{p.firstName.charAt(0)}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                              {p.prefix}{p.firstName} {p.lastName}
+                            </span>
+                            <DiagBadge diagnosis={p.diagnosis} />
+                          </div>
+                          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                            HN: <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{p.hn}</span>
+                            <span style={{ margin: '0 6px' }}>·</span>
+                            อายุ {p.age} ปี
+                            {lv && (
+                              <>
+                                <span style={{ margin: '0 6px' }}>·</span>
+                                <span style={{ color: da > 90 ? C.high : da > 30 ? C.medium : C.low, fontWeight: 600 }}>
+                                  เยี่ยมล่าสุด {da} วันก่อน
+                                </span>
+                              </>
+                            )}
+                            {!lv && (
+                              <>
+                                <span style={{ margin: '0 6px' }}>·</span>
+                                <span style={{ color: '#0369A1', fontWeight: 600 }}>ผู้ป่วยใหม่</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <RiskBadge level={p.riskLevel || 'Low'} />
+                        <span style={{
+                          fontSize: 10, color: isHover ? C.primary : C.textMuted,
+                          fontWeight: 600, padding: '3px 8px', borderRadius: 5,
+                          border: `1px solid ${isHover ? '#BFDBFE' : C.border}`,
+                          background: isHover ? '#fff' : '#F8FAFC', flexShrink: 0,
+                        }}>↵ บันทึก</span>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -8490,10 +8655,10 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
         }}>
           <div style={{ display: 'flex', gap: 14 }}>
             <span><kbd style={kbdStyle}>↑</kbd> <kbd style={kbdStyle}>↓</kbd> เลื่อน</span>
-            <span><kbd style={kbdStyle}>↵</kbd> ไปที่บันทึก</span>
+            <span><kbd style={kbdStyle}>↵</kbd> เลือก</span>
             <span><kbd style={kbdStyle}>ESC</kbd> ปิด</span>
           </div>
-          <span>{results.length} ราย</span>
+          <span>{items.length} รายการ</span>
         </div>
       </div>
     </div>
@@ -12928,36 +13093,66 @@ function Dashboard({ data, navigate }) {
     }).filter(Boolean).sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
   }, [pts, vis, todayStr]);
 
+  // Time-based greeting + workload summary
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? { t: 'สวัสดีตอนเช้า', icon: '🌅' } : hour < 17 ? { t: 'สวัสดีตอนบ่าย', icon: '☀️' } : { t: 'สวัสดีตอนเย็น', icon: '🌆' };
+  const overduePending = tel.filter(t => t.status === 'Pending' && t.scheduledDate < todayStr).length;
+  const highRiskOverdue = useMemo(() => {
+    return pts.filter(p => {
+      if (p.riskLevel !== 'High') return false;
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const last = ptVisits[0];
+      if (!last) return true;
+      return Math.floor((new Date(todayStr) - new Date(last.visitDate)) / 86400000) > 90;
+    }).length;
+  }, [pts, vis, todayStr]);
+
   return (
     <div className="rx-fade">
-      {/* ── Welcome banner ── */}
-      <div style={{
-        background: 'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 48%,#2563EB 100%)',
+      {/* ── Welcome banner (glassmorphism) ── */}
+      <div className="rx-glass-hero" style={{
         borderRadius: 20, padding: '22px 32px', marginBottom: 22,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        boxShadow: '0 10px 40px rgba(37,99,235,0.4)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16,
+        boxShadow: '0 14px 44px rgba(37,99,235,0.42)',
         color: '#fff', overflow: 'hidden', position: 'relative',
       }}>
         {/* Decorative circles */}
         <div style={{ position:'absolute', right:-30, top:-30,  width:170, height:170, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
         <div style={{ position:'absolute', right:70,  bottom:-50, width:130, height:130, borderRadius:'50%', background:'rgba(255,255,255,0.05)' }} />
         <div style={{ position:'absolute', left:'40%', top:-60,   width:200, height:200, borderRadius:'50%', background:'rgba(255,255,255,0.04)' }} />
+        <div className="rx-hero-shimmer" style={{ position:'absolute', inset:0, pointerEvents:'none' }} />
         <div style={{ position:'relative' }}>
-          <p style={{ margin:'0 0 2px', fontSize:12, fontWeight:600, color:'rgba(147,197,253,0.9)', textTransform:'uppercase', letterSpacing:'0.08em' }}>
+          <p style={{ margin:'0 0 2px', fontSize:12, fontWeight:600, color:'rgba(147,197,253,0.95)', textTransform:'uppercase', letterSpacing:'0.08em' }}>
             🏥 Rx-COPD/Asthma Clinic
           </p>
           <h1 style={{ margin:'0 0 6px', fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.3px' }}>
-            สวัสดี 👋 ยินดีต้อนรับ
+            {greet.icon} {greet.t}
           </h1>
-          <p style={{ margin:0, fontSize:13, color:'rgba(255,255,255,0.7)' }}>{today}</p>
+          <p style={{ margin:0, fontSize:13, color:'rgba(255,255,255,0.78)' }}>{today}</p>
+          {/* Workload chips */}
+          <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
+            {scheduledToday.length > 0 && (
+              <span style={{ fontSize:11, fontWeight:600, padding:'4px 11px', borderRadius:20, background:'rgba(255,255,255,0.16)', border:'1px solid rgba(255,255,255,0.22)' }}>📅 นัดวันนี้ {scheduledToday.length}</span>
+            )}
+            {overduePending > 0 && (
+              <button onClick={() => navigate('telepharmacy')} style={{ fontSize:11, fontWeight:600, padding:'4px 11px', borderRadius:20, background:'rgba(252,165,165,0.25)', border:'1px solid rgba(252,165,165,0.5)', color:'#fff', cursor:'pointer' }}>⏰ Tele เลยกำหนด {overduePending}</button>
+            )}
+            {highRiskOverdue > 0 && (
+              <button onClick={() => navigate('patients')} style={{ fontSize:11, fontWeight:600, padding:'4px 11px', borderRadius:20, background:'rgba(254,202,202,0.25)', border:'1px solid rgba(254,202,202,0.5)', color:'#fff', cursor:'pointer' }}>🔴 High-risk ค้างติดตาม {highRiskOverdue}</button>
+            )}
+            {scheduledToday.length === 0 && overduePending === 0 && highRiskOverdue === 0 && (
+              <span style={{ fontSize:11, fontWeight:600, padding:'4px 11px', borderRadius:20, background:'rgba(167,243,208,0.22)', border:'1px solid rgba(167,243,208,0.45)' }}>✓ ไม่มีงานค้าง วันนี้สบายๆ</span>
+            )}
+          </div>
         </div>
-        <div style={{ position:'relative', display:'flex', gap:20, textAlign:'center' }}>
+        <div style={{ position:'relative', display:'flex', gap:14, textAlign:'center', flexWrap:'wrap' }}>
           {[
-            { n: pts.length,       label:'ผู้ป่วยทั้งหมด', icon:'👥' },
-            { n: scheduledToday.length, label:'นัดวันนี้',  icon:'📅' },
+            { n: pts.length,            label:'ผู้ป่วยทั้งหมด', icon:'👥' },
+            { n: scheduledToday.length, label:'นัดวันนี้',     icon:'📅' },
+            { n: highRisk.length,       label:'High Risk',     icon:'🔴' },
           ].map(s => (
-            <div key={s.label} style={{ background:'rgba(255,255,255,0.12)', borderRadius:14, padding:'12px 18px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.18)' }}>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.65)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{s.icon} {s.label}</div>
+            <div key={s.label} style={{ background:'rgba(255,255,255,0.13)', borderRadius:14, padding:'12px 18px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.2)', minWidth: 96 }}>
+              <div style={{ fontSize:9, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{s.icon} {s.label}</div>
               <div style={{ fontSize:26, fontWeight:800 }}>{s.n}</div>
             </div>
           ))}
@@ -13304,6 +13499,7 @@ function App() {
   const [navOpen,      setNavOpen]      = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showKbHelp,   setShowKbHelp]   = useState(false);
+  const [fabOpen,      setFabOpen]      = useState(false);  // speed-dial quick actions
   const [appToast,     setAppToast]     = useState(null);   // {msg,type} global toast
   const [refreshing,   setRefreshing]   = useState(false);
   const prevSync = useRef('syncing');
@@ -13753,9 +13949,33 @@ function App() {
       <QuickSearch data={data} navigate={navigate}
         isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      {/* Floating Action Button — mobile quick-add patient */}
-      {isMobile && view !== 'visit-form' && (
-        <button className="rx-fab" onClick={() => navigate('patients')} aria-label="เพิ่มผู้ป่วย" title="ไปทะเบียนผู้ป่วย">＋</button>
+      <RxToastHost />
+
+      {/* Quick Actions speed dial — all screens */}
+      {view !== 'visit-form' && (
+        <>
+          {fabOpen && <div className="rx-qa-overlay" onClick={() => setFabOpen(false)} />}
+          <div style={{ position: 'fixed', bottom: 26, right: 24, zIndex: 1200, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 14 }}>
+            {fabOpen && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, marginBottom: 4 }}>
+                {[
+                  { icon: '👥', label: 'ทะเบียนผู้ป่วย', delay: '0.02s', run: () => navigate('patients') },
+                  { icon: '🔍', label: 'ค้นหา / คำสั่ง (Ctrl+K)', delay: '0.06s', run: () => setSearchOpen(true) },
+                  { icon: '📞', label: 'นัด Telepharmacy', delay: '0.10s', run: () => navigate('telepharmacy') },
+                  { icon: '📊', label: 'Analytics', delay: '0.14s', run: () => navigate('analytics') },
+                ].map((a, i) => (
+                  <div key={i} className="rx-qa-item" style={{ animationDelay: a.delay }}>
+                    <span style={{ background: C.surface, color: C.text, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, boxShadow: '0 4px 14px rgba(15,23,42,0.14)', whiteSpace: 'nowrap', border: `1px solid ${C.border}` }}>{a.label}</span>
+                    <button onClick={() => { a.run(); setFabOpen(false); }} aria-label={a.label}
+                      style={{ width: 46, height: 46, borderRadius: '50%', background: C.surface, border: `1px solid ${C.border}`, boxShadow: '0 4px 16px rgba(15,23,42,0.16)', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{a.icon}</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className={`rx-qa-fab${fabOpen ? ' open' : ''}`} onClick={() => setFabOpen(o => !o)}
+              style={{ position: 'static' }} aria-label="เมนูลัด" title="เมนูลัด (Quick Actions)">＋</button>
+          </div>
+        </>
       )}
 
       {/* Keyboard shortcuts modal */}
