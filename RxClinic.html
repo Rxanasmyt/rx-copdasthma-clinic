@@ -237,6 +237,16 @@
     .rx-insights-grid { grid-template-columns: 1fr !important; }
   }
 
+  /* ── Smart Alert Banner ── */
+  @keyframes rxAlertSlide { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  .rx-smart-alert { animation: rxAlertSlide 0.3s ease both; }
+  .rx-smart-alert-item { transition: background 0.15s; }
+  .rx-smart-alert-item:hover { background: rgba(220,38,38,0.08) !important; }
+
+  /* ── Patient Trend Chart (sparkline) ── */
+  .rx-sparkline { transition: opacity 0.2s; }
+  .rx-sparkline:hover { opacity: 0.8; }
+
   /* ── Toast slide-in ── */
   @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
@@ -2934,6 +2944,90 @@ function detectDRP(visit, patient) {
       actionTh: 'หยุด Pioglitazone; พิจารณาเปลี่ยนเป็น SGLT2-I (Empagliflozin/Dapagliflozin) ซึ่งมี CV benefit' });
   }
 
+  // ── Category 10: Polypharmacy (≥5 medications) ──
+  if (meds.length >= 5) {
+    out.push({ code: 'P3.2', categoryEn: 'Polypharmacy risk', categoryTh: 'ความเสี่ยงจาก Polypharmacy',
+      severity: meds.length >= 8 ? 'High' : 'Medium',
+      problemEn: `Patient on ${meds.length} medications — polypharmacy increases ADR, interaction & adherence risk`,
+      problemTh: `ผู้ป่วยใช้ยา ${meds.length} รายการ — Polypharmacy เพิ่มความเสี่ยง ADR ปฏิกิริยายา และการไม่ร่วมมือ`,
+      actionEn: 'Conduct medication review: deprescribe, simplify, or consolidate regimen where clinically safe',
+      actionTh: 'ทบทวนรายการยาทั้งหมด: ลดยาที่ไม่จำเป็น ปรับ regimen ให้ง่ายขึ้น และลดความเสี่ยง' });
+  }
+
+  // ── Category 11: GINA/GOLD step-up trigger ──
+  const actSc = a.act?.allAnswered ? a.act.score : null;
+  const catSc = a.cat?.allAnswered ? a.cat.score : null;
+  if ((dx === 'Asthma' || dx === 'Both') && actSc !== null && actSc < 20 && hasICS && !hasLABA) {
+    out.push({ code: 'P1.2', categoryEn: 'GINA step-up needed', categoryTh: 'ควร Step-Up ยาตาม GINA',
+      severity: actSc < 16 ? 'High' : 'Medium',
+      problemEn: `ACT ${actSc} — asthma ${actSc < 16 ? 'uncontrolled' : 'partially controlled'} on ICS monotherapy`,
+      problemTh: `ACT ${actSc} — หืด${actSc < 16 ? 'ควบคุมไม่ได้' : 'ควบคุมได้บางส่วน'} ขณะใช้ ICS เดี่ยว (ยังไม่มี LABA)`,
+      actionEn: 'Step up per GINA 2023: add LABA to ICS (ICS+LABA fixed combination preferred)',
+      actionTh: 'Step-up ตาม GINA 2023: เพิ่ม LABA เข้ากับ ICS — ใช้ ICS+LABA fixed-dose combination' });
+  }
+  if ((dx === 'COPD' || dx === 'Both') && catSc !== null && catSc >= 10 && !hasLABA && !hasLAMA) {
+    out.push({ code: 'P1.2', categoryEn: 'GOLD step-up needed', categoryTh: 'ควร Step-Up ยาตาม GOLD',
+      severity: 'Medium',
+      problemEn: `CAT ${catSc} ≥10 — COPD symptomatic (Group B/E) but no long-acting bronchodilator (LABA/LAMA)`,
+      problemTh: `CAT ${catSc} ≥10 — COPD มีอาการมาก (Group B/E) แต่ยังไม่ได้รับ LABA หรือ LAMA`,
+      actionEn: 'Initiate LAMA or LABA+LAMA per GOLD Group B/E recommendation',
+      actionTh: 'เริ่ม LAMA หรือ LABA+LAMA ตามแนวทาง GOLD Group B/E' });
+  }
+
+  // ── Category 12: Renal-specific dose adjustments ──
+  if (patient?.eGFR) {
+    const egfr = Number(patient.eGFR);
+    if (!isNaN(egfr)) {
+      if (egfr < 30 && has('metformin')) {
+        out.push({ code: 'P2.2', categoryEn: 'Contraindication (renal)', categoryTh: 'ข้อห้ามใช้ในไตบกพร่อง',
+          severity: 'High',
+          problemEn: `Metformin contraindicated: eGFR ${egfr} mL/min (<30) — risk of lactic acidosis`,
+          problemTh: `Metformin ห้ามใช้เมื่อ eGFR ${egfr} mL/min (<30) — เสี่ยง lactic acidosis รุนแรง`,
+          actionEn: 'Discontinue Metformin immediately; switch to SGLT2-I (if eGFR ≥25) or Insulin',
+          actionTh: 'หยุด Metformin ทันที พิจารณาเปลี่ยนเป็น SGLT2-I (eGFR ≥25) หรือ Insulin' });
+      } else if (egfr >= 30 && egfr < 45 && has('metformin')) {
+        out.push({ code: 'P3.1', categoryEn: 'Dosage adjustment required (renal)', categoryTh: 'ต้องปรับขนาด Metformin',
+          severity: 'Medium',
+          problemEn: `Metformin caution: eGFR ${egfr} mL/min (30–45) — reduce dose, monitor renal function`,
+          problemTh: `Metformin ต้องระวัง: eGFR ${egfr} mL/min (30–45) — ลดขนาดและตรวจ eGFR สม่ำเสมอ`,
+          actionEn: 'Reduce Metformin to max 1000 mg/day; check eGFR every 3 months',
+          actionTh: 'ลด Metformin เหลือ max 1000 mg/day ตรวจ eGFR ทุก 3 เดือน' });
+      }
+      if (egfr < 25 && (has('dapagliflozin') || has('empagliflozin'))) {
+        out.push({ code: 'P2.2', categoryEn: 'Contraindication (renal)', categoryTh: 'ข้อห้ามใช้ SGLT2-I ในไตบกพร่อง',
+          severity: 'High',
+          problemEn: `SGLT2 inhibitor ineffective and unsafe: eGFR ${egfr} mL/min (<25)`,
+          problemTh: `SGLT2 inhibitor ไม่มีประสิทธิภาพและอาจเป็นอันตราย: eGFR ${egfr} mL/min (<25)`,
+          actionEn: 'Discontinue SGLT2 inhibitor when eGFR <25 mL/min',
+          actionTh: 'หยุด SGLT2-I ทันที เมื่อ eGFR <25 mL/min' });
+      }
+      if (egfr < 30 && has('sitagliptin')) {
+        out.push({ code: 'P3.1', categoryEn: 'Dosage adjustment required (renal)', categoryTh: 'ต้องปรับขนาด Sitagliptin',
+          severity: 'High',
+          problemEn: `Sitagliptin standard dose accumulates: eGFR ${egfr} mL/min (<30) — hypoglycemia risk`,
+          problemTh: `Sitagliptin 100 mg สะสมเมื่อ eGFR ${egfr} mL/min (<30) — เสี่ยงน้ำตาลต่ำ`,
+          actionEn: 'Reduce Sitagliptin to 25 mg OD when eGFR <30',
+          actionTh: 'ลด Sitagliptin เหลือ 25 mg OD เมื่อ eGFR <30' });
+      }
+      if (egfr < 30 && has('digoxin')) {
+        out.push({ code: 'P3.1', categoryEn: 'Dosage adjustment required (renal)', categoryTh: 'ต้องปรับขนาด Digoxin ในไตบกพร่อง',
+          severity: 'High',
+          problemEn: `Digoxin toxicity risk: eGFR ${egfr} mL/min (<30) — renal clearance severely reduced`,
+          problemTh: `Digoxin เสี่ยง toxicity: eGFR ${egfr} mL/min (<30) — ไตขับถ่ายยาได้น้อยมาก`,
+          actionEn: 'Reduce Digoxin to 0.0625–0.125 mg OD; monitor level (target 0.5–1 ng/mL) and K+',
+          actionTh: 'ลด Digoxin เหลือ 0.0625–0.125 mg/day ตรวจ level (เป้าหมาย 0.5–1 ng/mL) และ K+' });
+      }
+      if (egfr < 30 && has('glibenclamide')) {
+        out.push({ code: 'P2.2', categoryEn: 'Contraindication (renal)', categoryTh: 'ห้ามใช้ Glibenclamide ในไตบกพร่อง',
+          severity: 'High',
+          problemEn: `Glibenclamide contraindicated: eGFR ${egfr} mL/min (<30) — prolonged, severe hypoglycemia risk`,
+          problemTh: `Glibenclamide ห้ามใช้: eGFR ${egfr} mL/min (<30) — เสี่ยงน้ำตาลต่ำรุนแรง/ยาวนาน`,
+          actionEn: 'Discontinue Glibenclamide; switch to short-acting Repaglinide or low-dose Gliclazide',
+          actionTh: 'หยุด Glibenclamide ทันที เปลี่ยนเป็น Repaglinide หรือ Gliclazide ขนาดต่ำ' });
+      }
+    }
+  }
+
   // จัดเรียงตามความรุนแรง High → Medium → Low
   const rank = { High: 0, Medium: 1, Low: 2 };
   return out.sort((x, y) => (rank[x.severity] ?? 3) - (rank[y.severity] ?? 3));
@@ -4820,6 +4914,163 @@ function PatientForm({ patient, onSave, onClose }) {
   );
 }
 
+// ── SmartAlertBanner ─────────────────────────────────
+function SmartAlertBanner({ data, navigate }) {
+  const [expanded, setExpanded] = pvState(false);
+  const today = new Date();
+  const daysDiff = (dateStr) => {
+    if (!dateStr) return 9999;
+    return Math.floor((today - new Date(dateStr)) / 86400000);
+  };
+
+  // Build alert items
+  const alerts = [];
+  data.patients.forEach(p => {
+    const ptVisits = (data.visits || []).filter(v => v.patientId === p.id)
+      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const lastVisit = ptVisits[0];
+    const daysSince = lastVisit ? daysDiff(lastVisit.visitDate) : 9999;
+    const overdueThreshold = p.riskLevel === 'High' ? 90 : p.riskLevel === 'Medium' ? 180 : 365;
+    if (daysSince > overdueThreshold) {
+      alerts.push({
+        type: 'overdue',
+        severity: p.riskLevel === 'High' ? 'high' : 'medium',
+        icon: p.riskLevel === 'High' ? '🔴' : '🟡',
+        title: `${p.prefix}${p.firstName} ${p.lastName}`,
+        detail: `ไม่ได้รับการติดตาม ${daysSince < 9999 ? daysSince + ' วัน' : 'ยังไม่เคยรับบริการ'} (${p.riskLevel} Risk — ควรติดตามทุก ${overdueThreshold} วัน)`,
+        patientId: p.id,
+      });
+    }
+    if (lastVisit && typeof window.detectDRP === 'function') {
+      const drps = window.detectDRP(lastVisit, p).filter(d => d.severity === 'High');
+      if (drps.length > 0) {
+        alerts.push({
+          type: 'drp',
+          severity: 'high',
+          icon: '⚠️',
+          title: `${p.prefix}${p.firstName} ${p.lastName}`,
+          detail: `พบ DRP High ${drps.length} รายการ จาก visit ${lastVisit.visitDate}: ${drps.map(d => d.problemTh).join(' | ')}`,
+          patientId: p.id,
+        });
+      }
+    }
+  });
+
+  const highCount = alerts.filter(a => a.severity === 'high').length;
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="rx-smart-alert" style={{
+      background: highCount > 0 ? 'linear-gradient(135deg,#FEF2F2,#FFF5F5)' : '#FFFBEB',
+      border: `1px solid ${highCount > 0 ? '#FECACA' : '#FDE68A'}`,
+      borderRadius: 12, marginBottom: 16, overflow: 'hidden',
+    }}>
+      <button onClick={() => setExpanded(e => !e)} style={{
+        width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
+      }}>
+        <span className={highCount > 0 ? 'rx-alert-pulse' : ''} style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 32, height: 32, borderRadius: '50%',
+          background: highCount > 0 ? '#DC2626' : '#D97706', fontSize: 15,
+        }}>🔔</span>
+        <div style={{ flex: 1, textAlign: 'left' }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: highCount > 0 ? '#991B1B' : '#92400E' }}>
+            Smart Alert — {alerts.length} รายการที่ต้องดำเนินการ
+          </div>
+          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+            {highCount > 0 ? `⚠ ${highCount} รายการ High Priority` : 'ดูรายละเอียด'}
+          </div>
+        </div>
+        <span style={{ fontSize: 12, color: '#9CA3AF', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+      </button>
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${highCount > 0 ? '#FECACA' : '#FDE68A'}`, maxHeight: 300, overflowY: 'auto' }}>
+          {alerts.map((al, i) => (
+            <div key={i} className="rx-smart-alert-item" onClick={() => navigate('history', al.patientId)}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 16px',
+                borderBottom: i < alerts.length - 1 ? `1px solid ${highCount > 0 ? '#FEE2E2' : '#FEF3C7'}` : 'none',
+                cursor: 'pointer',
+              }}>
+              <span style={{ fontSize: 16, marginTop: 1 }}>{al.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: '#1F2937' }}>{al.title}
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 500, color: al.type === 'drp' ? '#DC2626' : '#D97706',
+                    background: al.type === 'drp' ? '#FEE2E2' : '#FEF3C7', borderRadius: 4, padding: '1px 5px' }}>
+                    {al.type === 'drp' ? 'DRP' : 'Overdue'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.4 }}>{al.detail}</div>
+              </div>
+              <span style={{ fontSize: 10, color: '#2563EB', fontWeight: 600, whiteSpace: 'nowrap', marginTop: 2 }}>ดูข้อมูล →</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── PatientTrendChart (sparkline for CAT/ACT) ─────────
+function PatientTrendChart({ visits, diagnosis }) {
+  if (!visits || visits.length < 2) return null;
+  const sorted = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const showCAT = diagnosis === 'COPD' || diagnosis === 'Both';
+  const showACT = diagnosis === 'Asthma' || diagnosis === 'Both';
+  const catPts = sorted.map(v => v.assessments?.cat?.allAnswered ? v.assessments.cat.score : null);
+  const actPts = sorted.map(v => v.assessments?.act?.allAnswered ? v.assessments.act.score : null);
+  const hasCAT = catPts.some(s => s !== null);
+  const hasACT = actPts.some(s => s !== null);
+  if (!hasCAT && !hasACT) return null;
+
+  const W = 200, H = 52, pad = 8;
+  const buildPath = (pts, minV, maxV) => {
+    const valid = pts.map((v, i) => v !== null ? [i, v] : null).filter(Boolean);
+    if (valid.length < 2) return '';
+    const xScale = (i) => pad + (i / (pts.length - 1)) * (W - pad * 2);
+    const yScale = (v) => H - pad - ((v - minV) / (maxV - minV + 0.001)) * (H - pad * 2);
+    return valid.map((p, j) => `${j === 0 ? 'M' : 'L'}${xScale(p[0]).toFixed(1)},${yScale(p[1]).toFixed(1)}`).join(' ');
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <svg width={W} height={H} className="rx-sparkline" style={{ overflow: 'visible' }}>
+        {/* CAT line (orange, max 40) */}
+        {showCAT && hasCAT && (
+          <path d={buildPath(catPts, 0, 40)} fill="none" stroke="#F59E0B" strokeWidth={1.8}
+            strokeLinecap="round" strokeLinejoin="round" />
+        )}
+        {/* ACT line (blue, inverted — higher is better, max 25) */}
+        {showACT && hasACT && (
+          <path d={buildPath(actPts, 5, 25)} fill="none" stroke="#3B82F6" strokeWidth={1.8}
+            strokeLinecap="round" strokeLinejoin="round" />
+        )}
+        {/* Latest value dots */}
+        {showCAT && hasCAT && (() => {
+          const last = catPts.map((v, i) => v !== null ? [i, v] : null).filter(Boolean).pop();
+          if (!last) return null;
+          const x = pad + (last[0] / (catPts.length - 1)) * (W - pad * 2);
+          const y = H - pad - ((last[1] / 40)) * (H - pad * 2);
+          return <circle cx={x} cy={y} r={3} fill="#F59E0B" />;
+        })()}
+        {showACT && hasACT && (() => {
+          const last = actPts.map((v, i) => v !== null ? [i, v] : null).filter(Boolean).pop();
+          if (!last) return null;
+          const x = pad + (last[0] / (actPts.length - 1)) * (W - pad * 2);
+          const y = H - pad - (((last[1] - 5) / 20)) * (H - pad * 2);
+          return <circle cx={x} cy={y} r={3} fill="#3B82F6" />;
+        })()}
+      </svg>
+      <div style={{ fontSize: 10, color: '#6B7280', lineHeight: 1.8 }}>
+        {showCAT && hasCAT && <div style={{ color: '#D97706' }}>CAT {catPts.filter(Boolean).at(-1)}</div>}
+        {showACT && hasACT && <div style={{ color: '#3B82F6' }}>ACT {actPts.filter(Boolean).at(-1)}</div>}
+        <div style={{ color: '#9CA3AF', fontSize: 9 }}>{sorted.length} visits</div>
+      </div>
+    </div>
+  );
+}
+
 // ── PatientList ───────────────────────────────────────
 function PatientList({ data, onDataChange, navigate }) {
   const [search, setSearch]     = pvState('');
@@ -4975,6 +5226,13 @@ function PatientList({ data, onDataChange, navigate }) {
       render: p => <span style={{ fontSize: 12 }}>{p.insurance}</span>,
     },
     {
+      key: 'trend', label: 'Trend', width: 230,
+      render: p => {
+        const ptVisits = (data.visits || []).filter(v => v.patientId === p.id);
+        return <PatientTrendChart visits={ptVisits} diagnosis={p.diagnosis} />;
+      },
+    },
+    {
       key: 'lastVisit', label: <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('last')}>เยี่ยมล่าสุด<SortIcon k="last" /></span>, width: 150,
       render: p => {
         const d = getLastVisit(p.id);
@@ -5007,6 +5265,7 @@ function PatientList({ data, onDataChange, navigate }) {
 
   return (
     <div>
+      <SmartAlertBanner data={data} navigate={navigate} />
       <SectionHeader
         title="ทะเบียนผู้ป่วย"
         subtitle={`ผู้ป่วยทั้งหมด ${data.patients.length} ราย · High Risk ${highRiskCount} ราย · Medium Risk ${mediumRiskCount} ราย`}
@@ -5441,7 +5700,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
   );
 }
 
-Object.assign(window, { PatientList, PatientForm, VisitHistory });
+Object.assign(window, { PatientList, PatientForm, VisitHistory, SmartAlertBanner, PatientTrendChart });
 </script>
 <script type="text/babel">
 // VisitForm.jsx — Clinic-Workflow Optimized + Edit Mode + 2 Previous Visits + SOAP Templates
@@ -6272,6 +6531,27 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           detail: 'ยังไม่ได้ตอบคำถาม Adherence ทั้ง 4 ข้อ — ถ้าผู้ป่วยร่วมมือดี ยืนยันจริงหรือไม่',
         });
       }
+    }
+    const dx = patient?.diagnosis;
+    const a = f.assessments || {};
+    if ((dx === 'COPD' || dx === 'Both') && f.medications.length > 0 && !a.cat?.allAnswered) {
+      warnings.push({
+        title: 'ยังไม่ได้ประเมิน CAT score',
+        detail: 'ผู้ป่วย COPD/ACO ควรประเมิน CAT score ทุก visit — ใช้จัดกลุ่ม GOLD และติดตามผลการรักษา',
+      });
+    }
+    if ((dx === 'Asthma' || dx === 'Both') && f.medications.length > 0 && !a.act?.allAnswered) {
+      warnings.push({
+        title: 'ยังไม่ได้ประเมิน ACT score',
+        detail: 'ผู้ป่วย Asthma/ACO ควรประเมิน ACT score ทุก visit — ใช้ประเมินการควบคุมโรคตาม GINA',
+      });
+    }
+    const medsMissingDose = f.medications.filter(m => m.name && !m.dose);
+    if (medsMissingDose.length > 0) {
+      warnings.push({
+        title: `ยา ${medsMissingDose.length} รายการยังไม่ได้ระบุขนาดยา`,
+        detail: `${medsMissingDose.map(m => m.name).join(', ')} — ควรระบุขนาดยาและความถี่เพื่อป้องกัน DRP`,
+      });
     }
     return warnings;
   };
