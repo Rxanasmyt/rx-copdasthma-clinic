@@ -2920,129 +2920,82 @@ function detectDRP(visit, patient) {
   return out.sort((x, y) => (rank[x.severity] ?? 3) - (rank[y.severity] ?? 3));
 }
 
-// ── Auto SOAP Generation ──────────────────────────────
-// สร้าง SOAP อัตโนมัติจากข้อมูลที่บันทึกใน Visit
+// ── Auto SOAP Generation (concise bilingual) ────────────
 function autoGenerateSOAP(visit, patient) {
   if (!visit || !patient) return { s: '', o: '', a: '', p: '' };
-  const meds = visit.medications || [];
-  const ex   = visit.exacerbation || {};
-  const adh  = visit.adherence || {};
-  const a    = visit.assessments || {};
-  const techs = visit.inhalerTechnique || [];
-  const dx   = patient.diagnosis || '';
-  const name = `${patient.prefix || ''}${patient.firstName || ''} ${patient.lastName || ''}`.trim();
-  const drps = detectDRP(visit, patient);
-  const counseling = visit.counselingTopics || [];
+  const meds    = visit.medications || [];
+  const ex      = visit.exacerbation || {};
+  const adh     = visit.adherence || {};
+  const a       = visit.assessments || {};
+  const techs   = visit.inhalerTechnique || [];
+  const dx      = patient?.diagnosis;
+  const drps    = detectDRP(visit, patient);
+  const catScore  = a.cat?.allAnswered  ? a.cat.score  : null;
+  const actScore  = a.act?.allAnswered  ? a.act.score  : null;
+  const mmrc      = a.mmrc?.grade != null ? a.mmrc.grade : null;
+  const adhLevel  = adh.level || '';
+  const exYear    = Number(ex.countThisYear) || 0;
 
-  const rescueMap = { Never: 'ไม่ได้ใช้', Rarely: 'นานๆ ครั้ง', Sometimes: '2–3 ครั้ง/สัปดาห์', Often: 'ทุกวัน', Daily: '>1 ครั้ง/วัน' };
-  const rescueTxt = rescueMap[ex.rescueMedUse] || '';
-  const triggerTxt = (ex.triggers || []).length ? `ปัจจัยกระตุ้น: ${(ex.triggers || []).join(', ')}` : '';
-  const exSev = { None: 'ไม่มี', Mild: 'เล็กน้อย', Moderate: 'ปานกลาง', Severe: 'รุนแรง' }[ex.severity] || '';
-  const adhLevel = adh.level || '';
-  const adhTxt = { Good: 'ดี (Adherence ≥75%)', Fair: 'พอใช้ (Adherence 50–74%)', Poor: 'ต่ำ (<50%) ต้องแก้ไข' }[adhLevel] || '';
-  const smokingTxt = { Never: '', Ex: 'เคยสูบบุหรี่ เลิกแล้ว', Current: 'ยังสูบบุหรี่อยู่', Unknown: '' }[patient.smokingStatus] || '';
-
-  // ── S: Subjective ──
-  let sLines = [];
-  if (visit.chiefComplaint) sLines.push(`CC: ${visit.chiefComplaint}`);
-  const exParts = [];
-  if (Number(ex.countThisYear) > 0) exParts.push(`กำเริบ ${ex.countThisYear} ครั้งในปีนี้`);
-  if (ex.hospitalized) exParts.push('นอน รพ.');
-  if (ex.erVisit) exParts.push('เข้า ER');
-  if (exSev && exSev !== 'ไม่มี') exParts.push(`ความรุนแรง: ${exSev}`);
-  if (exParts.length) sLines.push(`การกำเริบ: ${exParts.join(', ')}`);
-  if (rescueTxt) sLines.push(`ความถี่การใช้ยา Rescue (SABA): ${rescueTxt}`);
-  if (triggerTxt) sLines.push(triggerTxt);
-  if (adhTxt) sLines.push(`ความร่วมมือใช้ยา: ${adhTxt}`);
-  if (smokingTxt) sLines.push(smokingTxt);
-
-  // ── O: Objective ──
-  let oLines = [];
-  if (meds.length) {
-    oLines.push('ยาที่ใช้อยู่ปัจจุบัน:');
-    meds.forEach(m => {
-      oLines.push(`  • ${m.name}${m.dose ? ` (${m.dose})` : ''}${m.adherence ? ` — Adherence: ${m.adherence}` : ''}`);
-    });
-  }
-  const techLines = techs.map(t => {
-    const errTxt = t.errors && t.errors.length ? ` ข้อผิดพลาด: ${t.errors.slice(0,2).join(', ')}` : '';
-    return `  • ${t.device}: ${t.overallScore || '—'}${errTxt}`;
-  });
-  if (techLines.length) {
-    oLines.push('เทคนิคการใช้ยาพ่น:');
-    oLines.push(...techLines);
-  }
-  const catScore = a.cat?.allAnswered ? a.cat.score : null;
-  const actScore = a.act?.allAnswered ? a.act.score : null;
-  const mmrcGrade = a.mmrc?.grade != null ? a.mmrc.grade : null;
-  const assessParts = [];
-  if (catScore != null) {
-    const ci = typeof interpretCAT !== 'undefined' ? interpretCAT(catScore) : null;
-    assessParts.push(`CAT = ${catScore} คะแนน (${ci ? ci.label : ''})`);
-  }
-  if (actScore != null) {
-    const ai = typeof interpretACT !== 'undefined' ? interpretACT(actScore) : null;
-    assessParts.push(`ACT = ${actScore} คะแนน (${ai ? ai.label : ''})`);
-  }
-  if (mmrcGrade != null) assessParts.push(`mMRC Grade ${mmrcGrade}`);
-  if (assessParts.length) oLines.push('แบบประเมิน: ' + assessParts.join(' | '));
-  if (dx === 'COPD' || dx === 'Both') {
-    const gold = typeof classifyGOLD !== 'undefined' ? classifyGOLD({ catScore, mmrcGrade, exYear: Number(ex.countThisYear) || 0, hospitalized: !!ex.hospitalized }) : null;
-    if (gold) oLines.push(`GOLD 2023: ${gold.label} — ${gold.desc}`);
-  }
-  if (dx === 'Asthma' || dx === 'Both') {
-    const gina = typeof classifyGINA !== 'undefined' ? classifyGINA({ actScore, exYear: Number(ex.countThisYear) || 0 }) : null;
-    if (gina) oLines.push(`GINA 2023: ${gina.step} — ${gina.label}`);
-  }
-
-  // ── A: Assessment ──
-  let aLines = [];
-  const dxLabel = { COPD: 'โรคปอดอุดกั้นเรื้อรัง (COPD)', Asthma: 'โรคหืด (Asthma)', Both: 'COPD + Asthma overlap' }[dx] || dx;
-  if (dxLabel) aLines.push(`วินิจฉัย: ${dxLabel}`);
-  const riskLvl = visit.riskLevel || 'Low';
-  aLines.push(`ระดับความเสี่ยง: ${riskLvl === 'High' ? 'สูง' : riskLvl === 'Medium' ? 'ปานกลาง' : 'ต่ำ'}`);
-  if (adhTxt) aLines.push(`ความร่วมมือใช้ยา: ${adhTxt}`);
+  const adhMap    = { Good: 'ดี (Good)', Fair: 'พอใช้ (Fair)', Poor: 'ต่ำ (Poor)' };
+  const dxLabel   = { COPD: 'COPD', Asthma: 'Asthma', Both: 'ACO (COPD+Asthma)' }[dx] || dx || '';
+  const gold = (dx === 'COPD' || dx === 'Both') && typeof classifyGOLD !== 'undefined'
+    ? classifyGOLD({ catScore, mmrcGrade: mmrc, exYear, hospitalized: !!ex.hospitalized }) : null;
+  const gina = (dx === 'Asthma' || dx === 'Both') && typeof classifyGINA !== 'undefined'
+    ? classifyGINA({ actScore, exYear }) : null;
   const poorTech = techs.filter(t => t.overallScore === 'Poor');
-  if (poorTech.length) aLines.push(`เทคนิคยาพ่นไม่ถูกต้อง: ${poorTech.map(t => t.device).join(', ')}`);
-  if (drps.length) {
-    aLines.push(`DRP ที่ตรวจพบ ${drps.length} รายการ:`);
-    drps.forEach(d => aLines.push(`  • [${d.code}] ${d.problemTh} (${d.severity})`));
-  } else {
-    aLines.push('ไม่พบ Drug Related Problem');
-  }
-  if (visit.drp?.items?.length) {
-    aLines.push('DRP ที่บันทึกเพิ่มเติม: ' + visit.drp.items.join('; '));
-  }
 
-  // ── P: Plan ──
-  let pLines = [];
-  let pNum = 1;
-  if (dx === 'COPD' || dx === 'Both') {
-    const gold = typeof classifyGOLD !== 'undefined' ? classifyGOLD({ catScore, mmrcGrade, exYear: Number(ex.countThisYear) || 0, hospitalized: !!ex.hospitalized }) : null;
-    if (gold) pLines.push(`${pNum++}. แนวทางการรักษา GOLD ${gold.label}: ${gold.rx}`);
-  }
-  if (dx === 'Asthma' || dx === 'Both') {
-    const gina = typeof classifyGINA !== 'undefined' ? classifyGINA({ actScore, exYear: Number(ex.countThisYear) || 0 }) : null;
-    if (gina) pLines.push(`${pNum++}. แนวทาง GINA ${gina.step}: ${gina.rx}`);
-  }
-  drps.filter(d => d.severity === 'High' || d.severity === 'Medium').forEach(d => {
-    pLines.push(`${pNum++}. แก้ไข DRP [${d.code}]: ${d.actionTh}`);
-  });
-  if (poorTech.length) pLines.push(`${pNum++}. สอน/ฝึกเทคนิคยาพ่นซ้ำ: ${poorTech.map(t => t.device).join(', ')}`);
-  if (adhLevel === 'Poor' || adhLevel === 'Fair') pLines.push(`${pNum++}. เน้นส่งเสริมความร่วมมือใช้ยา — ค้นหาสาเหตุและแก้ไข`);
-  if (counseling.length) pLines.push(`${pNum++}. ให้คำปรึกษา: ${counseling.join(', ')}`);
-  if (visit.nextVisit) pLines.push(`${pNum++}. นัดติดตามครั้งถัดไป: ${visit.nextVisit}`);
+  // S — Subjective
+  const sParts = [];
+  if (visit.chiefComplaint) sParts.push(visit.chiefComplaint);
+  const exPart = [];
+  if (exYear > 0) exPart.push(`กำเริบ ${exYear} ครั้ง/ปี`);
+  if (ex.hospitalized) exPart.push('นอน รพ.');
+  if (ex.erVisit) exPart.push('เข้า ER');
+  if (exPart.length) sParts.push(`Exacerbation: ${exPart.join(', ')}`);
+  const rescueMap = { Never: '', Rarely: 'Rescue นานๆ ครั้ง', Sometimes: 'Rescue 2–3×/wk', Often: 'Rescue ทุกวัน', Daily: 'Rescue >1×/day' };
+  if (ex.rescueMedUse && rescueMap[ex.rescueMedUse]) sParts.push(rescueMap[ex.rescueMedUse]);
+  if ((ex.triggers || []).length) sParts.push(`Triggers: ${ex.triggers.join(', ')}`);
+  if (adhLevel) sParts.push(`Adherence: ${adhMap[adhLevel] || adhLevel}`);
+  if (patient.smokingStatus === 'Current') sParts.push('ยังสูบบุหรี่ / Current smoker');
+  else if (patient.smokingStatus === 'Ex') sParts.push('Ex-smoker');
 
-  return {
-    s: sLines.join('\n'),
-    o: oLines.join('\n'),
-    a: aLines.join('\n'),
-    p: pLines.join('\n'),
-  };
+  // O — Objective
+  const oParts = [];
+  if (meds.length) oParts.push(`Meds: ${meds.map(m => `${m.name}${m.dose ? ' ' + m.dose : ''}`).join(', ')}`);
+  const ap = [];
+  if (catScore != null) { const ci = typeof interpretCAT !== 'undefined' ? interpretCAT(catScore) : null; ap.push(`CAT ${catScore}${ci ? ' ' + ci.label : ''}`); }
+  if (actScore != null) { const ai = typeof interpretACT !== 'undefined' ? interpretACT(actScore) : null; ap.push(`ACT ${actScore}${ai ? ' ' + ai.label : ''}`); }
+  if (mmrc != null) ap.push(`mMRC ${mmrc}`);
+  if (ap.length) oParts.push(ap.join(' | '));
+  if (gold) oParts.push(`GOLD 2023: ${gold.label} — ${gold.desc}`);
+  if (gina) oParts.push(`GINA 2023: ${gina.step} (${gina.label})`);
+  if (techs.length) oParts.push(`Inhaler technique: ${techs.map(t => `${t.device} → ${t.overallScore}`).join(', ')}`);
+
+  // A — Assessment
+  const aLines = [];
+  aLines.push(`${dxLabel}${gold ? ' GOLD ' + gold.group : ''}${gina ? ' GINA ' + gina.step : ''} | Risk: ${{ High: 'สูง', Medium: 'ปานกลาง', Low: 'ต่ำ' }[visit.riskLevel] || ''}`);
+  if (adhLevel) aLines.push(`Adherence: ${adhMap[adhLevel] || adhLevel}`);
+  if (poorTech.length) aLines.push(`⚠ Inhaler technique ผิด: ${poorTech.map(t => t.device).join(', ')}`);
+  if (drps.length) drps.forEach(d => aLines.push(`⚠ DRP [${d.code}] ${d.problemTh} (${d.severity})`));
+  else aLines.push('No DRP detected');
+  if ((visit.drp?.items || []).length) aLines.push(`DRP (manual): ${visit.drp.items.join('; ')}`);
+
+  // P — Plan
+  const pLines = [];
+  let n = 1;
+  if (gold) pLines.push(`${n++}. GOLD ${gold.label}: ${gold.rx}`);
+  if (gina) pLines.push(`${n++}. GINA ${gina.step}: ${gina.rx}`);
+  drps.filter(d => d.severity !== 'Low').forEach(d => pLines.push(`${n++}. [${d.code}] ${d.actionTh}`));
+  if (poorTech.length) pLines.push(`${n++}. สอนเทคนิคยาพ่นซ้ำ: ${poorTech.map(t => t.device).join(', ')}`);
+  if (adhLevel === 'Poor' || adhLevel === 'Fair') pLines.push(`${n++}. ส่งเสริม adherence`);
+  if ((visit.counselingTopics || []).length) pLines.push(`${n++}. Counseling: ${visit.counselingTopics.join(', ')}`);
+  if (visit.nextVisit) pLines.push(`${n++}. นัดติดตาม / Next visit: ${visit.nextVisit}`);
+
+  return { s: sParts.join('\n'), o: oParts.join('\n'), a: aLines.join('\n'), p: pLines.join('\n') };
 }
 
-// ── Auto Pharmacist Note (Telepharmacy) ───────────────
-// สร้างบันทึกเภสัชกรอัตโนมัติสำหรับ Telepharmacy
+
+// ── Auto Pharmacist Note (Telepharmacy — concise bilingual) ──
 function autoPharmacistNote(visit, patient) {
   if (!visit || !patient) return '';
   const meds   = visit.medications || [];
@@ -3051,62 +3004,40 @@ function autoPharmacistNote(visit, patient) {
   const drps   = detectDRP(visit, patient);
   const techs  = visit.inhalerTechnique || [];
   const a      = visit.assessments || {};
-  const counseling = visit.counselingTopics || [];
   const dx     = patient.diagnosis || '';
   const name   = `${patient.prefix || ''}${patient.firstName || ''} ${patient.lastName || ''}`.trim();
   const today  = visit.visitDate || new Date().toISOString().slice(0, 10);
   const pharm  = visit.pharmacist || '';
-
-  const dxLabel = { COPD: 'COPD', Asthma: 'Asthma', Both: 'COPD/Asthma Overlap' }[dx] || dx;
+  const dxLabel = { COPD: 'COPD', Asthma: 'Asthma', Both: 'ACO (COPD/Asthma)' }[dx] || dx;
   const adhLevel = adh.level || '';
-  const rescueMap = { Never: 'ไม่ใช้ rescue', Rarely: 'นานๆ ครั้ง', Sometimes: '2–3 ครั้ง/สัปดาห์', Often: 'เกือบทุกวัน', Daily: 'ทุกวัน >1 ครั้ง' };
-  const rescueTxt = rescueMap[ex.rescueMedUse] || '';
   const catScore = a.cat?.allAnswered ? a.cat.score : null;
   const actScore = a.act?.allAnswered ? a.act.score : null;
-
-  let lines = [];
-  lines.push(`=== บันทึก Telepharmacy ===`);
-  lines.push(`วันที่: ${today}${pharm ? ` | เภสัชกร: ${pharm}` : ''}`);
-  lines.push(`ผู้ป่วย: ${name}${patient.hn ? ` | HN: ${patient.hn}` : ''}${patient.age ? ` | อายุ: ${patient.age} ปี` : ''}`);
-  lines.push(`วินิจฉัย: ${dxLabel}${patient.goldGrade ? ` GOLD Grade ${patient.goldGrade}` : ''}`);
-  lines.push('');
-
-  if (meds.length) {
-    lines.push('📋 ยาที่ใช้อยู่:');
-    meds.forEach(m => lines.push(`  • ${m.name}${m.dose ? ` ${m.dose}` : ''}`));
-  }
-  lines.push('');
-
-  lines.push('🔍 ประเด็นที่ติดตาม:');
-  lines.push(`  • ความร่วมมือใช้ยา: ${{ Good: 'ดี', Fair: 'พอใช้ — ต้องส่งเสริม', Poor: 'ต่ำ — ต้องแก้ไขเร่งด่วน' }[adhLevel] || 'ไม่ได้ประเมิน'}`);
-  if (rescueTxt) lines.push(`  • การใช้ยา Rescue: ${rescueTxt}`);
-  if (Number(ex.countThisYear) > 0) lines.push(`  • กำเริบ: ${ex.countThisYear} ครั้ง/ปี${ex.hospitalized ? ' (มีนอน รพ.)' : ''}`);
   const poorTech = techs.filter(t => t.overallScore === 'Poor');
-  if (poorTech.length) lines.push(`  • เทคนิคยาพ่นไม่ถูกต้อง: ${poorTech.map(t => t.device).join(', ')}`);
-  if (catScore != null) lines.push(`  • CAT: ${catScore} คะแนน`);
-  if (actScore != null) lines.push(`  • ACT: ${actScore} คะแนน`);
-  lines.push('');
+  const exYear = Number(ex.countThisYear) || 0;
+
+  const lines = [];
+  lines.push(`[Telepharmacy] ${today}${pharm ? ' | ' + pharm : ''}`);
+  lines.push(`Pt: ${name}${patient.hn ? ' HN ' + patient.hn : ''}, ${patient.age || '?'} ปี | Dx: ${dxLabel}`);
+  if (meds.length) lines.push(`Rx: ${meds.map(m => m.name + (m.dose ? ' ' + m.dose : '')).join('; ')}`);
+
+  const issues = [];
+  if (adhLevel === 'Poor')  issues.push('Adherence ต่ำ (Poor)');
+  else if (adhLevel === 'Fair') issues.push('Adherence พอใช้ (Fair)');
+  if (exYear > 0)           issues.push(`กำเริบ ${exYear}×/ปี${ex.hospitalized ? ' (admit)' : ''}`);
+  if (ex.rescueMedUse && !['Never','Rarely'].includes(ex.rescueMedUse)) issues.push(`Rescue ${ex.rescueMedUse}`);
+  if (poorTech.length)      issues.push(`Technique ผิด: ${poorTech.map(t => t.device).join(', ')}`);
+  if (catScore != null)     issues.push(`CAT ${catScore}`);
+  if (actScore != null)     issues.push(`ACT ${actScore}`);
+  if (issues.length) lines.push(`ประเด็น: ${issues.join(' | ')}`);
 
   if (drps.length) {
-    lines.push(`⚠️ DRP ที่ตรวจพบ (${drps.length} รายการ):`);
-    drps.forEach(d => lines.push(`  • [${d.code}/${d.severity}] ${d.problemTh}`));
-    lines.push('');
-    lines.push('✅ แนวทางแก้ไข DRP:');
-    drps.forEach(d => lines.push(`  • ${d.actionTh}`));
+    lines.push(`DRP (${drps.length}): ${drps.map(d => `[${d.code}] ${d.problemTh}`).join('; ')}`);
+    lines.push(`Plan: ${drps.slice(0,3).map(d => d.actionTh).join('; ')}`);
   } else {
-    lines.push('✅ ไม่พบ Drug Related Problem');
+    lines.push('No DRP detected');
   }
-  lines.push('');
-
-  if (counseling.length) {
-    lines.push('📚 หัวข้อที่ให้คำแนะนำ:');
-    counseling.forEach(c => lines.push(`  • ${c}`));
-    lines.push('');
-  }
-
-  if (visit.nextVisit) lines.push(`📅 นัดติดตามครั้งถัดไป: ${visit.nextVisit}`);
-  lines.push('');
-  lines.push(`── บันทึกโดย ${pharm} ระบบบริบาลเภสัชกรรม Rx-COPD/Asthma ──`);
+  if ((visit.counselingTopics || []).length) lines.push(`Counseling: ${visit.counselingTopics.join(', ')}`);
+  if (visit.nextVisit) lines.push(`นัดครั้งถัดไป: ${visit.nextVisit}`);
 
   return lines.join('\n');
 }
@@ -5719,59 +5650,175 @@ function DRPSection({ drp, onChange, visit, patient }) {
 }
 
 // ── Med Row ───────────────────────────────────────────
-function MedRow({ med, index, onChange, onRemove, changeStatus }) {
-  const guide = med.name && window.DRUG_DOSE_GUIDE ? window.DRUG_DOSE_GUIDE[med.name] : null;
-  const medInfo = AppStore.COMMON_MEDICATIONS.find(m => m.name === med.name);
-  const isOral = medInfo?.type === 'oral';
+// ── Drug Searchable Combobox ──────────────────────────
+// พิมพ์ค้นหาได้ จัดกลุ่มยาพ่น/ยากิน แสดง badge category
+function DrugSearchBox({ value, onChange }) {
+  const [query, setQuery] = vfState('');
+  const [open, setOpen]   = vfState(false);
+  const [activeIdx, setActiveIdx] = vfState(-1);
+  const inputRef    = vfRef(null);
+  const containerRef = vfRef(null);
 
-  // Group medications: inhalers first, then oral by category
-  const inhalerMeds = AppStore.COMMON_MEDICATIONS.filter(m => !m.type || m.type !== 'oral');
+  const inhalers = AppStore.COMMON_MEDICATIONS.filter(m => !m.type || m.type !== 'oral');
   const oralMeds = AppStore.COMMON_MEDICATIONS.filter(m => m.type === 'oral');
 
-  const medOptions = [
-    { value: '', label: '── ยาพ่น ──', disabled: true },
-    ...inhalerMeds.map(m => ({ value: m.name, label: `${m.name} [${m.category}]` })),
-    { value: '__sep__', label: '── ยารับประทาน (โรคร่วม) ──', disabled: true },
-    ...oralMeds.map(m => ({ value: m.name, label: `${m.name} [${m.category}]` })),
-  ].filter(o => !o.disabled);
+  const q = query.toLowerCase().trim();
+  const filt = (arr) => q ? arr.filter(m =>
+    m.name.toLowerCase().includes(q) || (m.category || '').toLowerCase().includes(q)
+  ) : arr;
+
+  const sections = [];
+  const fi = filt(inhalers), fo = filt(oralMeds);
+  if (fi.length) { sections.push({ header: '💨 ยาพ่น (Inhalers)' }); fi.forEach(m => sections.push(m)); }
+  if (fo.length) { sections.push({ header: '💊 ยารับประทาน (Oral — โรคร่วม)' }); fo.forEach(m => sections.push(m)); }
+  const selectables = sections.filter(s => !s.header);
+
+  vfEffect(() => {
+    const fn = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) { setOpen(false); setQuery(''); } };
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
+  }, []);
+
+  const selectDrug = (name) => { onChange(name); setQuery(''); setOpen(false); setActiveIdx(-1); };
+
+  const onKey = (e) => {
+    if (!open) { if (e.key === 'ArrowDown' || e.key === 'Enter') { setOpen(true); } return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, selectables.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); selectDrug(selectables[activeIdx].name); }
+    else if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+  };
+
+  // Category badge colours
+  const catColors = {
+    SABA: '#0369A1', ICS: '#7C3AED', 'ICS/LABA': '#059669', 'LABA/LAMA': '#065F46',
+    'SAMA/SABA': '#0369A1', OCS: '#DC2626', Theophylline: '#D97706', LTRA: '#0F766E',
+    CCB: '#0F766E', 'ACE-I': '#0F766E', ARB: '#0F766E', Thiazide: '#6366F1', 'Loop Diuretic': '#6366F1',
+    BB: '#F59E0B', 'BB-NS': '#DC2626', 'Aldosterone Ant': '#6366F1',
+    Biguanide: '#2563EB', Sulfonylurea: '#2563EB', 'DPP4-I': '#6366F1', 'SGLT2-I': '#059669', TZD: '#D97706', 'Alpha-GI': '#9333EA',
+    Statin: '#7C3AED', Fibrate: '#9333EA',
+    PPI: '#059669', 'H2-Blocker': '#059669', Prokinetic: '#6366F1',
+    Antihistamine: '#0F766E', 'Antihistamine-1G': '#D97706',
+    Antiplatelet: '#DC2626', Anticoagulant: '#DC2626', Nitrate: '#9333EA', 'Cardiac Glycoside': '#9333EA',
+    Analgesic: '#059669', NSAID: '#DC2626', 'COX2-I': '#D97706',
+    Antibiotic: '#D97706', Macrolide: '#D97706', FQ: '#D97706',
+    Uricosuric: '#6366F1', Bisphosphonate: '#6366F1', Supplement: '#6366F1',
+  };
+  const getCatColor = (cat) => catColors[cat] || '#64748B';
+
+  const boxBorder = open ? '#3B82F6' : C.border;
+  return (
+    <div ref={containerRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
+        border: `1.5px solid ${boxBorder}`, borderRadius: 9, background: C.surface,
+        cursor: 'text', minHeight: 38, transition: 'border-color 0.15s, box-shadow 0.15s',
+        boxShadow: open ? '0 0 0 3px rgba(59,130,246,0.12)' : 'none',
+      }} onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); }}>
+        {open ? (
+          <input ref={inputRef} value={query}
+            onChange={e => { setQuery(e.target.value); setActiveIdx(-1); }}
+            onKeyDown={onKey} autoFocus
+            placeholder={value || 'พิมพ์ชื่อยา / กลุ่มยา เช่น SABA, statin, amlodipine...'}
+            style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 13, fontFamily: 'inherit', color: C.text, outline: 'none', padding: 0, minWidth: 0 }} />
+        ) : (
+          <span style={{ flex: 1, fontSize: 13, color: value ? C.text : C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {value || 'เลือก/พิมพ์ค้นหายา...'}
+          </span>
+        )}
+        {value && !open && (
+          <button onMouseDown={e => { e.stopPropagation(); selectDrug(''); }}
+            style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', padding: '0 2px', fontSize: 14, flexShrink: 0, lineHeight: 1 }}>✕</button>
+        )}
+        <span style={{ color: C.textMuted, fontSize: 10, flexShrink: 0, userSelect: 'none' }}>{open ? '▴' : '▾'}</span>
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 300,
+          background: '#fff', border: '1.5px solid #93C5FD', borderRadius: 10,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.16)', maxHeight: 340, overflowY: 'auto', fontFamily: 'inherit',
+        }}>
+          {sections.length === 0 && (
+            <div style={{ padding: '14px', fontSize: 13, color: C.textMuted, textAlign: 'center' }}>ไม่พบยาที่ค้นหา — ลองค้นหาด้วย ชื่อยา หรือ กลุ่มยา</div>
+          )}
+          {sections.map((item, idx) => {
+            if (item.header) return (
+              <div key={idx} style={{ padding: '6px 12px 3px', fontSize: 10, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.5, background: '#F8FAFC', borderTop: idx > 0 ? `1px solid ${C.border}` : 'none', position: 'sticky', top: idx === 0 ? 0 : 'auto' }}>{item.header}</div>
+            );
+            const si = selectables.indexOf(item);
+            const isActive = si === activeIdx;
+            const isSelected = item.name === value;
+            const cc = getCatColor(item.category);
+            return (
+              <div key={item.name} onMouseDown={() => selectDrug(item.name)} onMouseEnter={() => setActiveIdx(si)}
+                style={{
+                  padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                  background: isSelected ? '#F0FDF4' : isActive ? '#EFF6FF' : 'transparent', transition: 'background 0.1s',
+                  borderLeft: isSelected ? `3px solid ${C.low}` : '3px solid transparent',
+                }}>
+                {isSelected && <span style={{ fontSize: 11, color: C.low, flexShrink: 0 }}>✓</span>}
+                <span style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: `${cc}18`, color: cc, flexShrink: 0, whiteSpace: 'nowrap' }}>{item.category}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MedRow({ med, index, onChange, onRemove, changeStatus }) {
+  const guide = med.name && window.DRUG_DOSE_GUIDE ? window.DRUG_DOSE_GUIDE[med.name] : null;
+  const isWarn = guide?.tip && (guide.tip.startsWith('⚠') || guide.tip.startsWith('⛔'));
+  const medInfo = AppStore.COMMON_MEDICATIONS.find(m => m.name === med.name);
+  const isOral  = medInfo?.type === 'oral';
 
   return (
-    <div style={{ marginBottom: 6 }}>
-      <div className="rx-med-row" style={{
-        display: 'grid', gridTemplateColumns: 'auto 3fr 1fr 1fr auto',
+    <div style={{ marginBottom: 8 }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
         gap: 8, alignItems: 'center',
-        background: isOral ? '#F0F9FF' : '#F8FAFC', borderRadius: guide ? '8px 8px 0 0' : 8,
-        padding: '8px 12px', border: `1px solid ${guide ? C.accent : C.border}`,
-        borderBottom: guide ? 'none' : `1px solid ${guide ? C.accent : C.border}`,
+        background: isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : '#F8FAFC',
+        borderRadius: guide ? '9px 9px 0 0' : 9, padding: '8px 12px',
+        border: `1.5px solid ${isWarn ? '#FED7AA' : guide ? '#BFDBFE' : C.border}`,
+        borderBottom: guide ? 'none' : undefined,
       }}>
-        {changeStatus === 'new'  && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#FEF3C7', color: '#92400E' }}>NEW</span>}
-        {changeStatus === 'same' && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#E0F2FE', color: '#0369A1' }}>เดิม</span>}
-        {!changeStatus && <span />}
-        <Select value={med.name} placeholder="เลือกยา..."
-          options={medOptions}
-          onChange={v => {
-            const g = window.DRUG_DOSE_GUIDE?.[v];
-            onChange(index, { ...med, name: v, dose: g ? g.dose : med.dose });
-          }} />
-        <Input value={med.dose} onChange={v => onChange(index, { ...med, dose: v })} placeholder={guide ? guide.dose : 'Dose'} />
-        <Select value={med.adherence} placeholder="Adherence"
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+          {changeStatus === 'new'  && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#FEF3C7', color: '#92400E', whiteSpace: 'nowrap' }}>NEW</span>}
+          {changeStatus === 'same' && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#E0F2FE', color: '#0369A1', whiteSpace: 'nowrap' }}>เดิม</span>}
+          {!changeStatus && <span style={{ width: 4 }} />}
+        </div>
+        <DrugSearchBox value={med.name} onChange={v => {
+          const g = window.DRUG_DOSE_GUIDE?.[v];
+          onChange(index, { ...med, name: v, dose: g ? g.dose : med.dose });
+        }} />
+        <Input value={med.dose} onChange={v => onChange(index, { ...med, dose: v })}
+          placeholder={guide ? guide.dose : 'Dose/วิธีใช้'}
+          style={{ width: 140, flexShrink: 0 }} />
+        <Select value={med.adherence} placeholder="Adh."
           options={[
             { value: 'Good', label: '✅ ดี' },
             { value: 'Fair', label: '⚠ พอใช้' },
             { value: 'Poor', label: '❌ ต่ำ' },
           ]}
-          onChange={v => onChange(index, { ...med, adherence: v })} />
-        <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px' }}>✕</button>
+          onChange={v => onChange(index, { ...med, adherence: v })}
+          style={{ width: 110, flexShrink: 0 }} />
+        <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px', flexShrink: 0 }}>✕</button>
       </div>
       {guide && (
         <div style={{
-          padding: '6px 12px', fontSize: 11, borderRadius: '0 0 8px 8px',
-          background: '#EFF6FF', border: `1px solid ${C.accent}`, borderTop: 'none',
-          display: 'flex', flexWrap: 'wrap', gap: '0 16px', lineHeight: 1.6,
+          padding: '5px 14px', fontSize: 11, lineHeight: 1.6,
+          borderRadius: '0 0 9px 9px',
+          background: isWarn ? '#FFF7ED' : '#EFF6FF',
+          border: `1.5px solid ${isWarn ? '#FED7AA' : '#BFDBFE'}`,
+          borderTop: `1px dashed ${isWarn ? '#FDBA74' : '#93C5FD'}`,
+          display: 'flex', flexWrap: 'wrap', gap: '2px 16px',
         }}>
           <span style={{ color: '#1E40AF', fontWeight: 600 }}>💊 {guide.dose}</span>
           {guide.max && <span style={{ color: C.textMuted }}>Max: {guide.max}</span>}
-          {guide.tip && <span style={{ color: guide.tip.startsWith('⚠') || guide.tip.startsWith('⛔') ? C.high : '#0369A1' }}>{guide.tip}</span>}
+          {guide.tip && <span style={{ color: isWarn ? '#9A3412' : '#0369A1', fontWeight: isWarn ? 600 : 400 }}>{guide.tip}</span>}
         </div>
       )}
     </div>
@@ -6674,43 +6721,21 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             </FormField>
           </Card>
 
-          {/* HA6: Informed Consent */}
-          <Card style={{ padding: '14px 18px' }}>
+          {/* HA6: Informed Consent — รวมไว้ใน Counseling card เพื่อกรอกง่ายในจุดเดียว */}
+          <Card style={{ padding: '12px 18px', background: f.informedConsent ? '#F0FDF4' : '#FFFBEB', border: `1px solid ${f.informedConsent ? C.lowBorder : '#FDE68A'}` }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
               <input type="checkbox" checked={f.informedConsent || false}
                 onChange={e => set('informedConsent', e.target.checked)}
-                style={{ accentColor: C.low, width: 20, height: 20 }} />
+                style={{ accentColor: C.low, width: 20, height: 20, flexShrink: 0 }} />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: f.informedConsent ? C.low : C.text }}>
-                  ✍️ Informed Consent — ผู้ป่วยรับทราบและยินยอมรับบริบาลเภสัชกรรม
+                <div style={{ fontSize: 13, fontWeight: 700, color: f.informedConsent ? C.low : '#92400E' }}>
+                  {f.informedConsent ? '✅' : '⬜'} HA PSG.6 Informed Consent — ผู้ป่วย/ผู้แทนยินยอมรับบริบาลเภสัชกรรม
                 </div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                  HA PSG.6 · ผู้ป่วย/ผู้แทนได้รับข้อมูลครบถ้วน ยินยอมให้ข้อมูลและรับคำแนะนำ
+                  {f.informedConsent ? 'ผู้ป่วยได้รับข้อมูลครบถ้วนและยินยอมแล้ว' : 'ยังไม่ได้รับความยินยอม — กรุณาแจ้งผู้ป่วยก่อนบันทึก'}
                 </div>
               </div>
             </label>
-          </Card>
-          <Card>
-            <FormField label="หัวข้อ Counseling">
-              <CheckboxGroup options={AppStore.COUNSELING_TOPICS} selected={f.counselingTopics}
-                onChange={v => set('counselingTopics', v)} cols={2} />
-            </FormField>
-            <div style={row2}>
-              <FormField label="วันนัดครั้งถัดไป (Next Visit)">
-                <Input type="date" value={f.nextVisit} onChange={v => set('nextVisit', v)} />
-              </FormField>
-            </div>
-            <FormField label="บันทึกเพิ่มเติมของเภสัชกร (Auto Telepharmacy Note)">
-              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                <Btn size="sm" variant="primary" onClick={() => {
-                  const note = autoPharmacistNote(f, patient);
-                  set('pharmacistNote', f.pharmacistNote ? `${f.pharmacistNote}\n\n${note}` : note);
-                }}>⚡ สร้างบันทึก Telepharmacy อัตโนมัติ</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => set('pharmacistNote', '')}>ล้าง</Btn>
-              </div>
-              <Textarea value={f.pharmacistNote} onChange={v => set('pharmacistNote', v)}
-                placeholder="คลิก ⚡ เพื่อสร้างบันทึก Telepharmacy อัตโนมัติ หรือพิมพ์เองได้เลย..." rows={4} />
-            </FormField>
           </Card>
 
           {/* Inline validation summary — appears after a save attempt, updates live as fields are fixed */}
