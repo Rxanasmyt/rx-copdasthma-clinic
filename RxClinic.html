@@ -3111,10 +3111,44 @@ function autoPharmacistNote(visit, patient) {
   return lines.join('\n');
 }
 
+// ── Auto PCNE v9.1 Classification ─────────────────────
+// แปลง DRP ที่ตรวจจับได้ (ตัวที่รุนแรงที่สุด) → PCNE v9.1 problem/cause/intervention/outcome
+function autoPCNE(visit, patient) {
+  const drps = detectDRP(visit, patient);
+  if (!drps.length) return null;
+  const top = drps[0]; // เรียง High → Low อยู่แล้ว เลือกตัวรุนแรงสุด
+
+  // map ตาม categoryEn ของ DRP → PCNE v9.1
+  // P: P1 ADE, P2 Treatment effectiveness, P3 Others
+  // I: I0 none, I1 prescriber, I2 patient, I3 drug, I4 other, I5 referral
+  const cat = top.categoryEn || '';
+  let problem = 'P2.1', cause = 'C1.1', intervention = 'I1';
+
+  if (/inhaler technique/i.test(cat)) {
+    problem = 'P2.1'; cause = 'C6.2'; intervention = 'I2';        // เทคนิคผิด → effect ต่ำ → administration → counseling
+  } else if (/non-adherence/i.test(cat)) {
+    problem = 'P2.1'; cause = 'C7.2'; intervention = 'I2';        // adherence ต่ำ → effect ต่ำ → adherence → counseling
+  } else if (/interaction/i.test(cat)) {
+    problem = 'P1.1'; cause = 'C1.2'; intervention = 'I1';        // ปฏิกิริยา → ADE → contra → prescriber
+  } else if (/contraindication/i.test(cat)) {
+    problem = 'P1.1'; cause = 'C1.2'; intervention = 'I1';        // ข้อห้ามใช้
+  } else if (/adverse drug reaction/i.test(cat)) {
+    problem = 'P1.1'; cause = 'C1.1'; intervention = 'I2';        // ADR
+  } else if (/duplicate|unnecessary/i.test(cat)) {
+    problem = 'P3.1'; cause = 'C8.1'; intervention = 'I1';        // ยาซ้ำซ้อน/ไม่จำเป็น
+  } else if (/needs additional|untreated/i.test(cat)) {
+    problem = 'P2.1'; cause = 'C1.1'; intervention = 'I1';        // ต้องการยาเพิ่ม → effect ต่ำ → no drug → prescriber
+  } else if (/dosage|overuse/i.test(cat)) {
+    problem = 'P2.1'; cause = 'C3.1'; intervention = 'I1';        // ขนาด/ใช้เกิน
+  }
+
+  return { problem, cause, intervention, outcome: 'O0', resolved: false, _autoFrom: top.problemTh };
+}
+
 Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
   checkInteractions, getRenalCategory, detectDRP,
-  autoGenerateSOAP, autoPharmacistNote, DRUG_DOSE_GUIDE,
+  autoGenerateSOAP, autoPharmacistNote, DRUG_DOSE_GUIDE, autoPCNE,
 });
 </script>
 <script type="text/babel">
@@ -6031,6 +6065,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     counselingTopics: [],
     pharmacistNote: '',
     nextVisit: '',
+    informedConsent: true,   // HA PSG.6 — default ยินยอม (ขอด้วยวาจาทุกครั้งก่อนบริการ) ปลดติ๊กได้ถ้ามีกรณีพิเศษ
   };
   const [f, setF] = vfState(initial);
 
@@ -6560,9 +6595,21 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             <DRPSection drp={f.drp} onChange={v => set('drp', v)} visit={f} patient={patient} />
             {f.drp?.noDRP === false && (
               <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.primary, marginBottom: 10 }}>
-                  📋 PCNE v9.1 Classification
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.primary }}>
+                    📋 PCNE v9.1 Classification
+                  </div>
+                  <Btn size="sm" variant="primary" onClick={() => {
+                    const auto = autoPCNE(f, patient);
+                    if (!auto) { setShowToast('ยังไม่พบ DRP ให้จัดประเภทอัตโนมัติ'); return; }
+                    set('drp', { ...f.drp, pcne: { ...(f.drp?.pcne || {}), ...auto } });
+                  }}>⚡ เติม PCNE อัตโนมัติ</Btn>
                 </div>
+                {f.drp?.pcne?._autoFrom && (
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, fontStyle: 'italic' }}>
+                    เติมจาก DRP: {f.drp.pcne._autoFrom} — แก้ไขเพิ่มเติมได้ตามต้องการ
+                  </div>
+                )}
                 <PCNEPanel pcne={f.drp?.pcne} onChange={v => set('drp', { ...f.drp, pcne: v })} />
               </div>
             )}
