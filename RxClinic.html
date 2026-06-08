@@ -353,7 +353,178 @@ const COMMON_MEDICATIONS = [
   // ── Oral ────────────────────────────────────────────
   { name: 'Prednisolone 5 mg',      category: 'OCS',          defaultDevice: 'Oral' },
   { name: 'Theophylline SR 200 mg', category: 'Theophylline', defaultDevice: 'Oral' },
+  // ── Oral: ความดันโลหิตสูง (Hypertension) ──────────
+  { name: 'Amlodipine 5 mg',             category: 'CCB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Amlodipine 10 mg',            category: 'CCB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Nifedipine SR 30 mg',         category: 'CCB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Enalapril 5 mg',             category: 'ACE-I',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Enalapril 10 mg',            category: 'ACE-I',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Losartan 50 mg',             category: 'ARB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Losartan 100 mg',            category: 'ARB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Valsartan 80 mg',            category: 'ARB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Valsartan 160 mg',           category: 'ARB',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Hydrochlorothiazide 25 mg',  category: 'Thiazide',    defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Furosemide 40 mg',           category: 'Loop Diuretic', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Atenolol 50 mg',             category: 'BB',          defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Metoprolol 50 mg',           category: 'BB',          defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Carvedilol 6.25 mg',         category: 'BB',          defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Carvedilol 12.5 mg',         category: 'BB',          defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Propranolol 40 mg',          category: 'BB-NS',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Spironolactone 25 mg',       category: 'Aldosterone Ant', defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: เบาหวาน (Diabetes) ────────────────────────
+  { name: 'Metformin 500 mg',           category: 'Biguanide',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Metformin 850 mg',           category: 'Biguanide',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Metformin 1000 mg',          category: 'Biguanide',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Glipizide 5 mg',             category: 'Sulfonylurea', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Gliclazide MR 30 mg',        category: 'Sulfonylurea', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Gliclazide MR 60 mg',        category: 'Sulfonylurea', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Glibenclamide 5 mg',         category: 'Sulfonylurea', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Sitagliptin 100 mg',         category: 'DPP4-I',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Empagliflozin 10 mg',        category: 'SGLT2-I',     defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Empagliflozin 25 mg',        category: 'SGLT2-I',     defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Dapagliflozin 10 mg',        category: 'SGLT2-I',     defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Pioglitazone 15 mg',         category: 'TZD',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Acarbose 50 mg',             category: 'Alpha-GI',    defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: ไขมันในเลือด (Dyslipidemia) ───────────────
+  { name: 'Simvastatin 20 mg',          category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Simvastatin 40 mg',          category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Atorvastatin 10 mg',         category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Atorvastatin 20 mg',         category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Atorvastatin 40 mg',         category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Rosuvastatin 10 mg',         category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Rosuvastatin 20 mg',         category: 'Statin',      defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Fenofibrate 160 mg',         category: 'Fibrate',     defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: กรดไหลย้อน / GI ───────────────────────────
+  { name: 'Omeprazole 20 mg',           category: 'PPI',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Omeprazole 40 mg',           category: 'PPI',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Pantoprazole 40 mg',         category: 'PPI',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Esomeprazole 20 mg',         category: 'PPI',         defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Famotidine 20 mg',           category: 'H2-Blocker',  defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Domperidone 10 mg',          category: 'Prokinetic',  defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: ภูมิแพ้ทางเดินหายใจ (Allergic Rhinitis) ──
+  { name: 'Loratadine 10 mg',           category: 'Antihistamine', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Cetirizine 10 mg',           category: 'Antihistamine', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Levocetirizine 5 mg',        category: 'Antihistamine', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Fexofenadine 180 mg',        category: 'Antihistamine', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Chlorpheniramine 4 mg',      category: 'Antihistamine-1G', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Montelukast 10 mg',          category: 'LTRA',        defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: หัวใจ / เลือด ─────────────────────────────
+  { name: 'Aspirin 81 mg',              category: 'Antiplatelet', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Aspirin 100 mg',             category: 'Antiplatelet', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Clopidogrel 75 mg',          category: 'Antiplatelet', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Warfarin 1 mg',              category: 'Anticoagulant', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Warfarin 3 mg',              category: 'Anticoagulant', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Warfarin 5 mg',              category: 'Anticoagulant', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Isosorbide Dinitrate 10 mg', category: 'Nitrate',     defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Digoxin 0.25 mg',            category: 'Cardiac Glycoside', defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: ยาแก้ปวด / NSAIDs ────────────────────────
+  { name: 'Paracetamol 500 mg',         category: 'Analgesic',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Ibuprofen 400 mg',           category: 'NSAID',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Diclofenac 25 mg',           category: 'NSAID',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Diclofenac 50 mg',           category: 'NSAID',       defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Celecoxib 200 mg',           category: 'COX2-I',      defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: ยาปฏิชีวนะ (Antibiotics) ──────────────────
+  { name: 'Amoxicillin 500 mg',         category: 'Antibiotic',  defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Amoxicillin-Clavulanate 625 mg', category: 'Antibiotic', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Azithromycin 250 mg',        category: 'Macrolide',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Azithromycin 500 mg',        category: 'Macrolide',   defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Doxycycline 100 mg',         category: 'Antibiotic',  defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Ciprofloxacin 500 mg',       category: 'FQ',          defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Levofloxacin 500 mg',        category: 'FQ',          defaultDevice: 'Oral', type: 'oral' },
+  // ── Oral: อื่น ๆ ───────────────────────────────────
+  { name: 'Allopurinol 100 mg',         category: 'Uricosuric',  defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Allopurinol 300 mg',         category: 'Uricosuric',  defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Alendronate 70 mg (weekly)', category: 'Bisphosphonate', defaultDevice: 'Oral', type: 'oral' },
+  { name: 'Calcium+Vit D3 500/200 mg',  category: 'Supplement',  defaultDevice: 'Oral', type: 'oral' },
 ];
+
+// ── Drug Dosing Guide (Thai community hospital formulary) ──
+// ข้อมูลอ้างอิง: MIMS Thailand, Lexicomp, Micromedex
+const DRUG_DOSE_GUIDE = {
+  'Salbutamol MDI 100 mcg/dose':  { dose: '1–2 พ่น ทุก 4–6 ชม. PRN', max: 'max 8 พ่น/day', tip: 'ใช้เมื่อมีอาการเท่านั้น ถ้าใช้ >2 ครั้ง/สัปดาห์ ต้องทบทวนแผนการรักษา' },
+  'Budesonide (Pulmicort) MDI 200 mcg/dose': { dose: '1–2 พ่น BID', max: 'max 1600 mcg/day', tip: 'บ้วนปากทุกครั้ง ใช้สม่ำเสมอแม้อาการดีขึ้น ห้ามหยุดเอง' },
+  'Fluticasone/Salmeterol (Seretide) MDI 25/250 mcg': { dose: '2 พ่น BID', max: '4 พ่น/day', tip: 'บ้วนปากหลังพ่น ห้ามใช้เป็น rescue' },
+  'Ipratropium/Fenoterol (Berodual) MDI 20/50 mcg': { dose: '2 พ่น TID–QID', max: '8 พ่น/day', tip: 'หลีกเลี่ยงการสัมผัสตา ระวังปัสสาวะลำบากในผู้สูงอายุ' },
+  'Budesonide/Formoterol (Symbicort) DPI 160/4.5 mcg': { dose: '1–2 พ่น BID', max: '4 พ่น/day', tip: 'บ้วนปากหลังพ่น สามารถใช้เป็น MART regimen ได้' },
+  'Fluticasone/Salmeterol (Seretide) Accuhaler 50/250 mcg': { dose: '1 พ่น BID', max: '2 พ่น/day', tip: 'บ้วนปากหลังพ่น ห้ามใช้เป็น rescue' },
+  'Umeclidinium/Vilanterol (Anoro) Ellipta 55/22 mcg': { dose: '1 พ่น OD (ตอนเช้า)', max: '1 พ่น/day', tip: 'ใช้เวลาเดิมทุกวัน ระวังปัสสาวะลำบาก ปากแห้ง ตาพร่า' },
+  'Prednisolone 5 mg': { dose: '0.5–1 mg/kg/day (ช่วงกำเริบ)', max: 'ระยะสั้นที่สุด', tip: 'รับประทานพร้อมอาหาร ตรวจน้ำตาล/ความดัน ถ้าใช้ยาวนานต้องเฝ้าระวัง osteoporosis' },
+  'Theophylline SR 200 mg': { dose: '200–300 mg BID', max: '900 mg/day', tip: 'ตรวจระดับยา (level 5–15 mcg/mL) ระวังขนาดยาถ้าสูบบุหรี่ หัวใจเต้นเร็ว คลื่นไส้' },
+  'Amlodipine 5 mg':  { dose: '5 mg OD', max: '10 mg/day', tip: 'รับประทานเวลาเดิม ระวังขาบวม ความดันต่ำ ใบหน้าแดงร้อน' },
+  'Amlodipine 10 mg': { dose: '10 mg OD', max: '10 mg/day', tip: 'ขนาดสูงสุด ถ้าบวมน้ำมากพิจารณาลดขนาด' },
+  'Nifedipine SR 30 mg': { dose: '30–60 mg OD', max: '120 mg/day', tip: 'ห้ามบดหรือเคี้ยว กลืนทั้งเม็ด ระวังความดันต่ำ' },
+  'Enalapril 5 mg':   { dose: '5–10 mg OD–BID', max: '40 mg/day', tip: 'ระวังไอแห้ง (พบบ่อยในผู้ป่วย COPD/Asthma) ตรวจ K+ และ Cr' },
+  'Enalapril 10 mg':  { dose: '10–20 mg OD–BID', max: '40 mg/day', tip: 'ระวังไอแห้ง ตรวจ K+ Cr สม่ำเสมอ ห้ามใช้ในไตรมาสที่ 2–3 ของการตั้งครรภ์' },
+  'Losartan 50 mg':   { dose: '50 mg OD', max: '100 mg/day', tip: 'ไม่ค่อยทำให้ไอ เหมาะสำหรับผู้ที่แพ้ ACEI ตรวจ K+ Cr' },
+  'Losartan 100 mg':  { dose: '100 mg OD', max: '100 mg/day', tip: 'ขนาดสูงสุด ตรวจ K+ Cr สม่ำเสมอ' },
+  'Valsartan 80 mg':  { dose: '80–160 mg OD', max: '320 mg/day', tip: 'รับประทานพร้อมหรือไม่พร้อมอาหาร ตรวจ K+ Cr' },
+  'Valsartan 160 mg': { dose: '160 mg OD', max: '320 mg/day', tip: 'ตรวจ K+ Cr สม่ำเสมอ' },
+  'Hydrochlorothiazide 25 mg': { dose: '12.5–25 mg OD', max: '50 mg/day', tip: 'รับประทานตอนเช้า ตรวจ Na+ K+ ระวังน้ำตาลขึ้น ยูริกสูง' },
+  'Furosemide 40 mg': { dose: '20–80 mg OD–BID', max: '600 mg/day', tip: 'รับประทานตอนเช้า ติดตาม K+ Na+ Cr ชั่งน้ำหนักทุกวัน' },
+  'Atenolol 50 mg':   { dose: '25–50 mg OD', max: '100 mg/day', tip: '⚠ ระวังในผู้ป่วย COPD (อาจหลอบอาการ) ห้ามใช้ใน Asthma เว้นแต่จำเป็น' },
+  'Metoprolol 50 mg': { dose: '50–100 mg OD–BID', max: '200 mg/day', tip: '⚠ Cardioselective beta-1 blocker ระวังในผู้ป่วย COPD ห้ามใช้ใน Asthma รุนแรง' },
+  'Carvedilol 6.25 mg': { dose: '6.25 mg BID', max: '50 mg/day', tip: '⚠ Non-cardioselective ระวังใน COPD/Asthma ระวังความดันต่ำขณะลุกยืน' },
+  'Carvedilol 12.5 mg': { dose: '12.5 mg BID', max: '50 mg/day', tip: '⚠ ระวังใน COPD/Asthma รับประทานพร้อมอาหาร' },
+  'Propranolol 40 mg': { dose: '40–80 mg BID–TID', max: '320 mg/day', tip: '⛔ Non-selective beta-blocker — ห้ามใช้ใน Asthma และ COPD เว้นแต่จำเป็นมาก' },
+  'Spironolactone 25 mg': { dose: '25–50 mg OD', max: '100 mg/day', tip: 'ระวัง K+ สูง (ห้ามใช้กับ ACE-I/ARB โดยไม่ตรวจ K+) ระวังในไตบกพร่อง' },
+  'Metformin 500 mg':  { dose: '500 mg OD–BID ค่อยๆ เพิ่ม', max: '2550 mg/day', tip: 'รับประทานพร้อมอาหาร ลด GI side effect ระวัง/หยุดถ้า eGFR <30' },
+  'Metformin 850 mg':  { dose: '850 mg OD–BID', max: '2550 mg/day', tip: 'รับประทานพร้อมอาหาร ระวัง eGFR ลดขนาดถ้า eGFR 30–45' },
+  'Metformin 1000 mg': { dose: '1000 mg BID', max: '2000 mg/day', tip: 'รับประทานพร้อมอาหาร ระวัง eGFR' },
+  'Glipizide 5 mg':    { dose: '5 mg OD ก่อนอาหาร', max: '40 mg/day', tip: 'ระวังน้ำตาลต่ำ รับประทานก่อนอาหาร 30 นาที' },
+  'Gliclazide MR 30 mg': { dose: '30–60 mg OD ตอนเช้า', max: '120 mg/day', tip: 'รับประทานพร้อมอาหารเช้า ระวังน้ำตาลต่ำในผู้สูงอายุ' },
+  'Gliclazide MR 60 mg': { dose: '60–120 mg OD', max: '120 mg/day', tip: 'ขนาดสูงสุด ระวังน้ำตาลต่ำ' },
+  'Glibenclamide 5 mg': { dose: '2.5–5 mg OD–BID', max: '20 mg/day', tip: '⚠ ระวังน้ำตาลต่ำมากในผู้สูงอายุและไตบกพร่อง ไม่แนะนำในผู้สูงอายุ' },
+  'Sitagliptin 100 mg': { dose: '100 mg OD', max: '100 mg/day', tip: 'ลดขนาดถ้า eGFR <50 โอกาสน้ำตาลต่ำต่ำ' },
+  'Empagliflozin 10 mg': { dose: '10 mg OD', max: '25 mg/day', tip: 'ดีสำหรับ HF/CVD ระวัง UTI/genital infection เสี่ยง DKA ถ้า fasting นาน' },
+  'Empagliflozin 25 mg': { dose: '25 mg OD', max: '25 mg/day', tip: 'ขนาดสูงสุด ดีสำหรับ HF ระวัง UTI และ DKA' },
+  'Dapagliflozin 10 mg': { dose: '10 mg OD', max: '10 mg/day', tip: 'ดีสำหรับ HF/CKD ระวัง UTI ห้ามถ้า eGFR <25' },
+  'Pioglitazone 15 mg': { dose: '15–30 mg OD', max: '45 mg/day', tip: '⚠ ระวังบวมน้ำ เพิ่ม HF risk ห้ามถ้ามี HF NYHA III–IV' },
+  'Acarbose 50 mg': { dose: '50 mg TID ก่อนอาหาร', max: '300 mg/day', tip: 'เคี้ยวพร้อมคำแรกของอาหาร ท้องอืดบ่อยช่วงแรก' },
+  'Simvastatin 20 mg': { dose: '20–40 mg OD ก่อนนอน', max: '80 mg/day', tip: 'รับประทานตอนเย็นหรือก่อนนอน ระวัง myopathy ร่วมกับ macrolides' },
+  'Simvastatin 40 mg': { dose: '40 mg OD ก่อนนอน', max: '80 mg/day', tip: 'ระวัง myopathy ร่วมกับ Azithromycin/Erythromycin' },
+  'Atorvastatin 10 mg': { dose: '10–20 mg OD', max: '80 mg/day', tip: 'รับประทานเวลาใดก็ได้ ระวัง myopathy ร่วมกับ macrolides' },
+  'Atorvastatin 20 mg': { dose: '20 mg OD', max: '80 mg/day', tip: 'ติดตาม LFT ระวัง myopathy' },
+  'Atorvastatin 40 mg': { dose: '40–80 mg OD', max: '80 mg/day', tip: 'ขนาดสูง ติดตาม LFT และ CPK ถ้ามีกล้ามเนื้ออ่อนแรง' },
+  'Rosuvastatin 10 mg': { dose: '10–20 mg OD', max: '40 mg/day', tip: 'ไม่ต้องรับประทานตอนกลางคืน ระวัง myopathy' },
+  'Rosuvastatin 20 mg': { dose: '20–40 mg OD', max: '40 mg/day', tip: 'ลดขนาดถ้า eGFR <30 ระวัง myopathy' },
+  'Fenofibrate 160 mg': { dose: '160 mg OD พร้อมอาหาร', max: '200 mg/day', tip: 'รับประทานพร้อมอาหาร ระวัง myopathy ร่วมกับ statin ตรวจ LFT Cr' },
+  'Omeprazole 20 mg':  { dose: '20–40 mg OD ก่อนอาหาร', max: '40 mg/day', tip: 'รับประทานก่อนอาหาร 30–60 นาที ใช้ระยะสั้นที่สุด' },
+  'Omeprazole 40 mg':  { dose: '40 mg OD', max: '40 mg/day', tip: 'รับประทานก่อนอาหาร ระวังขาด Mg+ ถ้าใช้นานกว่า 1 ปี' },
+  'Pantoprazole 40 mg': { dose: '40 mg OD', max: '80 mg/day', tip: 'รับประทานก่อนอาหาร ห้ามบดเม็ด' },
+  'Esomeprazole 20 mg': { dose: '20–40 mg OD', max: '40 mg/day', tip: 'รับประทานก่อนอาหาร 30–60 นาที' },
+  'Famotidine 20 mg':  { dose: '20 mg BID หรือ 40 mg HS', max: '80 mg/day', tip: 'รับประทานก่อนนอน ลดขนาดถ้าไตบกพร่อง' },
+  'Domperidone 10 mg': { dose: '10 mg TID ก่อนอาหาร', max: '30 mg/day', tip: 'รับประทาน 15–30 นาทีก่อนอาหาร ระวัง QT prolongation' },
+  'Loratadine 10 mg':  { dose: '10 mg OD', max: '10 mg/day', tip: 'ไม่ทำให้ง่วง สามารถรับประทานตอนใดก็ได้' },
+  'Cetirizine 10 mg':  { dose: '10 mg OD', max: '10 mg/day', tip: 'อาจง่วงได้บ้าง ลดขนาดถ้าไตบกพร่อง' },
+  'Levocetirizine 5 mg': { dose: '5 mg OD ตอนเย็น', max: '5 mg/day', tip: 'อาจง่วงได้ ลดขนาดถ้าไตบกพร่อง' },
+  'Fexofenadine 180 mg': { dose: '180 mg OD', max: '180 mg/day', tip: 'ไม่ทำให้ง่วง ไม่ต้องปรับขนาดในไตบกพร่องปานกลาง' },
+  'Chlorpheniramine 4 mg': { dose: '4 mg TID–QID', max: '24 mg/day', tip: '⚠ ทำให้ง่วงมาก ระวังในผู้สูงอายุ ต้อหิน ต่อมลูกหมากโต' },
+  'Montelukast 10 mg': { dose: '10 mg OD ก่อนนอน', max: '10 mg/day', tip: 'รับประทานก่อนนอน ประสิทธิภาพสูงกว่าในการควบคุม AR+Asthma ร่วม ระวัง neuropsychiatric effect' },
+  'Aspirin 81 mg':     { dose: '81 mg OD', max: '100 mg/day', tip: '⚠ ระวังในผู้ป่วย Asthma ที่แพ้ ASA (AERD ~5%) อาจกระตุ้นหืด' },
+  'Aspirin 100 mg':    { dose: '100 mg OD', max: '100 mg/day', tip: '⚠ ระวังในผู้ป่วย Asthma ที่แพ้ ASA รับประทานพร้อมอาหาร' },
+  'Clopidogrel 75 mg': { dose: '75 mg OD', max: '75 mg/day', tip: 'รับประทานพร้อมหรือไม่พร้อมอาหาร ระวังเลือดออกร่วมกับ NSAIDs/Warfarin' },
+  'Warfarin 1 mg':     { dose: 'ปรับขนาดตาม INR', max: 'ตาม INR 2–3', tip: 'ตรวจ INR สม่ำเสมอ ระวังปฏิกิริยากับยาและอาหาร (Vit K) อย่าหยุดเองกะทันหัน' },
+  'Warfarin 3 mg':     { dose: 'ปรับขนาดตาม INR', max: 'ตาม INR 2–3', tip: 'ตรวจ INR สม่ำเสมอ ระวัง macrolides ยาปฏิชีวนะ Omeprazole ที่เพิ่ม INR' },
+  'Warfarin 5 mg':     { dose: 'ปรับขนาดตาม INR', max: 'ตาม INR 2–3 หรือ 2.5–3.5 สำหรับ MVR', tip: 'ตรวจ INR สม่ำเสมอ แจ้งเภสัชกรทุกครั้งถ้าเริ่มยาใหม่' },
+  'Isosorbide Dinitrate 10 mg': { dose: '10–20 mg BID–TID', max: '80 mg/day', tip: 'ควรมีช่วง nitrate-free 8–12 ชม./วัน เพื่อป้องกัน tolerance ระวังความดันต่ำ' },
+  'Digoxin 0.25 mg': { dose: '0.125–0.25 mg OD', max: '0.25 mg/day', tip: '⚠ ขนาดยาแคบ ตรวจ level (0.5–2 ng/mL) ตรวจ K+ Mg+ ระวังในผู้สูงอายุและไตบกพร่อง' },
+  'Paracetamol 500 mg': { dose: '500–1000 mg q4–6h PRN', max: '4000 mg/day (2000 mg/day ถ้าดื่มแอลกอฮอล์)', tip: 'ยาแก้ปวดที่ปลอดภัยที่สุดสำหรับผู้ป่วย COPD/Asthma ไม่กระตุ้นหืด' },
+  'Ibuprofen 400 mg':  { dose: '400 mg TID พร้อมอาหาร', max: '1200 mg/day (OTC); 3200 mg/day (Rx)', tip: '⚠ ระวังในผู้ป่วย Asthma อาจกระตุ้นหืด (NSAID-induced) ระวัง BP สูงขึ้น GI bleed' },
+  'Diclofenac 25 mg':  { dose: '25–50 mg BID–TID', max: '150 mg/day', tip: '⚠ ระวังใน Asthma กระตุ้นหืดได้ รับประทานพร้อมอาหาร ระวัง GI bleed' },
+  'Diclofenac 50 mg':  { dose: '50 mg BID–TID', max: '150 mg/day', tip: '⚠ ระวังใน Asthma รับประทานพร้อมอาหาร ระวัง GI bleed และความดันขึ้น' },
+  'Celecoxib 200 mg':  { dose: '200 mg OD–BID', max: '400 mg/day', tip: 'ปลอดภัยกว่า NSAID ใน Asthma (ไม่ยับยั้ง COX-1) แต่ยังต้องระวังในรายที่แพ้ NSAIDs รุนแรง' },
+  'Amoxicillin 500 mg': { dose: '500 mg TID', max: '3000 mg/day', tip: 'รับประทานหลังอาหาร เช็คประวัติแพ้ Penicillin ครบ 5–7 วัน' },
+  'Amoxicillin-Clavulanate 625 mg': { dose: '625 mg BID–TID', max: '2500 mg/day', tip: 'รับประทานพร้อมอาหาร ลด GI side effect เช็คประวัติแพ้ Penicillin' },
+  'Azithromycin 250 mg': { dose: '500 mg วันแรก → 250 mg OD x4 วัน', max: '500 mg/day', tip: '⚠ ระวัง QT prolongation ร่วมกับ Theophylline และ Digoxin เพิ่ม level ได้' },
+  'Azithromycin 500 mg': { dose: '500 mg OD x3–5 วัน', max: '500 mg/day', tip: '⚠ ระวัง QT prolongation ปฏิกิริยากับ Theophylline Warfarin' },
+  'Doxycycline 100 mg': { dose: '100 mg BID', max: '200 mg/day', tip: 'รับประทานพร้อมน้ำมากๆ ห้ามนอนราบทันที ระวัง photosensitivity' },
+  'Ciprofloxacin 500 mg': { dose: '500 mg BID', max: '1500 mg/day', tip: '⚠ ยับยั้ง CYP1A2 — เพิ่ม Theophylline level ได้มาก ลดขนาด Theophylline 50% ถ้าใช้ร่วมกัน' },
+  'Levofloxacin 500 mg': { dose: '500 mg OD', max: '750 mg/day', tip: '⚠ ระวัง QT prolongation ปฏิกิริยากับ Theophylline (น้อยกว่า Ciprofloxacin)' },
+  'Allopurinol 100 mg': { dose: '100–200 mg OD', max: '300 mg/day', tip: 'รับประทานหลังอาหาร ดื่มน้ำมากๆ ตรวจ Cr ระวัง rash (SJS) ปฏิกิริยากับ Theophylline' },
+  'Allopurinol 300 mg': { dose: '300 mg OD', max: '800 mg/day', tip: 'ลดขนาดถ้าไตบกพร่อง ดื่มน้ำมากๆ ระวัง rash' },
+  'Alendronate 70 mg (weekly)': { dose: '70 mg 1 เม็ด/สัปดาห์', max: '70 mg/week', tip: 'รับประทานตอนเช้าหลังตื่นนอน ยืนหรือนั่งตรงอย่างน้อย 30 นาที ดื่มน้ำเปล่า 200 mL เท่านั้น' },
+  'Calcium+Vit D3 500/200 mg': { dose: '1–2 เม็ด/day', max: '2000 mg Ca/day', tip: 'แยกรับประทานจาก Bisphosphonate และ Thyroid hormone อย่างน้อย 2 ชั่วโมง' },
+};
 
 const TRIGGER_OPTIONS = [
   'หมอกควัน/ฝุ่น PM2.5', 'ควันบุหรี่/ไฟ', 'อากาศเย็น/ชื้น',
@@ -513,6 +684,79 @@ const DRUG_INTERACTIONS = [
     drugs: ['Montelukast'], with: ['Phenobarbital', 'Rifampicin'],
     severity: 'Low', mechanism: '↓ Montelukast level',
     action: 'อาจลด efficacy พิจารณาประเมินการตอบสนอง',
+  },
+  // ── Comorbidity drug interactions ──────────────────
+  {
+    drugs: ['Salbutamol', 'Formoterol', 'Salmeterol', 'Vilanterol', 'Berodual'],
+    with: ['Atenolol', 'Metoprolol', 'Carvedilol', 'Propranolol'],
+    severity: 'High', mechanism: 'Beta-blocker ต้านฤทธิ์ยาขยายหลอดลม + อาจกระตุ้นหืด/COPD',
+    action: 'หลีกเลี่ยงโดยเฉพาะ Non-selective BB ถ้าจำเป็นใช้ Cardioselective BB พร้อมเฝ้าระวังอาการทางปอด',
+  },
+  {
+    drugs: ['Theophylline'], with: ['Azithromycin', 'Ciprofloxacin', 'Levofloxacin'],
+    severity: 'High', mechanism: 'ยาปฏิชีวนะยับยั้ง CYP → ↑ Theophylline level',
+    action: 'ลดขนาด Theophylline และตรวจ level ระวังอาการพิษ (ใจสั่น คลื่นไส้ ชัก)',
+  },
+  {
+    drugs: ['Warfarin'], with: ['Azithromycin', 'Ciprofloxacin', 'Levofloxacin', 'Doxycycline'],
+    severity: 'High', mechanism: 'ยาปฏิชีวนะ ↓ gut flora → ↑ Warfarin effect / ↑ INR',
+    action: 'ตรวจ INR หลังเริ่มยาปฏิชีวนะ 3–5 วัน พิจารณาลด Warfarin dose ชั่วคราว',
+  },
+  {
+    drugs: ['Warfarin'], with: ['Omeprazole', 'Esomeprazole', 'Pantoprazole'],
+    severity: 'Medium', mechanism: 'PPI (esp. Omeprazole) ยับยั้ง CYP2C9 → ↑ Warfarin level',
+    action: 'ตรวจ INR หลังเริ่ม PPI พิจารณาใช้ Pantoprazole (ปฏิกิริยาน้อยกว่า)',
+  },
+  {
+    drugs: ['Warfarin'], with: ['Aspirin', 'Ibuprofen', 'Diclofenac', 'Naproxen'],
+    severity: 'High', mechanism: 'NSAIDs/Aspirin + Warfarin → ↑ เสี่ยงเลือดออก อย่างมาก',
+    action: 'หลีกเลี่ยงการใช้ร่วมกัน ถ้าจำเป็นใช้ PPI ป้องกัน GI bleed ตรวจ INR และสังเกตอาการเลือดออก',
+  },
+  {
+    drugs: ['Simvastatin', 'Atorvastatin', 'Lovastatin'],
+    with: ['Azithromycin', 'Erythromycin', 'Clarithromycin'],
+    severity: 'High', mechanism: 'Macrolide ยับยั้ง CYP3A4 → ↑ Statin level → Myopathy / Rhabdomyolysis',
+    action: 'หยุด Statin ชั่วคราวระหว่างใช้ Macrolide หรือเปลี่ยนเป็น Pravastatin / Rosuvastatin',
+  },
+  {
+    drugs: ['Digoxin'], with: ['Azithromycin', 'Clarithromycin'],
+    severity: 'High', mechanism: 'Macrolide ↑ Digoxin level (ยับยั้ง P-glycoprotein)',
+    action: 'ตรวจ Digoxin level และ ECG ระวังอาการ Digoxin toxicity (คลื่นไส้ ใจสั่น บล็อก)',
+  },
+  {
+    drugs: ['Ibuprofen', 'Diclofenac', 'Naproxen', 'Celecoxib'],
+    with: ['Enalapril', 'Losartan', 'Valsartan'],
+    severity: 'Medium', mechanism: 'NSAIDs ลด efficacy ACEI/ARB + เพิ่ม renal toxicity',
+    action: 'ระวังความดันขึ้น ตรวจ Cr และ K+ ใช้ Paracetamol แทนถ้าเป็นไปได้',
+  },
+  {
+    drugs: ['Enalapril', 'Losartan', 'Valsartan'],
+    with: ['Spironolactone'],
+    severity: 'High', mechanism: 'ACEI/ARB + Aldosterone antagonist → ↑ Hyperkalemia risk',
+    action: 'ตรวจ K+ และ Cr สม่ำเสมอ โดยเฉพาะในผู้ป่วย CKD และผู้สูงอายุ',
+  },
+  {
+    drugs: ['Propranolol', 'Carvedilol'],
+    with: ['Salbutamol', 'Formoterol', 'Salmeterol'],
+    severity: 'High', mechanism: 'Non-selective BB บล็อก beta-2 → หดหลอดลม กระตุ้นหืด',
+    action: '⛔ ห้ามใช้ร่วมกันในผู้ป่วย Asthma ถ้าจำเป็นต้องใช้ BB พิจารณาเปลี่ยนเป็น Cardioselective BB',
+  },
+  {
+    drugs: ['Furosemide', 'Hydrochlorothiazide'],
+    with: ['Digoxin'],
+    severity: 'High', mechanism: 'Diuretic → hypokalemia → เพิ่ม Digoxin toxicity',
+    action: 'ตรวจ K+ Mg+ สม่ำเสมอ ให้ K+ supplement ถ้าจำเป็น ตรวจ ECG',
+  },
+  {
+    drugs: ['Theophylline'], with: ['Allopurinol'],
+    severity: 'Medium', mechanism: 'Allopurinol ยับยั้ง CYP1A2 → ↑ Theophylline level',
+    action: 'ตรวจ Theophylline level และเฝ้าระวังอาการพิษ',
+  },
+  {
+    drugs: ['Fluticasone', 'Budesonide', 'Seretide', 'Symbicort'],
+    with: ['Clarithromycin', 'Erythromycin', 'Azithromycin'],
+    severity: 'Medium', mechanism: 'Macrolide ยับยั้ง CYP3A4 → ↑ ICS systemic exposure → Adrenal suppression',
+    action: 'เฝ้าระวัง Cushing-like symptoms ใช้ระยะสั้นที่สุด',
   },
 ];
 
@@ -2609,14 +2853,268 @@ function detectDRP(visit, patient) {
       actionTh: 'ประเมินยา controller, เทคนิค และ adherence ก่อนเพิ่มยาบรรเทาอาการ' });
   }
 
+  // ── Category 9: Contraindication — comorbidity drug risks ──
+  // 9a) NSAIDs (non-selective) in Asthma — NSAID-exacerbated respiratory disease (AERD ~5–20%)
+  const hasNSAID = hasCat('NSAID');
+  if (hasNSAID && (dx === 'Asthma' || dx === 'Both')) {
+    out.push({ code: 'P2.2', categoryEn: 'Contraindication (relative)', categoryTh: 'ข้อห้ามใช้สัมพัทธ์',
+      severity: 'High',
+      problemEn: 'NSAID use in asthma patient — risk of NSAID-exacerbated respiratory disease (AERD)',
+      problemTh: 'ใช้ NSAID ในผู้ป่วยหืด — เสี่ยง AERD (ผู้ป่วยหืด 5–20% แพ้ Aspirin/NSAIDs)',
+      actionEn: 'Ask about NSAID/Aspirin sensitivity. If AERD suspected, switch to Paracetamol or COX2-inhibitor',
+      actionTh: 'ซักประวัติแพ้ NSAID/Aspirin ถ้าสงสัย AERD ให้เปลี่ยนเป็น Paracetamol หรือ Celecoxib' });
+  }
+  // 9b) Non-selective Beta-blocker in Asthma — absolute contraindication
+  const hasNSBB = hasCat('BB-NS');
+  if (hasNSBB && (dx === 'Asthma' || dx === 'Both')) {
+    out.push({ code: 'P2.2', categoryEn: 'Contraindication (absolute in Asthma)', categoryTh: 'ข้อห้ามใช้เด็ดขาดในหืด',
+      severity: 'High',
+      problemEn: 'Non-selective beta-blocker (Propranolol) in asthma — absolute contraindication',
+      problemTh: 'ใช้ Beta-blocker ไม่ selective (Propranolol) ในผู้ป่วยหืด — ข้อห้ามใช้เด็ดขาด',
+      actionEn: 'Discontinue non-selective BB; if BB required use cardioselective BB1 (Atenolol/Metoprolol) with close monitoring',
+      actionTh: 'หยุด Non-selective BB ทันที ถ้าจำเป็นต้องใช้ BB เปลี่ยนเป็น Cardioselective BB (Atenolol/Metoprolol) พร้อมเฝ้าระวัง' });
+  }
+  // 9c) Cardioselective BB (Atenolol/Metoprolol/Carvedilol) in Asthma — relative caution
+  const hasBB = hasCat('BB');
+  if (hasBB && (dx === 'Asthma' || dx === 'Both')) {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (potential)', categoryTh: 'ระวังผลข้างเคียงในหืด',
+      severity: 'Medium',
+      problemEn: 'Cardioselective beta-blocker in asthma patient — use with caution',
+      problemTh: 'Cardioselective BB ในผู้ป่วยหืด — ต้องระวัง (ยังอาจกระตุ้นหืดได้โดยเฉพาะขนาดสูง)',
+      actionEn: 'Start at lowest dose; monitor for worsening of bronchospasm',
+      actionTh: 'เริ่มขนาดต่ำที่สุด ติดตามอาการหลอดลมหดตัว ปรึกษาแพทย์ถ้าหืดแย่ลง' });
+  }
+  // 9d) BB (any) in COPD — relative caution
+  if ((hasBB || hasNSBB) && dx === 'COPD') {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (potential)', categoryTh: 'ระวัง BB ใน COPD',
+      severity: 'Low',
+      problemEn: 'Beta-blocker in COPD — benefit often outweighs risk (for CV) but monitor respiratory',
+      problemTh: 'Beta-blocker ใน COPD — โดยรวม benefit > risk สำหรับโรคหัวใจ แต่ต้องติดตามอาการปอด',
+      actionEn: 'Use cardioselective BB; monitor respiratory symptoms and FEV1',
+      actionTh: 'ใช้ Cardioselective BB ติดตามอาการทางปอดและ Spirometry' });
+  }
+  // 9e) ACE-I causing dry cough — may mimic or worsen respiratory disease
+  const hasACEI = hasCat('ACE-I');
+  if (hasACEI && isResp) {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (monitoring)', categoryTh: 'ระวัง ACE-I ทำให้ไอ',
+      severity: 'Low',
+      problemEn: 'ACE inhibitor-induced dry cough may be confused with or worsen respiratory disease',
+      problemTh: 'ACE inhibitor อาจทำให้ไอแห้ง (พบ 10–20% ในคนเอเชีย) ซึ่งอาจสับสนกับอาการโรคปอด',
+      actionEn: 'Ask specifically about dry cough; if present, consider switching to ARB',
+      actionTh: 'ซักถามอาการไอแห้งโดยเฉพาะ ถ้ามีพิจารณาเปลี่ยนเป็น ARB (Losartan/Valsartan)' });
+  }
+  // 9f) Pioglitazone in Heart failure comorbidity
+  const hasPioglit = has('pioglitazone');
+  const hasHF = (patient?.comorbidities || []).some(c => /heart failure|HF/i.test(c));
+  if (hasPioglit && hasHF) {
+    out.push({ code: 'P2.2', categoryEn: 'Contraindication (relative)', categoryTh: 'ข้อห้ามใช้สัมพัทธ์ใน HF',
+      severity: 'High',
+      problemEn: 'Pioglitazone in patient with Heart Failure — increases fluid retention and worsens HF',
+      problemTh: 'Pioglitazone ในผู้ป่วย Heart Failure — เพิ่ม fluid retention ทำให้ HF แย่ลง',
+      actionEn: 'Discontinue Pioglitazone; switch to SGLT2 inhibitor (Empagliflozin/Dapagliflozin) which has cardiovascular benefit',
+      actionTh: 'หยุด Pioglitazone; พิจารณาเปลี่ยนเป็น SGLT2-I (Empagliflozin/Dapagliflozin) ซึ่งมี CV benefit' });
+  }
+
   // จัดเรียงตามความรุนแรง High → Medium → Low
   const rank = { High: 0, Medium: 1, Low: 2 };
   return out.sort((x, y) => (rank[x.severity] ?? 3) - (rank[y.severity] ?? 3));
 }
 
+// ── Auto SOAP Generation ──────────────────────────────
+// สร้าง SOAP อัตโนมัติจากข้อมูลที่บันทึกใน Visit
+function autoGenerateSOAP(visit, patient) {
+  if (!visit || !patient) return { s: '', o: '', a: '', p: '' };
+  const meds = visit.medications || [];
+  const ex   = visit.exacerbation || {};
+  const adh  = visit.adherence || {};
+  const a    = visit.assessments || {};
+  const techs = visit.inhalerTechnique || [];
+  const dx   = patient.diagnosis || '';
+  const name = `${patient.prefix || ''}${patient.firstName || ''} ${patient.lastName || ''}`.trim();
+  const drps = detectDRP(visit, patient);
+  const counseling = visit.counselingTopics || [];
+
+  const rescueMap = { Never: 'ไม่ได้ใช้', Rarely: 'นานๆ ครั้ง', Sometimes: '2–3 ครั้ง/สัปดาห์', Often: 'ทุกวัน', Daily: '>1 ครั้ง/วัน' };
+  const rescueTxt = rescueMap[ex.rescueMedUse] || '';
+  const triggerTxt = (ex.triggers || []).length ? `ปัจจัยกระตุ้น: ${(ex.triggers || []).join(', ')}` : '';
+  const exSev = { None: 'ไม่มี', Mild: 'เล็กน้อย', Moderate: 'ปานกลาง', Severe: 'รุนแรง' }[ex.severity] || '';
+  const adhLevel = adh.level || '';
+  const adhTxt = { Good: 'ดี (Adherence ≥75%)', Fair: 'พอใช้ (Adherence 50–74%)', Poor: 'ต่ำ (<50%) ต้องแก้ไข' }[adhLevel] || '';
+  const smokingTxt = { Never: '', Ex: 'เคยสูบบุหรี่ เลิกแล้ว', Current: 'ยังสูบบุหรี่อยู่', Unknown: '' }[patient.smokingStatus] || '';
+
+  // ── S: Subjective ──
+  let sLines = [];
+  if (visit.chiefComplaint) sLines.push(`CC: ${visit.chiefComplaint}`);
+  const exParts = [];
+  if (Number(ex.countThisYear) > 0) exParts.push(`กำเริบ ${ex.countThisYear} ครั้งในปีนี้`);
+  if (ex.hospitalized) exParts.push('นอน รพ.');
+  if (ex.erVisit) exParts.push('เข้า ER');
+  if (exSev && exSev !== 'ไม่มี') exParts.push(`ความรุนแรง: ${exSev}`);
+  if (exParts.length) sLines.push(`การกำเริบ: ${exParts.join(', ')}`);
+  if (rescueTxt) sLines.push(`ความถี่การใช้ยา Rescue (SABA): ${rescueTxt}`);
+  if (triggerTxt) sLines.push(triggerTxt);
+  if (adhTxt) sLines.push(`ความร่วมมือใช้ยา: ${adhTxt}`);
+  if (smokingTxt) sLines.push(smokingTxt);
+
+  // ── O: Objective ──
+  let oLines = [];
+  if (meds.length) {
+    oLines.push('ยาที่ใช้อยู่ปัจจุบัน:');
+    meds.forEach(m => {
+      oLines.push(`  • ${m.name}${m.dose ? ` (${m.dose})` : ''}${m.adherence ? ` — Adherence: ${m.adherence}` : ''}`);
+    });
+  }
+  const techLines = techs.map(t => {
+    const errTxt = t.errors && t.errors.length ? ` ข้อผิดพลาด: ${t.errors.slice(0,2).join(', ')}` : '';
+    return `  • ${t.device}: ${t.overallScore || '—'}${errTxt}`;
+  });
+  if (techLines.length) {
+    oLines.push('เทคนิคการใช้ยาพ่น:');
+    oLines.push(...techLines);
+  }
+  const catScore = a.cat?.allAnswered ? a.cat.score : null;
+  const actScore = a.act?.allAnswered ? a.act.score : null;
+  const mmrcGrade = a.mmrc?.grade != null ? a.mmrc.grade : null;
+  const assessParts = [];
+  if (catScore != null) {
+    const ci = typeof interpretCAT !== 'undefined' ? interpretCAT(catScore) : null;
+    assessParts.push(`CAT = ${catScore} คะแนน (${ci ? ci.label : ''})`);
+  }
+  if (actScore != null) {
+    const ai = typeof interpretACT !== 'undefined' ? interpretACT(actScore) : null;
+    assessParts.push(`ACT = ${actScore} คะแนน (${ai ? ai.label : ''})`);
+  }
+  if (mmrcGrade != null) assessParts.push(`mMRC Grade ${mmrcGrade}`);
+  if (assessParts.length) oLines.push('แบบประเมิน: ' + assessParts.join(' | '));
+  if (dx === 'COPD' || dx === 'Both') {
+    const gold = typeof classifyGOLD !== 'undefined' ? classifyGOLD({ catScore, mmrcGrade, exYear: Number(ex.countThisYear) || 0, hospitalized: !!ex.hospitalized }) : null;
+    if (gold) oLines.push(`GOLD 2023: ${gold.label} — ${gold.desc}`);
+  }
+  if (dx === 'Asthma' || dx === 'Both') {
+    const gina = typeof classifyGINA !== 'undefined' ? classifyGINA({ actScore, exYear: Number(ex.countThisYear) || 0 }) : null;
+    if (gina) oLines.push(`GINA 2023: ${gina.step} — ${gina.label}`);
+  }
+
+  // ── A: Assessment ──
+  let aLines = [];
+  const dxLabel = { COPD: 'โรคปอดอุดกั้นเรื้อรัง (COPD)', Asthma: 'โรคหืด (Asthma)', Both: 'COPD + Asthma overlap' }[dx] || dx;
+  if (dxLabel) aLines.push(`วินิจฉัย: ${dxLabel}`);
+  const riskLvl = visit.riskLevel || 'Low';
+  aLines.push(`ระดับความเสี่ยง: ${riskLvl === 'High' ? 'สูง' : riskLvl === 'Medium' ? 'ปานกลาง' : 'ต่ำ'}`);
+  if (adhTxt) aLines.push(`ความร่วมมือใช้ยา: ${adhTxt}`);
+  const poorTech = techs.filter(t => t.overallScore === 'Poor');
+  if (poorTech.length) aLines.push(`เทคนิคยาพ่นไม่ถูกต้อง: ${poorTech.map(t => t.device).join(', ')}`);
+  if (drps.length) {
+    aLines.push(`DRP ที่ตรวจพบ ${drps.length} รายการ:`);
+    drps.forEach(d => aLines.push(`  • [${d.code}] ${d.problemTh} (${d.severity})`));
+  } else {
+    aLines.push('ไม่พบ Drug Related Problem');
+  }
+  if (visit.drp?.items?.length) {
+    aLines.push('DRP ที่บันทึกเพิ่มเติม: ' + visit.drp.items.join('; '));
+  }
+
+  // ── P: Plan ──
+  let pLines = [];
+  let pNum = 1;
+  if (dx === 'COPD' || dx === 'Both') {
+    const gold = typeof classifyGOLD !== 'undefined' ? classifyGOLD({ catScore, mmrcGrade, exYear: Number(ex.countThisYear) || 0, hospitalized: !!ex.hospitalized }) : null;
+    if (gold) pLines.push(`${pNum++}. แนวทางการรักษา GOLD ${gold.label}: ${gold.rx}`);
+  }
+  if (dx === 'Asthma' || dx === 'Both') {
+    const gina = typeof classifyGINA !== 'undefined' ? classifyGINA({ actScore, exYear: Number(ex.countThisYear) || 0 }) : null;
+    if (gina) pLines.push(`${pNum++}. แนวทาง GINA ${gina.step}: ${gina.rx}`);
+  }
+  drps.filter(d => d.severity === 'High' || d.severity === 'Medium').forEach(d => {
+    pLines.push(`${pNum++}. แก้ไข DRP [${d.code}]: ${d.actionTh}`);
+  });
+  if (poorTech.length) pLines.push(`${pNum++}. สอน/ฝึกเทคนิคยาพ่นซ้ำ: ${poorTech.map(t => t.device).join(', ')}`);
+  if (adhLevel === 'Poor' || adhLevel === 'Fair') pLines.push(`${pNum++}. เน้นส่งเสริมความร่วมมือใช้ยา — ค้นหาสาเหตุและแก้ไข`);
+  if (counseling.length) pLines.push(`${pNum++}. ให้คำปรึกษา: ${counseling.join(', ')}`);
+  if (visit.nextVisit) pLines.push(`${pNum++}. นัดติดตามครั้งถัดไป: ${visit.nextVisit}`);
+
+  return {
+    s: sLines.join('\n'),
+    o: oLines.join('\n'),
+    a: aLines.join('\n'),
+    p: pLines.join('\n'),
+  };
+}
+
+// ── Auto Pharmacist Note (Telepharmacy) ───────────────
+// สร้างบันทึกเภสัชกรอัตโนมัติสำหรับ Telepharmacy
+function autoPharmacistNote(visit, patient) {
+  if (!visit || !patient) return '';
+  const meds   = visit.medications || [];
+  const ex     = visit.exacerbation || {};
+  const adh    = visit.adherence || {};
+  const drps   = detectDRP(visit, patient);
+  const techs  = visit.inhalerTechnique || [];
+  const a      = visit.assessments || {};
+  const counseling = visit.counselingTopics || [];
+  const dx     = patient.diagnosis || '';
+  const name   = `${patient.prefix || ''}${patient.firstName || ''} ${patient.lastName || ''}`.trim();
+  const today  = visit.visitDate || new Date().toISOString().slice(0, 10);
+  const pharm  = visit.pharmacist || '';
+
+  const dxLabel = { COPD: 'COPD', Asthma: 'Asthma', Both: 'COPD/Asthma Overlap' }[dx] || dx;
+  const adhLevel = adh.level || '';
+  const rescueMap = { Never: 'ไม่ใช้ rescue', Rarely: 'นานๆ ครั้ง', Sometimes: '2–3 ครั้ง/สัปดาห์', Often: 'เกือบทุกวัน', Daily: 'ทุกวัน >1 ครั้ง' };
+  const rescueTxt = rescueMap[ex.rescueMedUse] || '';
+  const catScore = a.cat?.allAnswered ? a.cat.score : null;
+  const actScore = a.act?.allAnswered ? a.act.score : null;
+
+  let lines = [];
+  lines.push(`=== บันทึก Telepharmacy ===`);
+  lines.push(`วันที่: ${today}${pharm ? ` | เภสัชกร: ${pharm}` : ''}`);
+  lines.push(`ผู้ป่วย: ${name}${patient.hn ? ` | HN: ${patient.hn}` : ''}${patient.age ? ` | อายุ: ${patient.age} ปี` : ''}`);
+  lines.push(`วินิจฉัย: ${dxLabel}${patient.goldGrade ? ` GOLD Grade ${patient.goldGrade}` : ''}`);
+  lines.push('');
+
+  if (meds.length) {
+    lines.push('📋 ยาที่ใช้อยู่:');
+    meds.forEach(m => lines.push(`  • ${m.name}${m.dose ? ` ${m.dose}` : ''}`));
+  }
+  lines.push('');
+
+  lines.push('🔍 ประเด็นที่ติดตาม:');
+  lines.push(`  • ความร่วมมือใช้ยา: ${{ Good: 'ดี', Fair: 'พอใช้ — ต้องส่งเสริม', Poor: 'ต่ำ — ต้องแก้ไขเร่งด่วน' }[adhLevel] || 'ไม่ได้ประเมิน'}`);
+  if (rescueTxt) lines.push(`  • การใช้ยา Rescue: ${rescueTxt}`);
+  if (Number(ex.countThisYear) > 0) lines.push(`  • กำเริบ: ${ex.countThisYear} ครั้ง/ปี${ex.hospitalized ? ' (มีนอน รพ.)' : ''}`);
+  const poorTech = techs.filter(t => t.overallScore === 'Poor');
+  if (poorTech.length) lines.push(`  • เทคนิคยาพ่นไม่ถูกต้อง: ${poorTech.map(t => t.device).join(', ')}`);
+  if (catScore != null) lines.push(`  • CAT: ${catScore} คะแนน`);
+  if (actScore != null) lines.push(`  • ACT: ${actScore} คะแนน`);
+  lines.push('');
+
+  if (drps.length) {
+    lines.push(`⚠️ DRP ที่ตรวจพบ (${drps.length} รายการ):`);
+    drps.forEach(d => lines.push(`  • [${d.code}/${d.severity}] ${d.problemTh}`));
+    lines.push('');
+    lines.push('✅ แนวทางแก้ไข DRP:');
+    drps.forEach(d => lines.push(`  • ${d.actionTh}`));
+  } else {
+    lines.push('✅ ไม่พบ Drug Related Problem');
+  }
+  lines.push('');
+
+  if (counseling.length) {
+    lines.push('📚 หัวข้อที่ให้คำแนะนำ:');
+    counseling.forEach(c => lines.push(`  • ${c}`));
+    lines.push('');
+  }
+
+  if (visit.nextVisit) lines.push(`📅 นัดติดตามครั้งถัดไป: ${visit.nextVisit}`);
+  lines.push('');
+  lines.push(`── บันทึกโดย ${pharm} ระบบบริบาลเภสัชกรรม Rx-COPD/Asthma ──`);
+
+  return lines.join('\n');
+}
+
 Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
   checkInteractions, getRenalCategory, detectDRP,
+  autoGenerateSOAP, autoPharmacistNote, DRUG_DOSE_GUIDE,
 });
 </script>
 <script type="text/babel">
@@ -5188,28 +5686,60 @@ function DRPSection({ drp, onChange, visit, patient }) {
 
 // ── Med Row ───────────────────────────────────────────
 function MedRow({ med, index, onChange, onRemove, changeStatus }) {
+  const guide = med.name && window.DRUG_DOSE_GUIDE ? window.DRUG_DOSE_GUIDE[med.name] : null;
+  const medInfo = AppStore.COMMON_MEDICATIONS.find(m => m.name === med.name);
+  const isOral = medInfo?.type === 'oral';
+
+  // Group medications: inhalers first, then oral by category
+  const inhalerMeds = AppStore.COMMON_MEDICATIONS.filter(m => !m.type || m.type !== 'oral');
+  const oralMeds = AppStore.COMMON_MEDICATIONS.filter(m => m.type === 'oral');
+
+  const medOptions = [
+    { value: '', label: '── ยาพ่น ──', disabled: true },
+    ...inhalerMeds.map(m => ({ value: m.name, label: `${m.name} [${m.category}]` })),
+    { value: '__sep__', label: '── ยารับประทาน (โรคร่วม) ──', disabled: true },
+    ...oralMeds.map(m => ({ value: m.name, label: `${m.name} [${m.category}]` })),
+  ].filter(o => !o.disabled);
+
   return (
-    <div className="rx-med-row" style={{
-      display: 'grid', gridTemplateColumns: 'auto 3fr 1fr 1fr auto',
-      gap: 8, alignItems: 'center', marginBottom: 6,
-      background: '#F8FAFC', borderRadius: 8, padding: '8px 12px',
-      border: `1px solid ${C.border}`,
-    }}>
-      {changeStatus === 'new'  && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#FEF3C7', color: '#92400E' }}>NEW</span>}
-      {changeStatus === 'same' && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#E0F2FE', color: '#0369A1' }}>เดิม</span>}
-      {!changeStatus && <span />}
-      <Select value={med.name} placeholder="เลือกยา..."
-        options={AppStore.COMMON_MEDICATIONS.map(m => ({ value: m.name, label: m.name }))}
-        onChange={v => onChange(index, { ...med, name: v })} />
-      <Input value={med.dose} onChange={v => onChange(index, { ...med, dose: v })} placeholder="Dose" />
-      <Select value={med.adherence} placeholder="Adherence"
-        options={[
-          { value: 'Good', label: '✅ ดี' },
-          { value: 'Fair', label: '⚠ พอใช้' },
-          { value: 'Poor', label: '❌ ต่ำ' },
-        ]}
-        onChange={v => onChange(index, { ...med, adherence: v })} />
-      <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px' }}>✕</button>
+    <div style={{ marginBottom: 6 }}>
+      <div className="rx-med-row" style={{
+        display: 'grid', gridTemplateColumns: 'auto 3fr 1fr 1fr auto',
+        gap: 8, alignItems: 'center',
+        background: isOral ? '#F0F9FF' : '#F8FAFC', borderRadius: guide ? '8px 8px 0 0' : 8,
+        padding: '8px 12px', border: `1px solid ${guide ? C.accent : C.border}`,
+        borderBottom: guide ? 'none' : `1px solid ${guide ? C.accent : C.border}`,
+      }}>
+        {changeStatus === 'new'  && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#FEF3C7', color: '#92400E' }}>NEW</span>}
+        {changeStatus === 'same' && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#E0F2FE', color: '#0369A1' }}>เดิม</span>}
+        {!changeStatus && <span />}
+        <Select value={med.name} placeholder="เลือกยา..."
+          options={medOptions}
+          onChange={v => {
+            const g = window.DRUG_DOSE_GUIDE?.[v];
+            onChange(index, { ...med, name: v, dose: g ? g.dose : med.dose });
+          }} />
+        <Input value={med.dose} onChange={v => onChange(index, { ...med, dose: v })} placeholder={guide ? guide.dose : 'Dose'} />
+        <Select value={med.adherence} placeholder="Adherence"
+          options={[
+            { value: 'Good', label: '✅ ดี' },
+            { value: 'Fair', label: '⚠ พอใช้' },
+            { value: 'Poor', label: '❌ ต่ำ' },
+          ]}
+          onChange={v => onChange(index, { ...med, adherence: v })} />
+        <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px' }}>✕</button>
+      </div>
+      {guide && (
+        <div style={{
+          padding: '6px 12px', fontSize: 11, borderRadius: '0 0 8px 8px',
+          background: '#EFF6FF', border: `1px solid ${C.accent}`, borderTop: 'none',
+          display: 'flex', flexWrap: 'wrap', gap: '0 16px', lineHeight: 1.6,
+        }}>
+          <span style={{ color: '#1E40AF', fontWeight: 600 }}>💊 {guide.dose}</span>
+          {guide.max && <span style={{ color: C.textMuted }}>Max: {guide.max}</span>}
+          {guide.tip && <span style={{ color: guide.tip.startsWith('⚠') || guide.tip.startsWith('⛔') ? C.high : '#0369A1' }}>{guide.tip}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -6042,6 +6572,22 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           <SecHd n="8" title="บันทึก SOAP" color="#0F766E"
             right={<span style={{ fontSize: 11, color: C.textMuted, marginLeft: 8 }}>🏷️ คลิก Templates เพื่อใส่ snippet</span>} />
           <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <Btn size="sm" variant="primary" onClick={() => {
+                const auto = autoGenerateSOAP(f, patient);
+                setF(prev => ({
+                  ...prev,
+                  soap: {
+                    s: auto.s || prev.soap.s,
+                    o: auto.o || prev.soap.o,
+                    a: auto.a || prev.soap.a,
+                    p: auto.p || prev.soap.p,
+                  }
+                }));
+              }}>⚡ สร้าง SOAP อัตโนมัติ</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => setF(prev => ({ ...prev, soap: { s: '', o: '', a: '', p: '' } }))}>ล้าง</Btn>
+              <span style={{ fontSize: 11, color: C.textMuted }}>สร้างจากข้อมูลที่บันทึกทั้งหมดข้างต้น — แก้ไขเพิ่มเติมได้ตามต้องการ</span>
+            </div>
             <SOAPField label="S — Subjective" fieldKey="s"
               value={f.soap.s} onChange={v => setSOAP('s', v)}
               placeholder="อาการที่ผู้ป่วยรายงาน ข้อกังวล ประสบการณ์ใช้ยา..." rows={2} />
@@ -6068,9 +6614,16 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 <Input type="date" value={f.nextVisit} onChange={v => set('nextVisit', v)} />
               </FormField>
             </div>
-            <FormField label="บันทึกเพิ่มเติมของเภสัชกร">
+            <FormField label="บันทึกเพิ่มเติมของเภสัชกร (Auto Telepharmacy Note)">
+              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <Btn size="sm" variant="primary" onClick={() => {
+                  const note = autoPharmacistNote(f, patient);
+                  set('pharmacistNote', f.pharmacistNote ? `${f.pharmacistNote}\n\n${note}` : note);
+                }}>⚡ สร้างบันทึก Telepharmacy อัตโนมัติ</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => set('pharmacistNote', '')}>ล้าง</Btn>
+              </div>
               <Textarea value={f.pharmacistNote} onChange={v => set('pharmacistNote', v)}
-                placeholder="บันทึกพิเศษ การนัด Telepharmacy หรือข้อสังเกตอื่นๆ..." rows={2} />
+                placeholder="คลิก ⚡ เพื่อสร้างบันทึก Telepharmacy อัตโนมัติ หรือพิมพ์เองได้เลย..." rows={4} />
             </FormField>
           </Card>
 
@@ -6100,9 +6653,16 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 <Input type="date" value={f.nextVisit} onChange={v => set('nextVisit', v)} />
               </FormField>
             </div>
-            <FormField label="บันทึกเพิ่มเติมของเภสัชกร">
+            <FormField label="บันทึกเพิ่มเติมของเภสัชกร (Auto Telepharmacy Note)">
+              <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <Btn size="sm" variant="primary" onClick={() => {
+                  const note = autoPharmacistNote(f, patient);
+                  set('pharmacistNote', f.pharmacistNote ? `${f.pharmacistNote}\n\n${note}` : note);
+                }}>⚡ สร้างบันทึก Telepharmacy อัตโนมัติ</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => set('pharmacistNote', '')}>ล้าง</Btn>
+              </div>
               <Textarea value={f.pharmacistNote} onChange={v => set('pharmacistNote', v)}
-                placeholder="บันทึกพิเศษ การนัด Telepharmacy หรือข้อสังเกตอื่นๆ..." rows={2} />
+                placeholder="คลิก ⚡ เพื่อสร้างบันทึก Telepharmacy อัตโนมัติ หรือพิมพ์เองได้เลย..." rows={4} />
             </FormField>
           </Card>
 
