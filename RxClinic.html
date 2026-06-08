@@ -2433,9 +2433,190 @@ function VaccinationStatus({ patient, compact }) {
   );
 }
 
+// ── Automatic DRP Detection Engine ──────────────────
+// ตรวจจับ Drug Related Problems อัตโนมัติจากข้อมูลที่บันทึกใน Visit
+// ครอบคลุมทั้งระบบยา ตาม Cipolle/PCNE taxonomy (7 หมวดหลัก)
+// คืนค่า array ของ { code, categoryEn, categoryTh, severity, problemEn, problemTh, actionEn, actionTh }
+function detectDRP(visit, patient) {
+  if (!visit) return [];
+  const out = [];
+  const meds        = visit.medications || [];
+  const medNames    = meds.map(m => (m.name || '').toLowerCase());
+  const techs       = visit.inhalerTechnique || [];
+  const adh         = visit.adherence || {};
+  const ex          = visit.exacerbation || {};
+  const a           = visit.assessments || {};
+  const dx          = patient?.diagnosis;            // 'COPD' | 'Asthma' | 'Both'
+  const isResp      = dx === 'COPD' || dx === 'Asthma' || dx === 'Both';
+  const smoker      = patient?.smokingStatus === 'Current';
+
+  const has = (kw) => medNames.some(n => n.includes(kw.toLowerCase()));
+  const catOf = (name) => {
+    const m = (AppStore.COMMON_MEDICATIONS || []).find(x => x.name === name);
+    return m ? m.category : '';
+  };
+  const cats = meds.map(m => catOf(m.name));
+  const hasCat = (frag) => cats.some(c => (c || '').toLowerCase().includes(frag.toLowerCase()));
+  const hasICS  = hasCat('ICS');
+  const hasSABA = hasCat('SABA');
+  const hasLABA = hasCat('LABA');
+  const hasLAMA = hasCat('LAMA');
+
+  const exYear = Number(ex.countThisYear) || 0;
+  const hosp   = !!ex.hospitalized;
+
+  // ── Category 1: Indication — Needs additional drug therapy (ต้องการยาเพิ่ม) ──
+  // 1a) ผู้ป่วยทางเดินหายใจที่มียา controller แต่ไม่มี SABA rescue
+  if (isResp && meds.length > 0 && (hasICS || hasLABA || hasLAMA) && !hasSABA) {
+    out.push({ code: 'P1.2', categoryEn: 'Needs additional drug therapy', categoryTh: 'ต้องการยาเพิ่มเติม',
+      severity: 'Medium',
+      problemEn: 'No rescue reliever (SABA) prescribed alongside controller therapy',
+      problemTh: 'ไม่มียาขยายหลอดลมออกฤทธิ์สั้น (SABA) สำหรับบรรเทาอาการเฉียบพลัน',
+      actionEn: 'Ensure a SABA reliever (e.g. Salbutamol MDI) is available for acute symptoms',
+      actionTh: 'ควรมียา SABA (เช่น Salbutamol MDI) ติดตัวไว้บรรเทาอาการกำเริบ' });
+  }
+  // 1b) Asthma ที่ใช้ SABA อย่างเดียว ไม่มี ICS controller (SABA-only treatment — ห้ามตาม GINA)
+  if ((dx === 'Asthma' || dx === 'Both') && hasSABA && !hasICS) {
+    out.push({ code: 'P1.2', categoryEn: 'Needs additional drug therapy', categoryTh: 'ต้องการยาเพิ่มเติม',
+      severity: 'High',
+      problemEn: 'SABA-only treatment in asthma without ICS controller (against GINA)',
+      problemTh: 'ใช้ SABA อย่างเดียวในโรคหืดโดยไม่มี ICS (ขัดกับแนวทาง GINA)',
+      actionEn: 'Initiate ICS-containing controller therapy; SABA-only increases exacerbation/mortality risk',
+      actionTh: 'ควรเริ่มยา controller ที่มี ICS — การใช้ SABA เดี่ยวเพิ่มความเสี่ยงกำเริบและเสียชีวิต' });
+  }
+  // 1c) COPD กำเริบบ่อย (≥2/ปี หรือเคยนอน รพ.) แต่ไม่มี LABA/LAMA controller
+  if ((dx === 'COPD' || dx === 'Both') && (exYear >= 2 || hosp) && !(hasLABA || hasLAMA)) {
+    out.push({ code: 'P1.2', categoryEn: 'Needs additional drug therapy', categoryTh: 'ต้องการยาเพิ่มเติม',
+      severity: 'High',
+      problemEn: 'Frequent exacerbations without long-acting bronchodilator (LABA/LAMA)',
+      problemTh: 'กำเริบบ่อยแต่ไม่มียาขยายหลอดลมออกฤทธิ์ยาว (LABA/LAMA)',
+      actionEn: 'Consider stepping up to LABA+LAMA (±ICS) per GOLD to reduce exacerbations',
+      actionTh: 'พิจารณาเพิ่ม LABA+LAMA (±ICS) ตาม GOLD เพื่อลดการกำเริบ' });
+  }
+
+  // ── Category 2: Unnecessary / duplicate drug therapy (ยาซ้ำซ้อน/ไม่จำเป็น) ──
+  const dupCat = {};
+  cats.forEach(c => { if (c) dupCat[c] = (dupCat[c] || 0) + 1; });
+  Object.entries(dupCat).forEach(([c, n]) => {
+    if (n >= 2) {
+      out.push({ code: 'P3.2', categoryEn: 'Unnecessary / duplicate drug therapy', categoryTh: 'ยาซ้ำซ้อน/ไม่จำเป็น',
+        severity: 'Medium',
+        problemEn: `Therapeutic duplication: ${n} drugs in the same class (${c})`,
+        problemTh: `ใช้ยาซ้ำกลุ่มเดียวกัน ${n} รายการ (${c})`,
+        actionEn: 'Review for therapeutic duplication and consolidate to a single agent/class',
+        actionTh: 'ทบทวนยาซ้ำซ้อนและรวมเหลือรายการเดียวในกลุ่มนั้น' });
+    }
+  });
+
+  // ── Category 3: Drug interactions (ปฏิกิริยาระหว่างยา) — ใช้ engine เดิม ──
+  (typeof checkInteractions === 'function' ? checkInteractions(meds, patient) : []).forEach(ix => {
+    out.push({ code: 'P2.1', categoryEn: 'Drug interaction', categoryTh: 'ปฏิกิริยาระหว่างยา',
+      severity: ix.severity || 'Medium',
+      problemEn: `${ix.drug1} + ${ix.drug2}: ${ix.mechanism}`,
+      problemTh: `${ix.drug1} + ${ix.drug2} — ${ix.mechanism}`,
+      actionEn: ix.action,
+      actionTh: ix.action });
+  });
+
+  // ── Category 4: Adverse drug reaction / safety (ผลข้างเคียง/ความปลอดภัย) ──
+  // 4a) ICS โดยไม่ได้สอนล้างปาก → เสี่ยง oral candidiasis / dysphonia
+  const counseled = visit.counselingTopics || [];
+  const rinseCounseled = counseled.some(t => /ล้างปาก|rinse/i.test(t));
+  if (hasICS && !rinseCounseled) {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (potential)', categoryTh: 'ผลข้างเคียงที่อาจเกิด',
+      severity: 'Low',
+      problemEn: 'ICS use without mouth-rinsing counseling — risk of oral candidiasis/dysphonia',
+      problemTh: 'ใช้ ICS โดยยังไม่ได้สอนล้างปาก — เสี่ยงเชื้อราในช่องปาก/เสียงแหบ',
+      actionEn: 'Counsel patient to rinse mouth and spit after each ICS dose',
+      actionTh: 'สอนผู้ป่วยบ้วนปากทุกครั้งหลังพ่นยา ICS' });
+  }
+  // 4b) Smoker + Theophylline → metabolism เปลี่ยน, เสี่ยงระดับยาผันผวน
+  if (smoker && has('theophylline')) {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (potential)', categoryTh: 'ผลข้างเคียงที่อาจเกิด',
+      severity: 'Medium',
+      problemEn: 'Smoking induces CYP1A2 → reduced & unstable theophylline levels',
+      problemTh: 'การสูบบุหรี่เร่ง CYP1A2 → ระดับ Theophylline ต่ำและผันผวน',
+      actionEn: 'Monitor theophylline level; counsel smoking cessation',
+      actionTh: 'ตรวจระดับ Theophylline และแนะนำเลิกบุหรี่' });
+  }
+  // 4c) ใช้ OCS (Prednisolone) — ระวัง long-term steroid ADR
+  if (has('prednisolone')) {
+    out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (monitoring)', categoryTh: 'เฝ้าระวังผลข้างเคียง',
+      severity: 'Medium',
+      problemEn: 'Oral corticosteroid in use — monitor for long-term steroid adverse effects',
+      problemTh: 'มีการใช้สเตียรอยด์ชนิดกิน — เฝ้าระวังผลข้างเคียงระยะยาว',
+      actionEn: 'Use shortest effective course; monitor BP/glucose/bone if chronic',
+      actionTh: 'ใช้ระยะสั้นที่สุด; หากใช้ยาวควรเฝ้าระวังความดัน/น้ำตาล/กระดูก' });
+  }
+
+  // ── Category 5: Inhaler technique (เทคนิคยาพ่นไม่ถูกต้อง) ──
+  const techPoor = techs.filter(t => t.overallScore === 'Poor');
+  if (techPoor.length > 0) {
+    const devs = techPoor.map(t => AppStore.INHALER_CHECKLISTS?.[t.device]?.label || t.device).join(', ');
+    out.push({ code: 'P1.3', categoryEn: 'Incorrect inhaler technique', categoryTh: 'เทคนิคการใช้ยาพ่นไม่ถูกต้อง',
+      severity: 'High',
+      problemEn: `Poor inhaler technique on ${techPoor.length} device(s): ${devs}`,
+      problemTh: `เทคนิคยาพ่นไม่ผ่าน ${techPoor.length} อุปกรณ์: ${devs}`,
+      actionEn: 'Re-educate technique (teach-back) before any treatment step-up',
+      actionTh: 'สอนเทคนิคซ้ำ (teach-back) ก่อนพิจารณาเพิ่มยา' });
+  }
+
+  // ── Category 6: Non-adherence (ความร่วมมือในการใช้ยาต่ำ) ──
+  if (adh.level === 'Poor') {
+    out.push({ code: 'P1.1', categoryEn: 'Non-adherence', categoryTh: 'ความร่วมมือในการใช้ยาต่ำ',
+      severity: 'High',
+      problemEn: 'Poor medication adherence detected',
+      problemTh: 'พบความร่วมมือในการใช้ยาต่ำ',
+      actionEn: 'Identify barrier (forgetfulness/ADR/cost/belief); simplify regimen, pill box, follow-up',
+      actionTh: 'หาสาเหตุ (ลืม/ผลข้างเคียง/ค่าใช้จ่าย/ความเชื่อ); simplify ยา, จัดกล่องยา, นัดติดตาม' });
+  } else if (adh.level === 'Fair' || adh.level === 'Acceptable') {
+    out.push({ code: 'P1.1', categoryEn: 'Non-adherence', categoryTh: 'ความร่วมมือในการใช้ยาปานกลาง',
+      severity: 'Medium',
+      problemEn: 'Suboptimal medication adherence',
+      problemTh: 'ความร่วมมือในการใช้ยาปานกลาง ยังไม่สม่ำเสมอ',
+      actionEn: 'Reinforce importance of controller; close follow-up',
+      actionTh: 'ย้ำความสำคัญของยาควบคุมและติดตามใกล้ชิด' });
+  }
+  // 6b) Per-medication adherence flag
+  meds.forEach(m => {
+    if (m.adherence === 'Poor' && m.name) {
+      out.push({ code: 'P1.1', categoryEn: 'Non-adherence (specific drug)', categoryTh: 'ไม่ร่วมมือใช้ยาเฉพาะรายการ',
+        severity: 'Medium',
+        problemEn: `Poor adherence to ${m.name}`,
+        problemTh: `ใช้ยา ${m.name} ไม่สม่ำเสมอ`,
+        actionEn: 'Explore specific barrier for this drug and address it',
+        actionTh: 'หาสาเหตุการไม่ใช้ยารายการนี้และแก้ไข' });
+    }
+  });
+
+  // ── Category 7: Untreated indication — Smoking cessation (ข้อบ่งชี้ที่ยังไม่ได้รักษา) ──
+  if (smoker) {
+    out.push({ code: 'P1.2', categoryEn: 'Untreated indication (smoking)', categoryTh: 'ข้อบ่งชี้ที่ยังไม่ได้จัดการ (บุหรี่)',
+      severity: 'High',
+      problemEn: 'Current smoker — single most important modifiable factor in COPD/asthma',
+      problemTh: 'ผู้ป่วยยังสูบบุหรี่ — ปัจจัยสำคัญที่สุดที่แก้ไขได้ในโรคปอด',
+      actionEn: 'Provide 5A counseling; consider NRT/pharmacotherapy; refer cessation clinic',
+      actionTh: 'ให้คำปรึกษา 5A; พิจารณา NRT/ยาเลิกบุหรี่; ส่งคลินิกเลิกบุหรี่' });
+  }
+
+  // ── Category 8: Dosage — high rescue (SABA) use signalling poor control ──
+  if (ex.rescueMedUse === 'Daily' || ex.rescueMedUse === 'Often' || ex.rescueMedUse === 'Sometimes') {
+    out.push({ code: 'P3.1', categoryEn: 'Dosage / overuse signal', categoryTh: 'สัญญาณใช้ยา rescue เกิน',
+      severity: ex.rescueMedUse === 'Sometimes' ? 'Low' : 'Medium',
+      problemEn: 'Frequent SABA reliever use (≥2/week) indicates inadequate disease control',
+      problemTh: 'ใช้ยา rescue (SABA) บ่อย (≥2 ครั้ง/สัปดาห์) บ่งชี้ว่าคุมโรคได้ไม่ดี',
+      actionEn: 'Reassess controller adequacy, technique and adherence before symptomatic treatment',
+      actionTh: 'ประเมินยา controller, เทคนิค และ adherence ก่อนเพิ่มยาบรรเทาอาการ' });
+  }
+
+  // จัดเรียงตามความรุนแรง High → Medium → Low
+  const rank = { High: 0, Medium: 1, Low: 2 };
+  return out.sort((x, y) => (rank[x.severity] ?? 3) - (rank[y.severity] ?? 3));
+}
+
 Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
-  checkInteractions, getRenalCategory,
+  checkInteractions, getRenalCategory, detectDRP,
 });
 </script>
 <script type="text/babel">
@@ -4882,12 +5063,87 @@ const DRP_OPTIONS = [
   'อื่นๆ (Other)',
 ];
 
-function DRPSection({ drp, onChange }) {
+// แปลงหมวด DRP ที่ตรวจจับได้ → ตัวเลือกใน DRP_OPTIONS (เพื่อ map เข้า checkbox)
+function drpCategoryToOption(d) {
+  const c = (d.categoryEn || '').toLowerCase();
+  if (c.includes('inhaler') || c.includes('technique')) return 'เทคนิคการใช้ยาพ่นไม่ถูกต้อง (Wrong Technique)';
+  if (c.includes('adherence'))      return 'ความร่วมมือในการใช้ยาต่ำ (Non-adherence)';
+  if (c.includes('interaction'))    return 'ปฏิกิริยาระหว่างยา (Drug Interaction)';
+  if (c.includes('adverse'))        return 'ผลข้างเคียงจากยา (ADR)';
+  if (c.includes('additional') || c.includes('untreated')) return 'ต้องการยาเพิ่มเติม (Needs Additional Therapy)';
+  if (c.includes('unnecessary') || c.includes('duplicate')) return 'ไม่จำเป็นต้องใช้ยา (Unnecessary Drug)';
+  if (c.includes('dosage') && c.includes('high')) return 'ขนาดยาสูงเกินไป (Dose too High)';
+  if (c.includes('dosage'))         return 'ขนาดยาสูงเกินไป (Dose too High)';
+  return 'อื่นๆ (Other)';
+}
+
+function AutoDRPPanel({ visit, patient, drp, onChange }) {
+  const detected = (typeof detectDRP === 'function') ? detectDRP(visit, patient) : [];
+  if (detected.length === 0) {
+    return (
+      <div style={{ padding: '10px 14px', borderRadius: 8, background: C.lowBg, border: `1px solid ${C.lowBorder}`, fontSize: 12, color: C.low, fontWeight: 600, marginBottom: 14 }}>
+        🤖 ระบบตรวจอัตโนมัติ: ยังไม่พบ DRP จากข้อมูลที่บันทึก (Auto-scan: no DRP detected)
+      </div>
+    );
+  }
+  const sevColor  = { High: '#DC2626', Medium: '#D97706', Low: '#0369A1' };
+  const sevBg     = { High: '#FEF2F2', Medium: '#FFFBEB', Low: '#EFF6FF' };
+  const sevBorder = { High: '#FECACA', Medium: '#FDE68A', Low: '#BFDBFE' };
+  const sevTh     = { High: 'สูง', Medium: 'ปานกลาง', Low: 'ต่ำ' };
+
+  const acceptAll = () => {
+    const opts = [...new Set(detected.map(drpCategoryToOption))];
+    const merged = [...new Set([...(drp?.items || []), ...opts])];
+    const autoNote = detected.map(d => `• [${d.severity}] ${d.categoryEn} (${d.categoryTh}): ${d.problemEn} → ${d.actionEn}`).join('\n');
+    const prevNote = drp?.note || '';
+    onChange({ ...drp, noDRP: false, items: merged,
+      note: prevNote ? prevNote + '\n' + autoNote : autoNote });
+  };
+
+  return (
+    <div style={{ marginBottom: 16, border: `2px solid ${C.highBorder}`, borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ background: C.high, color: '#fff', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 16 }}>🤖</span>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>Auto-Detected DRP ({detected.length})</div>
+            <div style={{ fontSize: 10, opacity: 0.85 }}>ระบบตรวจจับ DRP อัตโนมัติจากข้อมูล Visit</div>
+          </div>
+        </div>
+        <Btn size="sm" variant="ghost" onClick={acceptAll}
+          style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', border: '1px solid rgba(255,255,255,0.4)' }}>
+          ✓ รับทั้งหมด
+        </Btn>
+      </div>
+      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {detected.map((d, i) => (
+          <div key={i} style={{ padding: '9px 12px', borderRadius: 8, background: sevBg[d.severity], border: `1px solid ${sevBorder[d.severity]}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 12, background: sevColor[d.severity], color: '#fff' }}>
+                {d.code} · {sevTh[d.severity]}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: sevColor[d.severity] }}>{d.categoryEn}</span>
+              <span style={{ fontSize: 10, color: C.textMuted }}>({d.categoryTh})</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#1F2937', lineHeight: 1.5 }}>{d.problemEn}</div>
+            <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{d.problemTh}</div>
+            <div style={{ fontSize: 11, color: sevColor[d.severity], fontWeight: 600, marginTop: 3 }}>
+              → {d.actionEn} <span style={{ color: C.textMuted, fontWeight: 400 }}>/ {d.actionTh}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DRPSection({ drp, onChange, visit, patient }) {
   const noDRP   = drp?.noDRP ?? true;
   const selected = drp?.items || [];
   const note    = drp?.note || '';
   return (
     <div>
+      {visit && <AutoDRPPanel visit={visit} patient={patient} drp={drp} onChange={onChange} />}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
         {[{ label: '✓ ไม่มี DRP', val: true }, { label: '⚠ พบ DRP', val: false }].map(({ label, val }) => (
           <label key={String(val)} style={{
@@ -5771,7 +6027,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           {/* ⑦ DRP + PCNE */}
           <SecHd n="7" title="Drug-Related Problems (DRP) — PCNE v9.1" color="#DC2626" />
           <Card>
-            <DRPSection drp={f.drp} onChange={v => set('drp', v)} />
+            <DRPSection drp={f.drp} onChange={v => set('drp', v)} visit={f} patient={patient} />
             {f.drp?.noDRP === false && (
               <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: C.primary, marginBottom: 10 }}>
