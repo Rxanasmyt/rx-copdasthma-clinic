@@ -1,7 +1,8 @@
 // sw.js — Service Worker for Rx-COPD/Asthma Clinic
-// Caches app shell + assets for offline use (cache-first strategy)
+// HTML/navigation: network-first (always latest when online)
+// CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v5';
+const CACHE_VERSION = 'rxcopd-v24';
 const APP_SHELL = [
   './',
   './index.html',
@@ -40,8 +41,10 @@ self.addEventListener('activate', (event) => {
 
 // Fetch strategy:
 // - Firebase/Firestore APIs: always network (don't cache live data)
-// - Same-origin app shell + CDN assets: cache-first, fall back to network
-// - Other: network-first
+// - HTML / navigation (the app itself): NETWORK-FIRST → always get the latest
+//   deployed version when online; fall back to cache only when offline.
+//   (กันปัญหาอุปกรณ์ติดโค้ดเก่า ไม่ต้อง unregister service worker เองอีก)
+// - CDN libs + icons + manifest: cache-first (immutable / versioned)
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -51,26 +54,43 @@ self.addEventListener('fetch', (event) => {
   // Always network for Firebase/Firestore
   if (url.hostname.includes('firestore.googleapis.com') ||
       url.hostname.includes('firebase.googleapis.com') ||
-      url.hostname.includes('identitytoolkit.googleapis.com')) {
+      url.hostname.includes('identitytoolkit.googleapis.com') ||
+      url.hostname.includes('googleapis.com') && url.pathname.includes('firestore')) {
     return; // let the browser handle normally
   }
 
+  const isHTML =
+    event.request.mode === 'navigate' ||
+    event.request.destination === 'document' ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('/') ||
+    url.pathname.endsWith('.html');
+
+  if (isHTML) {
+    // NETWORK-FIRST: ดึงเวอร์ชันล่าสุดเสมอเมื่อออนไลน์
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone).catch(() => {}));
+        }
+        return response;
+      }).catch(() =>
+        caches.match(event.request).then((c) => c || caches.match('./index.html'))
+      )
+    );
+    return;
+  }
+
+  // CACHE-FIRST สำหรับ asset ที่ไม่เปลี่ยน (react/babel/fonts/icons)
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
-        // Only cache successful basic/cors responses
         if (!response || response.status !== 200) return response;
         const clone = response.clone();
-        caches.open(CACHE_VERSION).then((cache) => {
-          cache.put(event.request, clone).catch(() => {});
-        });
+        caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, clone).catch(() => {}));
         return response;
-      }).catch(() => {
-        // Offline fallback for navigation requests
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
       });
     })
   );
