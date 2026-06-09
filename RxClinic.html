@@ -4522,8 +4522,10 @@ function printMonthlyReport(data, yearMonth) {
 
 // ── ExportSection Component ───────────────────────────
 function ExportSection({ data, onDataChange }) {
-  const [selPt,    setSelPt]    = React.useState('');
-  const [selMonth, setSelMonth] = React.useState(new Date().toISOString().slice(0,7));
+  const [selPt,      setSelPt]      = React.useState('');
+  const [selMonth,   setSelMonth]   = React.useState(new Date().toISOString().slice(0,7));
+  const [selQYear,   setSelQYear]   = React.useState(new Date().getFullYear());
+  const [selQuarter, setSelQuarter] = React.useState(Math.ceil((new Date().getMonth()+1)/3));
   const [restoreInfo, setRestoreInfo] = React.useState(null); // {parsed, counts} หลังเลือกไฟล์ → รอยืนยัน
   const [restoreErr,  setRestoreErr]  = React.useState('');
   const fileRef = React.useRef(null);
@@ -4668,6 +4670,49 @@ function ExportSection({ data, onDataChange }) {
         </p>
       </div>
 
+      {/* PDF: quarterly HA */}
+      <div style={{ marginBottom: 18 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          PDF — รายงานไตรมาส (HA Report)
+        </p>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={selQYear} onChange={e => setSelQYear(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: 'Sarabun, sans-serif', fontSize: 13, background: C.surface, color: C.text, outline: 'none' }}>
+            {[new Date().getFullYear()-1, new Date().getFullYear(), new Date().getFullYear()+1].map(y => (
+              <option key={y} value={y}>{y+543}</option>
+            ))}
+          </select>
+          <select value={selQuarter} onChange={e => setSelQuarter(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: 'Sarabun, sans-serif', fontSize: 13, background: C.surface, color: C.text, outline: 'none' }}>
+            {[1,2,3,4].map(q => <option key={q} value={q}>ไตรมาส {q}</option>)}
+          </select>
+          <Btn size="sm" variant="primary" onClick={() => printQuarterlyReport(data, selQYear, selQuarter)}>
+            🖨️ พิมพ์ / PDF
+          </Btn>
+        </div>
+      </div>
+
+      {/* PDF: DRP report per patient */}
+      <div style={{ marginBottom: 18 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          PDF — รายงาน DRP รายผู้ป่วย (PCNE v9.1)
+        </p>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Select value={selPt} onChange={setSelPt} placeholder="เลือกผู้ป่วย"
+            options={data.patients.map(p => ({
+              value: p.id, label: `${p.prefix}${p.firstName} ${p.lastName} (${p.hn})`
+            }))}
+            style={{ flex: 1, maxWidth: 320 }} />
+          <Btn size="sm" variant="ghost" disabled={!selPt}
+            onClick={() => {
+              const pt = data.patients.find(p => p.id === selPt);
+              printDRPReport(pt, data.visits);
+            }}>
+            📊 DRP Report
+          </Btn>
+        </div>
+      </div>
+
       {onDataChange && (
         <>
           <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '18px 0' }} />
@@ -4808,10 +4853,183 @@ function printPatientTakeHome(patient, latestVisit) {
   openPrintWindow(html, `สรุปบริบาล — ${patient.firstName} ${patient.lastName}`);
 }
 
+// ── PDF: SOAP note รายครั้ง ────────────────────────────
+function printVisitSOAP(patient, visit) {
+  if (!patient || !visit) return;
+  const rc   = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[visit.riskLevel] || '#059669';
+  const meds = (visit.medications || []).map(m =>
+    `<tr><td>${m.name||'—'}</td><td>${m.dose||'—'}</td><td>${m.frequency||'—'}</td><td style="color:${m.adherence==='Good'?'#059669':m.adherence==='Fair'?'#D97706':'#DC2626'}">${m.adherence||'—'}</td></tr>`
+  ).join('');
+  const tech = (visit.inhalerTechnique || []).map(t =>
+    `<tr><td>${t.device||'—'}</td><td style="color:${t.overallScore==='Good'?'#059669':t.overallScore==='Fair'?'#D97706':'#DC2626'}">${t.overallScore||'—'}</td><td>${(t.errors||[]).join(', ')||'ไม่มีข้อผิดพลาด'}</td></tr>`
+  ).join('');
+  const catScore = visit.assessments?.cat?.allAnswered ? visit.assessments.cat.score : null;
+  const actScore = visit.assessments?.act?.allAnswered ? visit.assessments.act.score : null;
+  const detected = (typeof window.detectDRP === 'function') ? window.detectDRP(visit, patient) : [];
+  const drpRows  = detected.map(d =>
+    `<tr><td>${d.code||'—'}</td><td>${d.categoryTh||d.categoryEn||'—'}</td><td style="color:${d.severity==='High'?'#DC2626':d.severity==='Medium'?'#D97706':'#059669'};font-weight:700">${d.severity||'—'}</td><td>${d.action||'—'}</td></tr>`
+  ).join('');
+  const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #0F2D5E;">
+      <div>
+        <h1 style="font-size:16px;margin-bottom:2px">${patient.prefix}${patient.firstName} ${patient.lastName}</h1>
+        <div class="meta">HN: ${patient.hn} · อายุ ${patient.age} ปี · ${patient.insurance} · Visit: <strong>${visit.visitDate}</strong></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:#64748B">พิมพ์: ${today}</div>
+        <div style="font-size:12px;font-weight:700;color:${rc}">● ${visit.riskLevel||'Low'} Risk</div>
+        <div style="font-size:11px;color:#64748B;margin-top:2px">เภสัชกร: ${visit.pharmacist||'—'}</div>
+      </div>
+    </div>
+
+    <div class="grid4" style="margin-bottom:14px">
+      ${catScore!==null?`<div class="item"><label>CAT Score</label><div style="font-size:20px;font-weight:800;color:${catScore>=20?'#DC2626':catScore>=10?'#D97706':'#059669'}">${catScore}</div></div>`:''}
+      ${actScore!==null?`<div class="item"><label>ACT Score</label><div style="font-size:20px;font-weight:800;color:${actScore<15?'#DC2626':actScore<20?'#D97706':'#059669'}">${actScore}</div></div>`:''}
+      <div class="item"><label>SpO₂ / RR / BP</label><div>${visit.vitals?.spO2||'—'} / ${visit.vitals?.rr||'—'} / ${visit.vitals?.bp||'—'}</div></div>
+      <div class="item"><label>Exacerbation</label><div>${visit.exacerbation?.countThisYear??0} ครั้ง/ปี${visit.exacerbation?.hospitalized?' · นอน รพ.':''}${visit.exacerbation?.erVisit?' · ER':''}</div></div>
+    </div>
+
+    <h2>SOAP Note</h2>
+    ${visit.soap?.s?`<div class="soap-box"><strong>S (Subjective):</strong><br>${visit.soap.s}</div>`:''}
+    ${visit.soap?.o?`<div class="soap-box" style="border-left-color:#059669"><strong>O (Objective):</strong><br>${visit.soap.o}</div>`:''}
+    ${visit.soap?.a?`<div class="soap-box" style="border-left-color:#7C3AED"><strong>A (Assessment):</strong><br>${visit.soap.a}</div>`:''}
+    ${visit.soap?.p?`<div class="soap-box" style="border-left-color:#0EA5C9"><strong>P (Plan):</strong><br>${visit.soap.p}</div>`:''}
+
+    ${meds?`<h2>รายการยา (${visit.medications.length} รายการ)</h2>
+    <table><thead><tr><th>ยา</th><th>ขนาด</th><th>ความถี่</th><th>Adherence</th></tr></thead><tbody>${meds}</tbody></table>`:''}
+
+    ${tech?`<h2>เทคนิคการพ่นยา</h2>
+    <table><thead><tr><th>อุปกรณ์</th><th>ผล</th><th>ข้อผิดพลาด</th></tr></thead><tbody>${tech}</tbody></table>`:''}
+
+    ${drpRows?`<h2>ปัญหาที่เกี่ยวข้องกับยา (DRP) — ${detected.length} รายการ</h2>
+    <table><thead><tr><th>PCNE Code</th><th>ประเภท</th><th>ความรุนแรง</th><th>แนวทาง</th></tr></thead><tbody>${drpRows}</tbody></table>`:''}
+
+    ${visit.pharmacistNote?`<h2>บันทึกเภสัชกร</h2><div style="background:#F0F9FF;border-left:3px solid #0369A1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6">${visit.pharmacistNote}</div>`:''}
+  `;
+  openPrintWindow(html, `SOAP — ${patient.firstName} ${patient.lastName} (${visit.visitDate})`);
+}
+
+// ── PDF: รายงาน DRP รายผู้ป่วย ─────────────────────────
+function printDRPReport(patient, visits) {
+  if (!patient) return;
+  const ptV = (visits || []).filter(v => v.patientId === patient.id)
+    .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+
+  const rows = ptV.flatMap(v => {
+    const drps = (typeof window.detectDRP === 'function') ? window.detectDRP(v, patient) : [];
+    return drps.map(d => ({
+      date: v.visitDate,
+      code: d.code, cat: d.categoryTh || d.categoryEn,
+      sev: d.severity, action: d.action || '—',
+    }));
+  });
+
+  const totalH = rows.filter(r => r.sev === 'High').length;
+  const totalM = rows.filter(r => r.sev === 'Medium').length;
+  const totalL = rows.filter(r => r.sev === 'Low').length;
+
+  const tableRows = rows.map(r =>
+    `<tr><td>${r.date}</td><td>${r.code||'—'}</td><td>${r.cat||'—'}</td>
+     <td style="color:${r.sev==='High'?'#DC2626':r.sev==='Medium'?'#D97706':'#059669'};font-weight:700">${r.sev||'—'}</td>
+     <td>${r.action}</td></tr>`
+  ).join('');
+
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid #0F2D5E;">
+      <div>
+        <h1>รายงาน DRP — ${patient.prefix}${patient.firstName} ${patient.lastName}</h1>
+        <div class="meta">HN: ${patient.hn} · ${patient.diagnosis} · พิมพ์: ${today}</div>
+      </div>
+    </div>
+    <div class="stat-row" style="margin-bottom:16px">
+      <div class="stat"><div class="n">${ptV.length}</div><div class="l">จำนวน Visit</div></div>
+      <div class="stat"><div class="n">${rows.length}</div><div class="l">DRP ทั้งหมด</div></div>
+      <div class="stat"><div class="n" style="color:#DC2626">${totalH}</div><div class="l">High Severity</div></div>
+      <div class="stat"><div class="n" style="color:#D97706">${totalM}</div><div class="l">Medium Severity</div></div>
+      <div class="stat"><div class="n" style="color:#059669">${totalL}</div><div class="l">Low Severity</div></div>
+    </div>
+    ${tableRows
+      ? `<table><thead><tr><th>วันที่</th><th>PCNE Code</th><th>ประเภท DRP</th><th>ความรุนแรง</th><th>แนวทางแก้ไข</th></tr></thead><tbody>${tableRows}</tbody></table>`
+      : '<p style="text-align:center;color:#64748B;padding:20px">ไม่พบ DRP ในการเยี่ยมทั้งหมด</p>'}
+  `;
+  openPrintWindow(html, `รายงาน DRP — ${patient.prefix}${patient.firstName} ${patient.lastName}`);
+}
+
+// ── PDF: รายงานไตรมาส (HA) ────────────────────────────
+function printQuarterlyReport(data, year, quarter) {
+  const qMap = { '1':['01','02','03'], '2':['04','05','06'], '3':['07','08','09'], '4':['10','11','12'] };
+  const months = qMap[String(quarter)] || [];
+  const pts = data.patients;
+  const vis = data.visits.filter(v => months.some(m => v.visitDate.startsWith(`${year}-${m}`)));
+  const tel = data.telepharmacy.filter(t => months.some(m => (t.actualDate||t.scheduledDate||'').startsWith(`${year}-${m}`)));
+  const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+
+  const uniqPts   = [...new Set(vis.map(v => v.patientId))].length;
+  const highRisk  = pts.filter(p => p.riskLevel === 'High').length;
+  const exTotal   = vis.reduce((s,v) => s+(v.exacerbation?.countThisYear||0),0);
+  const hospCount = vis.filter(v => v.exacerbation?.hospitalized).length;
+  const poorAdh   = vis.filter(v => v.adherence?.level==='Poor').length;
+  const teleSucc  = tel.filter(t => t.status==='Success').length;
+  const teleTotal = tel.filter(t => t.status!=='Pending').length;
+
+  const drpByVisit = vis.map(v => {
+    const pt = pts.find(p => p.id === v.patientId);
+    const drps = (typeof window.detectDRP === 'function' && pt) ? window.detectDRP(v, pt) : [];
+    return drps;
+  });
+  const totalDRP   = drpByVisit.reduce((s, d) => s + d.length, 0);
+  const highDRP    = drpByVisit.reduce((s, d) => s + d.filter(x => x.severity==='High').length, 0);
+
+  const visRows = vis.slice(0, 60).map(v => {
+    const pt = pts.find(p => p.id === v.patientId);
+    const rc = { High:'risk-H', Medium:'risk-M', Low:'risk-L' }[v.riskLevel]||'risk-L';
+    return `<tr>
+      <td>${v.visitDate}</td>
+      <td>${pt?.hn||''}</td>
+      <td>${pt?`${pt.prefix}${pt.firstName} ${pt.lastName}`:''}</td>
+      <td class="${rc}">${v.riskLevel||'Low'}</td>
+      <td>${v.exacerbation?.countThisYear??0}${v.exacerbation?.hospitalized?' (นอน)':''}</td>
+      <td>${v.adherence?.level||'—'}</td>
+      <td>${v.pharmacist||'—'}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #0F2D5E;">
+      <div>
+        <h1>รายงานคลินิก COPD/Asthma — ไตรมาส ${quarter}/${parseInt(year)+543}</h1>
+        <div class="meta">เดือน ${months.map(m=>['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][parseInt(m)]).join(', ')} ${parseInt(year)+543} · พิมพ์: ${today}</div>
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${uniqPts}</div><div class="l">ผู้ป่วยรับบริการ</div></div>
+      <div class="stat"><div class="n">${vis.length}</div><div class="l">ครั้งการเยี่ยม</div></div>
+      <div class="stat"><div class="n" style="color:#DC2626">${highRisk}</div><div class="l">High Risk (ทั้งหมด)</div></div>
+      <div class="stat"><div class="n">${hospCount}</div><div class="l">Hospitalized</div></div>
+      <div class="stat"><div class="n">${teleTotal>0?Math.round(teleSucc/teleTotal*100):0}%</div><div class="l">Tele Success Rate</div></div>
+    </div>
+    <div class="stat-row" style="margin-bottom:16px">
+      <div class="stat"><div class="n">${exTotal}</div><div class="l">Exacerbation รวม</div></div>
+      <div class="stat"><div class="n" style="color:#D97706">${poorAdh}</div><div class="l">Poor Adherence</div></div>
+      <div class="stat"><div class="n">${totalDRP}</div><div class="l">DRP ตรวจพบ</div></div>
+      <div class="stat"><div class="n" style="color:#DC2626">${highDRP}</div><div class="l">High-severity DRP</div></div>
+      <div class="stat"><div class="n">${tel.length}</div><div class="l">Telepharmacy รวม</div></div>
+    </div>
+    ${vis.length?`<h2>รายการเยี่ยม (${vis.length} ครั้ง)</h2>
+    <table><thead><tr><th>วันที่</th><th>HN</th><th>ชื่อผู้ป่วย</th><th>Risk</th><th>Exacerb.</th><th>Adherence</th><th>เภสัชกร</th></tr></thead>
+    <tbody>${visRows}</tbody></table>${vis.length>60?`<p style="font-size:11px;color:#64748B;margin-top:6px">แสดง 60 รายการแรกจาก ${vis.length} รายการ</p>`:''}`:
+    '<p style="text-align:center;color:#64748B;padding:16px">ไม่มีข้อมูลในช่วงเวลานี้</p>'}
+  `;
+  openPrintWindow(html, `รายงานไตรมาส ${quarter}/${parseInt(year)+543}`);
+}
+
 Object.assign(window, {
   downloadCSV, exportPatients, exportVisits, exportTelepharmacy,
   printPatientReport, printMonthlyReport, openPrintWindow, ExportSection,
-  printPatientTakeHome,
+  printPatientTakeHome, printVisitSOAP, printDRPReport, printQuarterlyReport,
 });
 </script>
 <script type="text/babel">
@@ -5179,6 +5397,8 @@ function PatientList({ data, onDataChange, navigate }) {
   const [csvText, setCsvText]   = pvState('');
   const [csvPreview, setCsvPreview] = pvState(null);
   const [csvError, setCsvError] = pvState('');
+  const [page, setPage]         = pvState(1);
+  const PAGE_SIZE = 20;
 
   const parseCSV = (text) => {
     const lines = text.trim().split('\n').filter(l => l.trim());
@@ -5222,6 +5442,7 @@ function PatientList({ data, onDataChange, navigate }) {
     }));
     onDataChange({ ...data, patients: [...data.patients, ...newPts] });
     setCsvOpen(false); setCsvText(''); setCsvPreview(null); setCsvError('');
+    window.rxToast?.(`นำเข้า ${newPts.length} ผู้ป่วยจาก CSV สำเร็จ`, 'success');
   };
 
   const filtered = data.patients.filter(p => {
@@ -5231,6 +5452,8 @@ function PatientList({ data, onDataChange, navigate }) {
     const riskMatch = !filterRisk || p.riskLevel  === filterRisk;
     return nameMatch && dxMatch && riskMatch;
   });
+  // Reset page when filters change (via useEffect equivalent — computed value)
+  const filterSig = search + filterDx + filterRisk;
 
   const riskOrder = { High: 0, Medium: 1, Low: 2 };
   const sorted = [...filtered].sort((a, b) => {
@@ -5246,6 +5469,9 @@ function PatientList({ data, onDataChange, navigate }) {
     return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
   });
 
+  pvEffect(() => { setPage(1); }, [filterSig, sortKey]);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paginated  = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const toggleSort = (key) => { if (sortKey === key) setSortAsc(v => !v); else { setSortKey(key); setSortAsc(true); } };
   const SortIcon = ({ k }) => sortKey !== k ? <span style={{ opacity: 0.3, marginLeft: 3 }}>↕</span>
     : <span style={{ marginLeft: 3 }}>{sortAsc ? '↑' : '↓'}</span>;
@@ -5260,6 +5486,7 @@ function PatientList({ data, onDataChange, navigate }) {
     };
     onDataChange({ ...data, patients: [...data.patients, newPt] });
     setAddOpen(false);
+    window.rxToast?.(`เพิ่มผู้ป่วย ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
 
   const handleEdit = (formData) => {
@@ -5269,6 +5496,7 @@ function PatientList({ data, onDataChange, navigate }) {
       : p);
     onDataChange({ ...data, patients: updated });
     setEditPt(null);
+    window.rxToast?.(`แก้ไขข้อมูล ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
 
   const handleDelete = (id) => {
@@ -5419,12 +5647,26 @@ function PatientList({ data, onDataChange, navigate }) {
 
       {/* Table */}
       <Card padding={0}>
-        <Table cols={cols} rows={sorted}
+        <Table cols={cols} rows={paginated}
           emptyIcon="👤" emptyTitle={search || filterDx || filterRisk ? 'ไม่พบผู้ป่วยที่ตรงกับตัวกรอง' : 'ยังไม่มีผู้ป่วยในระบบ'}
           emptySubtitle={search || filterDx || filterRisk ? 'ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง' : 'เริ่มต้นโดยเพิ่มผู้ป่วยรายแรกของคุณ'}
           emptyAction={search || filterDx || filterRisk
             ? <Btn variant="ghost" onClick={() => { setSearch(''); setFilterDx(''); setFilterRisk(''); }}>ล้างตัวกรอง</Btn>
             : <Btn variant="primary" onClick={() => setAddOpen(true)}>+ เพิ่มผู้ป่วยรายแรก</Btn>} />
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 16px', borderTop: `1px solid ${C.border}` }}>
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+              style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: page===1?C.textMuted:C.text, cursor: page===1?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>← ก่อนหน้า</button>
+            {Array.from({ length: totalPages }, (_, i) => i+1).filter(p => p===1 || p===totalPages || Math.abs(p-page)<=1).reduce((acc, p, i, arr) => {
+              if (i > 0 && arr[i-1] < p-1) acc.push(<span key={`e${p}`} style={{ fontSize: 12, color: C.textMuted }}>…</span>);
+              acc.push(<button key={p} onClick={() => setPage(p)} style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${p===page?C.primary:C.border}`, background: p===page?C.primary:C.surface, color: p===page?'#fff':C.text, cursor: 'pointer', fontWeight: p===page?700:400, fontSize: 12 }}>{p}</button>);
+              return acc;
+            }, [])}
+            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+              style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: page===totalPages?C.textMuted:C.text, cursor: page===totalPages?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>ถัดไป →</button>
+            <span style={{ fontSize: 11, color: C.textMuted, marginLeft: 6 }}>{(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE, sorted.length)} จาก {sorted.length}</span>
+          </div>
+        )}
       </Card>
 
       {/* CSV Import Modal */}
@@ -5538,6 +5780,9 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
               📄 สรุปกลับบ้าน
             </Btn>
           )}
+          <Btn size="sm" variant="ghost" onClick={() => typeof window.printDRPReport === 'function' && window.printDRPReport(patient, data.visits)}>
+            📊 DRP Report
+          </Btn>
         </div>
       </div>
 
@@ -5635,6 +5880,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <RiskBadge level={v.riskLevel} />
+                      <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, v)} title="พิมพ์ SOAP note">🖨️</Btn>
                       <Btn size="sm" variant="ghost" onClick={() => onEditVisit && onEditVisit(v.id)}>✏️ แก้ไข</Btn>
                     </div>
                   </div>
@@ -6885,6 +7131,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     // Clear draft on successful save
     clearDraft(patientId, isEditing ? editingVisit.id : null);
     onSave(newData);
+    window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
     setTimeout(() => navigate('history', patientId), 100);
   };
 
@@ -6906,6 +7153,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     });
     clearDraft(patientId, editingVisit.id);
     onSave(newData);
+    window.rxToast?.(`ลบ Visit ${editingVisit.visitDate} สำเร็จ`, 'info');
     navigate('history', patientId);
   };
 
@@ -7857,6 +8105,8 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
       const updated = data.telepharmacy.map(t => t.id === selectedId ? { ...t, ...rf, callDuration: finalDuration } : t);
       onDataChange({ ...data, telepharmacy: updated });
       setRecordOpen(false); setSelectedId(null);
+      const statusTh = rf.status === 'Success' ? 'โทรสำเร็จ' : rf.status === 'No Answer' ? 'ไม่รับสาย' : rf.status || 'บันทึก';
+      window.rxToast?.(`บันทึกผลการโทร: ${statusTh}`, rf.status === 'Success' ? 'success' : 'info');
     };
     return (
       <div>
