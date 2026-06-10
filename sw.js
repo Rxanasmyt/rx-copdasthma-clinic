@@ -2,7 +2,7 @@
 // HTML/navigation: network-first (always latest when online)
 // CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v26';
+const CACHE_VERSION = 'rxcopd-v27';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,8 +10,8 @@ const APP_SHELL = [
   './icon-192.png',
   './icon-512.png',
   // CDN dependencies
-  'https://unpkg.com/react@18.3.1/umd/react.development.js',
-  'https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js',
+  'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
   'https://unpkg.com/@babel/standalone@7.29.0/babel.min.js',
   'https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap',
 ];
