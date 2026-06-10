@@ -395,6 +395,18 @@
     background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform 0.22s ease; }
   a.rx-link:hover::after { transform: scaleX(1); }
 
+  /* Print: force light theme + remove animations/shadows */
+  @media print {
+    [data-theme="dark"] {
+      --c-text:#0F172A; --c-textMuted:#475569; --c-textLight:#94A3B8;
+      --c-border:#E2E8F0; --c-borderLight:#F8FAFC;
+      --c-surface:#FFFFFF; --c-bg:#FFFFFF; --c-bgAlt:#F8FAFC;
+      --c-primary:#1E3A8A; --c-primaryLight:#2563EB;
+    }
+    body { background: #fff !important; }
+    *, *::before, *::after { animation: none !important; transition: none !important; box-shadow: none !important; }
+  }
+
   /* Respect user motion preferences (accessibility) */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -420,8 +432,8 @@
   }
 </style>
 <!-- React + Babel -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -5637,14 +5649,26 @@ function PatientList({ data, onDataChange, navigate }) {
 
   const handleCSVImport = () => {
     if (!csvPreview || csvPreview.length === 0) return;
-    const newPts = csvPreview.map(row => ({
+    // กรอง HN ที่ซ้ำกับในระบบ และซ้ำกันเองในไฟล์
+    const existingHN = new Set(data.patients.map(p => (p.hn || '').trim()));
+    const seen = new Set();
+    const accepted = [], skipped = [];
+    csvPreview.forEach(row => {
+      const hn = (row.hn || '').trim();
+      if (existingHN.has(hn) || seen.has(hn)) { skipped.push(hn); return; }
+      seen.add(hn); accepted.push(row);
+    });
+    const newPts = accepted.map(row => ({
       ...row, id: AppStore.generateId(),
       createdAt: new Date().toISOString().slice(0, 10),
       isHighRisk: false, riskLevel: 'Low', riskFlags: [], nextTelepharmacy: null,
     }));
     onDataChange({ ...data, patients: [...data.patients, ...newPts] });
     setCsvOpen(false); setCsvText(''); setCsvPreview(null); setCsvError('');
-    window.rxToast?.(`นำเข้า ${newPts.length} ผู้ป่วยจาก CSV สำเร็จ`, 'success');
+    const msg = skipped.length > 0
+      ? `นำเข้า ${newPts.length} ราย · ข้าม ${skipped.length} ราย (HN ซ้ำ)`
+      : `นำเข้า ${newPts.length} ผู้ป่วยจาก CSV สำเร็จ`;
+    window.rxToast?.(msg, skipped.length > 0 ? 'warning' : 'success', 4500);
   };
 
   const filtered = data.patients.filter(p => {
@@ -5679,6 +5703,12 @@ function PatientList({ data, onDataChange, navigate }) {
     : <span style={{ marginLeft: 3 }}>{sortAsc ? '↑' : '↓'}</span>;
 
   const handleAdd = (formData) => {
+    // กัน HN ซ้ำ
+    const dup = data.patients.find(p => p.hn && formData.hn && p.hn.trim() === formData.hn.trim());
+    if (dup) {
+      window.rxToast?.(`HN ${formData.hn} มีอยู่แล้ว (${dup.prefix}${dup.firstName} ${dup.lastName})`, 'error', 4500);
+      return;
+    }
     const risk = AppStore.calculateRisk(formData, null);
     const newPt = {
       ...formData,
@@ -5692,6 +5722,12 @@ function PatientList({ data, onDataChange, navigate }) {
   };
 
   const handleEdit = (formData) => {
+    // กัน HN ซ้ำกับผู้ป่วยรายอื่น
+    const dup = data.patients.find(p => p.id !== editPt.id && p.hn && formData.hn && p.hn.trim() === formData.hn.trim());
+    if (dup) {
+      window.rxToast?.(`HN ${formData.hn} ซ้ำกับ ${dup.prefix}${dup.firstName} ${dup.lastName}`, 'error', 4500);
+      return;
+    }
     const risk = AppStore.calculateRisk(formData, null);
     const updated = data.patients.map(p => p.id === editPt.id
       ? { ...p, ...formData, isHighRisk: risk.level === 'High', riskLevel: risk.level, riskFlags: risk.flags }
@@ -14780,7 +14816,36 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// ── Error Boundary — กัน render error ทำทั้งแอปขาว ──────
+class RxErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error('App render error:', error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'#F0F4F8', fontFamily:'Sarabun,sans-serif', padding:24, textAlign:'center' }}>
+          <div style={{ fontSize:48 }}>⚠️</div>
+          <div style={{ fontSize:18, fontWeight:800, color:'#1E3A8A' }}>เกิดข้อผิดพลาดในการแสดงผล</div>
+          <div style={{ fontSize:13, color:'#64748B', maxWidth:420 }}>
+            ข้อมูลของคุณปลอดภัย (บันทึกใน Cloud แล้ว) — กรุณารีโหลดหน้าเพื่อใช้งานต่อ
+          </div>
+          <pre style={{ fontSize:11, color:'#94A3B8', maxWidth:'90vw', overflow:'auto', background:'#fff', padding:'8px 12px', borderRadius:8, border:'1px solid #E2E8F0' }}>
+            {String(this.state.error?.message || this.state.error || '')}
+          </pre>
+          <button onClick={() => window.location.reload()} style={{ padding:'10px 24px', borderRadius:10, border:'none', background:'linear-gradient(135deg,#1E40AF,#2563EB)', color:'#fff', fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'inherit' }}>
+            🔄 รีโหลดหน้า
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <RxErrorBoundary><App /></RxErrorBoundary>
+);
 
 // Register PWA Service Worker
 if ('serviceWorker' in navigator) {
