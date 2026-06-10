@@ -438,6 +438,7 @@
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <!-- Auto-inject Firebase config -->
 <script>
 (function(){
@@ -3508,112 +3509,222 @@ const LOGIN_FEATURES = [
 ];
 
 // ── Login Screen ──────────────────────────────────────
-function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
-  const users = (data && data.users) || [];
-  const clinicCode = (data && data.clinicCode) || '';
+// ── ProfileSetup — แสดงเมื่อผู้ใช้ login Firebase แล้วแต่ยังไม่มี profile ──
+function ProfileSetup({ firebaseUser, data, onDataChange }) {
+  const users   = (data && data.users) || [];
+  const isFirst = users.filter(u => u.uid).length === 0;
 
-  // mode: 'gate' | 'select' | 'pin' | 'register'
-  const [mode, setMode]         = stState(clinicCode ? 'gate' : 'select');
-  const [gateInput, setGateInput] = stState('');
-  const [gateErr, setGateErr]   = stState('');
-  const [selUser, setSelUser]   = stState(null);
-  const [pin, setPin]           = stState('');
-  const [pinErr, setPinErr]     = stState('');
-  const [attempts, setAttempts] = stState(0);
-  const [lockUntil, setLockUntil] = stState(0);
-  const [lockSecs, setLockSecs] = stState(0);
-  const [regStep, setRegStep]   = stState(1); // 1=info, 2=pin numpad
-  const [regPinStep, setRegPinStep] = stState('new'); // 'new'|'confirm'
-  const [regPfx,  setRegPfx]   = stState('ภก.');
-  const [regName, setRegName]   = stState('');
-  const [regUname, setRegUname] = stState('');
-  const [regPin,  setRegPin]    = stState('');
-  const [regConf, setRegConf]   = stState('');
-  const [regErr,  setRegErr]    = stState('');
+  const [pfx,  setPfx]  = stState('ภก.');
+  const [name, setName] = stState('');
+  const [role, setRole] = stState(isFirst ? 'admin' : 'user');
+  const [err,  setErr]  = stState('');
+  const [busy, setBusy] = stState(false);
 
-  // Lockout countdown
-  stEffect(() => {
-    if (!lockUntil) return;
-    const iv = setInterval(() => {
-      const rem = Math.ceil((lockUntil - Date.now()) / 1000);
-      if (rem <= 0) { setLockSecs(0); setLockUntil(0); setAttempts(0); }
-      else setLockSecs(rem);
-    }, 500);
-    return () => clearInterval(iv);
-  }, [lockUntil]);
-
-  // Sync gate mode when clinicCode changes (e.g. first set via Firebase)
-  stEffect(() => {
-    if (clinicCode && mode === 'select') setMode('gate');
-    if (!clinicCode && mode === 'gate') setMode('select');
-  }, [clinicCode]);
-
+  const iStyle = {
+    width:'100%', padding:'11px 14px', borderRadius:10,
+    border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.08)',
+    color:'#FFFFFF', fontFamily:'Sarabun,sans-serif', fontSize:14,
+    outline:'none', boxSizing:'border-box', marginBottom:10,
+  };
   const bgStyle = {
-    position: 'fixed', inset: 0,
-    background: 'linear-gradient(145deg, #050B1E 0%, #0B1D45 38%, #0E2558 68%, #071230 100%)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    zIndex: 2000, padding: 20, fontFamily: 'Sarabun, sans-serif', overflow: 'hidden',
+    position:'fixed', inset:0,
+    background:'linear-gradient(145deg,#050B1E 0%,#0B1D45 38%,#0E2558 68%,#071230 100%)',
+    display:'flex', alignItems:'center', justifyContent:'center',
+    zIndex:2000, padding:20, fontFamily:'Sarabun,sans-serif',
   };
   const cardStyle = {
-    background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(30px)',
-    WebkitBackdropFilter: 'blur(30px)',
-    border: '1px solid rgba(255,255,255,0.14)', borderRadius: 24,
-    width: '100%', maxWidth: 400, padding: '28px 28px 32px',
-    boxShadow: '0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.14)',
+    background:'rgba(255,255,255,0.07)', backdropFilter:'blur(30px)',
+    border:'1px solid rgba(255,255,255,0.14)', borderRadius:24,
+    width:'100%', maxWidth:400, padding:'28px 28px 32px',
+    boxShadow:'0 24px 70px rgba(0,0,0,0.55)',
+  };
+  const ErrBadge = ({ msg }) => msg ? (
+    <div style={{ background:'rgba(239,68,68,0.18)',border:'1px solid rgba(239,68,68,0.35)',borderRadius:20,padding:'7px 16px',fontSize:12,color:'#FCA5A5',textAlign:'center',margin:'10px 0' }}>{msg}</div>
+  ) : null;
+
+  const handleSave = () => {
+    if (!name.trim()) { setErr('กรุณากรอกชื่อ-นามสกุล'); return; }
+    setBusy(true);
+    const nu = {
+      id: firebaseUser.uid, uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      prefix: pfx, name: name.trim(),
+      username: (firebaseUser.email || '').split('@')[0],
+      role: isFirst ? 'admin' : role,
+    };
+    onDataChange({ ...data, users: [...users, nu] });
+    setBusy(false);
   };
 
-  // Left hero panel (desktop) — app description + features
+  return (
+    <div style={bgStyle}>
+      <LoginCanvas />
+      <div className="rx-login-card" style={{ width:'100%', maxWidth:400 }}>
+        <div style={cardStyle}>
+          <div style={{ textAlign:'center', marginBottom:20 }}>
+            <div style={{ fontSize:40, marginBottom:8 }}>🪪</div>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700, color:'#FFFFFF' }}>ตั้งค่าโปรไฟล์</h3>
+            <p style={{ margin:'6px 0 0', fontSize:12, color:'rgba(255,255,255,0.5)' }}>
+              {firebaseUser.email}{isFirst && <><br/><span style={{color:'#93C5FD',fontWeight:600}}>คุณจะเป็น Admin คนแรกของระบบ</span></>}
+            </p>
+          </div>
+          <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:6, display:'block' }}>คำนำหน้า</label>
+          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+            {['ภก.','ภญ.'].map(p => (
+              <button key={p} onClick={() => setPfx(p)} style={{
+                flex:1, padding:'10px', borderRadius:10,
+                border: pfx===p ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
+                background: pfx===p ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)',
+                color:'#fff', fontFamily:'Sarabun,sans-serif', fontSize:14, fontWeight:600, cursor:'pointer',
+              }}>{p}</button>
+            ))}
+          </div>
+          <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>ชื่อ-นามสกุล</label>
+          <input value={name} onChange={e => { setName(e.target.value); setErr(''); }}
+            placeholder="เช่น อนัส มะยีแต" autoFocus style={iStyle} />
+          {!isFirst && (
+            <>
+              <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:6, display:'block' }}>บทบาท</label>
+              <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                {[['user','ผู้ใช้ทั่วไป'],['admin','ผู้ดูแล (Admin)']].map(([v,l]) => (
+                  <button key={v} onClick={() => setRole(v)} style={{
+                    flex:1, padding:'9px', borderRadius:10,
+                    border: role===v ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
+                    background: role===v ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)',
+                    color:'#fff', fontFamily:'Sarabun,sans-serif', fontSize:13, fontWeight:600, cursor:'pointer',
+                  }}>{l}</button>
+                ))}
+              </div>
+            </>
+          )}
+          <ErrBadge msg={err} />
+          <button onClick={handleSave} disabled={busy} style={{
+            width:'100%', padding:'14px', borderRadius:12,
+            background:'linear-gradient(135deg,#1E40AF 0%,#2563EB 100%)',
+            boxShadow:'0 4px 18px rgba(37,99,235,0.4)',
+            color:'#fff', border:'none', cursor:busy?'default':'pointer',
+            fontSize:15, fontWeight:700, fontFamily:'Sarabun,sans-serif',
+            opacity:busy?0.7:1,
+          }}>บันทึกและเข้าสู่ระบบ</button>
+          <button onClick={() => { try { firebase.auth().signOut(); } catch(e){} }} style={{
+            width:'100%', marginTop:10, padding:'9px', borderRadius:12,
+            background:'none', border:'1px solid rgba(255,255,255,0.15)',
+            color:'rgba(255,255,255,0.5)', fontFamily:'Sarabun,sans-serif', fontSize:13, cursor:'pointer',
+          }}>ออกจากระบบ (เปลี่ยนบัญชี)</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ syncStatus }) {
+  const [email,    setEmail]    = stState('');
+  const [password, setPassword] = stState('');
+  const [showPw,   setShowPw]   = stState(false);
+  const [loading,  setLoading]  = stState(false);
+  const [err,      setErr]      = stState('');
+  const [resetSent, setResetSent] = stState(false);
+  const [resetMode, setResetMode] = stState(false);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) { setErr('กรุณากรอกอีเมลและรหัสผ่าน'); return; }
+    setLoading(true); setErr('');
+    try {
+      await firebase.auth().signInWithEmailAndPassword(email.trim(), password);
+    } catch (e) {
+      const code = e.code || '';
+      if (code === 'auth/wrong-password' || code === 'auth/user-not-found' || code === 'auth/invalid-credential' || code === 'auth/invalid-email') {
+        setErr('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+      } else if (code === 'auth/too-many-requests') {
+        setErr('พยายามเข้าระบบหลายครั้งเกินไป — กรุณารอสักครู่');
+      } else {
+        setErr('เข้าสู่ระบบไม่สำเร็จ: ' + e.message);
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!email.trim()) { setErr('กรุณากรอกอีเมลก่อน'); return; }
+    setLoading(true); setErr('');
+    try {
+      await firebase.auth().sendPasswordResetEmail(email.trim());
+      setResetSent(true);
+    } catch (e) {
+      setErr('ส่งอีเมลไม่สำเร็จ: กรุณาตรวจสอบอีเมล');
+    }
+    setLoading(false);
+  };
+
+  const iStyle = {
+    width:'100%', padding:'12px 14px', borderRadius:10, marginBottom:10,
+    border:'1px solid rgba(255,255,255,0.2)', background:'rgba(255,255,255,0.08)',
+    color:'#FFFFFF', fontFamily:'Sarabun,sans-serif', fontSize:14, outline:'none', boxSizing:'border-box',
+  };
+  const bgStyle = {
+    position:'fixed', inset:0,
+    background:'linear-gradient(145deg,#050B1E 0%,#0B1D45 38%,#0E2558 68%,#071230 100%)',
+    display:'flex', alignItems:'center', justifyContent:'center',
+    zIndex:2000, padding:20, fontFamily:'Sarabun,sans-serif', overflow:'hidden',
+  };
+  const cardStyle = {
+    background:'rgba(255,255,255,0.07)', backdropFilter:'blur(30px)',
+    WebkitBackdropFilter:'blur(30px)',
+    border:'1px solid rgba(255,255,255,0.14)', borderRadius:24,
+    width:'100%', maxWidth:400, padding:'28px 28px 32px',
+    boxShadow:'0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.14)',
+  };
+
   const Hero = () => (
-    <div className="rx-login-hero" style={{ flex: '0 1 440px', maxWidth: 460, color: '#fff' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 26 }}>
+    <div className="rx-login-hero" style={{ flex:'0 1 440px', maxWidth:460, color:'#fff' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:26 }}>
         <div className="rx-breathe" style={{
-          width: 66, height: 66, borderRadius: 20, flexShrink: 0,
-          background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 55%, #2563EB 100%)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34,
+          width:66, height:66, borderRadius:20, flexShrink:0,
+          background:'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 55%,#2563EB 100%)',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:34,
         }}>🫁</div>
         <div>
-          <h1 className="rx-shimmer" style={{ margin: 0, fontSize: 27, fontWeight: 800, letterSpacing: '-0.6px', lineHeight: 1.15 }}>
+          <h1 className="rx-shimmer" style={{ margin:0, fontSize:27, fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.15 }}>
             Rx-COPD/Asthma
           </h1>
-          <p style={{ margin: '3px 0 0', fontSize: 13, color: 'rgba(147,197,253,0.85)', fontWeight: 600 }}>
+          <p style={{ margin:'3px 0 0', fontSize:13, color:'rgba(147,197,253,0.85)', fontWeight:600 }}>
             ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด
           </p>
         </div>
       </div>
-      <p style={{ fontSize: 14, lineHeight: 1.9, color: 'rgba(255,255,255,0.72)', marginBottom: 28 }}>
-        ระบบบริหารจัดการคลินิก <b style={{ color: '#fff' }}>COPD</b> และ <b style={{ color: '#fff' }}>Asthma</b> แบบครบวงจร
+      <p style={{ fontSize:14, lineHeight:1.9, color:'rgba(255,255,255,0.72)', marginBottom:28 }}>
+        ระบบบริหารจัดการคลินิก <b style={{color:'#fff'}}>COPD</b> และ <b style={{color:'#fff'}}>Asthma</b> แบบครบวงจร
         บันทึกการบริบาล ประเมินความเสี่ยง ติดตามผู้ป่วย พร้อมรายงานคุณภาพตามมาตรฐาน GOLD &amp; GINA
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
         {LOGIN_FEATURES.map(f => (
-          <div key={f.t} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div key={f.t} style={{ display:'flex', alignItems:'center', gap:14 }}>
             <div style={{
-              width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21,
+              width:44, height:44, borderRadius:13, flexShrink:0,
+              background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.13)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:21,
             }}>{f.i}</div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{f.t}</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{f.d}</div>
+              <div style={{ fontSize:14, fontWeight:700 }}>{f.t}</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginTop:1 }}>{f.d}</div>
             </div>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 30, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: 11, color: 'rgba(255,255,255,0.42)', lineHeight: 1.75 }}>
-        <span style={{ color: 'rgba(147,197,253,0.65)', fontWeight: 700 }}>จัดทำโดย </span>
+      <div style={{ marginTop:30, paddingTop:18, borderTop:'1px solid rgba(255,255,255,0.1)', fontSize:11, color:'rgba(255,255,255,0.42)', lineHeight:1.75 }}>
+        <span style={{ color:'rgba(147,197,253,0.65)', fontWeight:700 }}>จัดทำโดย </span>
         ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง
       </div>
     </div>
   );
 
-  // Compact logo for mobile (hero hidden)
   const MobileLogo = () => (
-    <div className="rx-login-mobilelogo" style={{ textAlign: 'center', marginBottom: 20 }}>
+    <div className="rx-login-mobilelogo" style={{ textAlign:'center', marginBottom:20 }}>
       <div className="rx-breathe" style={{
-        width: 66, height: 66, borderRadius: '50%', margin: '0 auto 12px',
-        background: 'linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 60%, #2563EB 100%)',
-        boxShadow: '0 8px 32px rgba(37,99,235,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38,
+        width:66, height:66, borderRadius:'50%', margin:'0 auto 12px',
+        background:'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 60%,#2563EB 100%)',
+        boxShadow:'0 8px 32px rgba(37,99,235,0.55)',
+        display:'flex', alignItems:'center', justifyContent:'center', fontSize:38,
       }}>
         <svg viewBox="0 0 48 48" width="42" height="42" fill="#FFFFFF" aria-label="lungs">
           <rect x="22.5" y="6" width="3" height="14" rx="1.5"/>
@@ -3622,357 +3733,118 @@ function LoginScreen({ onLogin, data, onDataChange, syncStatus }) {
           <path d="M27 14c0 6 1 9 4 13s6 6 6 11c0 3-2 5-5 5-4 0-5-3-5-8V14z"/>
         </svg>
       </div>
-      <h1 style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-0.3px' }}>
+      <h1 style={{ color:'#FFFFFF', fontSize:20, fontWeight:800, margin:'0 0 4px', letterSpacing:'-0.3px' }}>
         Rx-COPD/Asthma Clinic
       </h1>
-      <p style={{ color: 'rgba(147,197,253,0.75)', fontSize: 12, margin: '4px 0 0' }}>ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด</p>
+      <p style={{ color:'rgba(147,197,253,0.75)', fontSize:12, margin:'4px 0 0' }}>ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด</p>
     </div>
   );
 
-  // Shell: animated background + hero + card column.
-  // NOTE: render function (not a component) so the card subtree is reconciled
-  // by position — keeps input focus & avoids restarting the canvas each keystroke.
-  const renderShell = (children) => (
+  const ErrBadge = ({ msg }) => msg ? (
+    <div style={{ background:'rgba(239,68,68,0.18)',border:'1px solid rgba(239,68,68,0.35)',borderRadius:20,padding:'7px 16px',fontSize:12,color:'#FCA5A5',textAlign:'center',margin:'10px 0' }}>{msg}</div>
+  ) : null;
+
+  const cardContent = resetMode ? (
+    <div style={cardStyle}>
+      <button onClick={() => { setResetMode(false); setResetSent(false); setErr(''); }} style={{
+        background:'none', border:'none', cursor:'pointer', color:'rgba(147,197,253,0.7)',
+        fontSize:13, fontFamily:'Sarabun,sans-serif', display:'flex', alignItems:'center', gap:5, padding:'0 0 14px',
+      }}>‹ กลับ</button>
+      <div style={{ textAlign:'center', marginBottom:20 }}>
+        <div style={{ fontSize:36, marginBottom:8 }}>{resetSent ? '✅' : '🔑'}</div>
+        <h3 style={{ margin:0, fontSize:15, fontWeight:700, color:'#FFFFFF' }}>
+          {resetSent ? 'ส่งอีเมลแล้ว' : 'ลืมรหัสผ่าน?'}
+        </h3>
+        {resetSent
+          ? <p style={{ margin:'8px 0 0', fontSize:12.5, color:'rgba(255,255,255,0.6)', lineHeight:1.7 }}>
+              ระบบส่งลิงก์รีเซ็ตรหัสผ่านไปที่<br/>
+              <b style={{color:'#93C5FD'}}>{email}</b><br/>
+              กรุณาตรวจสอบอีเมล (รวมถึงโฟลเดอร์ Spam)
+            </p>
+          : <p style={{ margin:'8px 0 0', fontSize:12.5, color:'rgba(255,255,255,0.6)' }}>
+              กรอกอีเมลเพื่อรับลิงก์ตั้งรหัสผ่านใหม่
+            </p>
+        }
+      </div>
+      {!resetSent && (
+        <>
+          <input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(''); }}
+            placeholder="อีเมลที่ลงทะเบียน" style={iStyle}
+            onKeyDown={e => e.key==='Enter' && handleReset()} />
+          <ErrBadge msg={err} />
+          <button onClick={handleReset} disabled={loading} style={{
+            width:'100%', padding:'13px', borderRadius:12,
+            background:'linear-gradient(135deg,#1E40AF,#2563EB)',
+            color:'#fff', border:'none', cursor:loading?'default':'pointer',
+            fontSize:14, fontWeight:700, fontFamily:'Sarabun,sans-serif',
+            opacity:loading?0.7:1,
+          }}>{loading ? 'กำลังส่ง...' : 'ส่งลิงก์รีเซ็ต'}</button>
+        </>
+      )}
+    </div>
+  ) : (
+    <div style={cardStyle}>
+      <div style={{ textAlign:'center', marginBottom:22 }}>
+        <div style={{ fontSize:36, marginBottom:8 }}>🔐</div>
+        <h3 style={{ margin:0, fontSize:16, fontWeight:700, color:'#FFFFFF' }}>เข้าสู่ระบบ</h3>
+        <p style={{ margin:'4px 0 0', fontSize:12, color:'rgba(255,255,255,0.45)' }}>ใช้อีเมลและรหัสผ่าน Firebase Auth</p>
+      </div>
+      <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>อีเมล</label>
+      <input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(''); }}
+        placeholder="your@email.com" autoFocus style={iStyle}
+        onKeyDown={e => e.key==='Enter' && document.getElementById('rx-pw-input')?.focus()} />
+      <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:4, display:'block' }}>รหัสผ่าน</label>
+      <div style={{ position:'relative', marginBottom:10 }}>
+        <input id="rx-pw-input" type={showPw?'text':'password'} value={password}
+          onChange={e => { setPassword(e.target.value); setErr(''); }}
+          placeholder="รหัสผ่าน" style={{ ...iStyle, marginBottom:0, paddingRight:44 }}
+          onKeyDown={e => e.key==='Enter' && handleLogin()} />
+        <button onClick={() => setShowPw(v => !v)} style={{
+          position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
+          background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.5)', fontSize:16,
+        }}>{showPw ? '🙈' : '👁'}</button>
+      </div>
+      <ErrBadge msg={err} />
+      <button onClick={handleLogin} disabled={loading} style={{
+        width:'100%', padding:'14px', borderRadius:12,
+        background:'linear-gradient(135deg,#1E40AF 0%,#2563EB 100%)',
+        boxShadow:'0 4px 18px rgba(37,99,235,0.4)',
+        color:'#fff', border:'none', cursor:loading?'default':'pointer',
+        fontSize:15, fontWeight:700, fontFamily:'Sarabun,sans-serif', transition:'all 0.15s',
+        opacity:loading?0.7:1,
+      }}>{loading ? '⏳ กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}</button>
+      <div style={{ textAlign:'center', marginTop:14 }}>
+        <button onClick={() => { setResetMode(true); setErr(''); setResetSent(false); }} style={{
+          background:'none', border:'none', cursor:'pointer',
+          color:'rgba(147,197,253,0.7)', fontSize:12.5, fontFamily:'Sarabun,sans-serif',
+          textDecoration:'underline',
+        }}>ลืมรหัสผ่าน?</button>
+      </div>
+      <div style={{ marginTop:18, padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', fontSize:11.5, color:'rgba(255,255,255,0.4)', lineHeight:1.75 }}>
+        🔒 ระบบใช้ <b style={{color:'rgba(147,197,253,0.7)'}}>Firebase Authentication</b><br/>
+        Admin สร้างบัญชีผ่านหน้า ตั้งค่า → จัดการผู้ใช้
+      </div>
+    </div>
+  );
+
+  return (
     <div style={bgStyle}>
       <LoginCanvas />
       <div className="rx-blob rx-blob-1" />
       <div className="rx-blob rx-blob-2" />
       <div className="rx-blob rx-blob-3" />
       <div style={{
-        position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', gap: 56, width: '100%', maxWidth: 1000, flexWrap: 'wrap',
+        position:'relative', zIndex:2, display:'flex', alignItems:'center',
+        justifyContent:'center', gap:56, width:'100%', maxWidth:1000, flexWrap:'wrap',
       }}>
         {Hero()}
-        <div className="rx-login-card" style={{ width: '100%', maxWidth: 400 }}>
+        <div className="rx-login-card" style={{ width:'100%', maxWidth:400 }}>
           {MobileLogo()}
-          {children}
+          {cardContent}
         </div>
       </div>
     </div>
   );
-
-  const NBtn = ({ label, onClick, disabled }) => (
-    <button onClick={onClick} disabled={disabled} style={{
-      width: '100%', aspectRatio: '1 / 1', maxWidth: 72, maxHeight: 72, minHeight: 56, borderRadius: '50%',
-      justifySelf: 'center',
-      border: disabled ? '1.5px solid rgba(255,255,255,0.07)' : '1.5px solid rgba(255,255,255,0.18)',
-      background: disabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.09)',
-      cursor: disabled ? 'default' : 'pointer',
-      fontSize: label === '⌫' ? 20 : 24, fontWeight: 600,
-      color: disabled ? 'rgba(255,255,255,0.2)' : '#FFFFFF',
-      fontFamily: 'Sarabun, sans-serif', transition: 'all 0.12s',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}
-    onMouseEnter={e => !disabled && (e.currentTarget.style.background = 'rgba(255,255,255,0.2)')}
-    onMouseLeave={e => !disabled && (e.currentTarget.style.background = 'rgba(255,255,255,0.09)')}>
-      {label}
-    </button>
-  );
-
-  const PinDots = ({ count, filled }) => (
-    <div style={{ display: 'flex', gap: 14, justifyContent: 'center', margin: '18px 0 6px' }}>
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} style={{
-          width: 14, height: 14, borderRadius: '50%',
-          background: i < filled ? '#FFFFFF' : 'transparent',
-          border: i < filled ? 'none' : '2px solid rgba(255,255,255,0.3)',
-          boxShadow: i < filled ? '0 0 10px rgba(255,255,255,0.5)' : 'none',
-          transition: 'all 0.12s',
-        }} />
-      ))}
-    </div>
-  );
-
-  const ErrBadge = ({ msg }) => msg ? (
-    <div style={{
-      background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.35)',
-      borderRadius: 20, padding: '7px 16px', fontSize: 12, color: '#FCA5A5',
-      textAlign: 'center', margin: '10px 0',
-    }}>{msg}</div>
-  ) : null;
-
-  const PrimaryBtn = ({ children, onClick }) => (
-    <button onClick={onClick} style={{
-      width: '100%', padding: '14px', borderRadius: 12,
-      background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
-      boxShadow: '0 4px 18px rgba(37,99,235,0.4)',
-      color: '#fff', border: 'none', cursor: 'pointer',
-      fontSize: 15, fontWeight: 700, fontFamily: 'Sarabun, sans-serif', transition: 'all 0.15s',
-    }}
-    onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-    onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
-    >{children}</button>
-  );
-
-  const BackBtn = ({ onClick }) => (
-    <button onClick={onClick} style={{
-      background: 'none', border: 'none', cursor: 'pointer',
-      color: 'rgba(147,197,253,0.7)', fontSize: 13, fontFamily: 'Sarabun, sans-serif',
-      display: 'flex', alignItems: 'center', gap: 5, padding: '0 0 16px',
-    }}>‹ กลับ</button>
-  );
-
-  const Numpad = ({ onDigit, onBack, disabled }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, justifyContent: 'center', marginTop: 16, maxWidth: 256, marginLeft: 'auto', marginRight: 'auto' }}>
-      {[1,2,3,4,5,6,7,8,9].map(n => <NBtn key={n} label={n} disabled={disabled} onClick={() => onDigit(String(n))} />)}
-      <div />
-      <NBtn label={0} disabled={disabled} onClick={() => onDigit('0')} />
-      <NBtn label="⌫" onClick={onBack} />
-    </div>
-  );
-
-  // ── Gate mode ──────────────────────────────────────
-  if (mode === 'gate') {
-    const pushGate = (d) => {
-      if (gateInput.length >= 6) return;
-      const next = gateInput + d;
-      setGateInput(next); setGateErr('');
-      if (next.length === clinicCode.length) {
-        setTimeout(() => {
-          if (next === clinicCode) { setGateInput(''); setGateErr(''); setMode('select'); }
-          else { setGateErr('รหัสเข้าคลินิกไม่ถูกต้อง'); setGateInput(''); }
-        }, 180);
-      }
-    };
-    return renderShell(
-        <div style={{ ...cardStyle, textAlign: 'center' }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🔐</div>
-          <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#FFFFFF' }}>รหัสเข้าคลินิก</h3>
-          <p style={{ margin: '0 0 4px', fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
-            กรุณากรอกรหัส {clinicCode.length} หลักเพื่อเข้าใช้งาน
-          </p>
-          <PinDots count={clinicCode.length} filled={gateInput.length} />
-          <ErrBadge msg={gateErr} />
-          <Numpad onDigit={pushGate} onBack={() => { setGateInput(p => p.slice(0,-1)); setGateErr(''); }} />
-        </div>
-    );
-  }
-
-  // ── Select mode ────────────────────────────────────
-  if (mode === 'select') {
-    return renderShell(
-        <div style={cardStyle}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#FFFFFF', textAlign: 'center' }}>
-            เลือกผู้ใช้งาน
-          </h3>
-          {users.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
-              <div style={{ fontSize: 38, marginBottom: 8 }}>🛡️</div>
-              <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: 0, lineHeight: 1.7 }}>ยังไม่มีผู้ใช้ในระบบ<br/>กรุณาสร้างบัญชี <b style={{color:'#93C5FD'}}>Admin</b> คนแรก</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, maxHeight: 280, overflowY: 'auto' }}>
-              {users.map(u => (
-                <button key={u.id} onClick={() => {
-                  setSelUser(u); setPin(''); setPinErr(''); setAttempts(0); setLockUntil(0); setLockSecs(0);
-                  setMode(u.pin ? 'pin' : 'register');
-                }} style={{
-                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 14,
-                  border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)',
-                  cursor: 'pointer', width: '100%', textAlign: 'left', transition: 'all 0.15s',
-                  color: '#fff', fontFamily: 'Sarabun, sans-serif',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,0.14)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.28)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.12)'; }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                    background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 18, fontWeight: 700, color: '#fff',
-                    boxShadow: '0 4px 14px rgba(37,99,235,0.4)',
-                  }}>{(u.name || '?').charAt(0)}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{u.prefix}{u.name}</span>
-                      {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:'rgba(37,99,235,0.7)', color:'#BAE6FD', padding:'2px 7px', borderRadius:20 }}>ADMIN</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>@{u.username}</div>
-                  </div>
-                  <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.3)' }}>›</div>
-                </button>
-              ))}
-            </div>
-          )}
-          {users.length === 0 ? (
-            <button onClick={() => {
-              setSelUser(null); setRegPfx('ภก.'); setRegName(''); setRegUname('');
-              setRegPin(''); setRegConf(''); setRegStep(1); setRegPinStep('new'); setRegErr('');
-              setMode('register');
-            }} style={{
-              width: '100%', padding: '11px', borderRadius: 12,
-              border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.05)',
-              color: 'rgba(147,197,253,0.85)', fontFamily: 'Sarabun, sans-serif',
-              fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            }}>+ สร้างบัญชีผู้ดูแลคนแรก</button>
-          ) : (
-            <div style={{
-              textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.4)',
-              padding: '10px 8px 2px', lineHeight: 1.7,
-            }}>
-              🔒 การเพิ่มผู้ใช้ใหม่ต้องทำในแอพ (ตั้งค่า → จัดการผู้ใช้)<br/>โดยผู้ดูแลระบบเท่านั้น
-            </div>
-          )}
-        </div>
-    );
-  }
-
-  // ── PIN mode ───────────────────────────────────────
-  if (mode === 'pin' && selUser) {
-    const isLocked = lockUntil > Date.now();
-    const pushDigit = (d) => {
-      if (isLocked || pin.length >= 4) return;
-      const next = pin + d;
-      setPin(next); setPinErr('');
-      if (next.length === 4) {
-        setTimeout(() => {
-          if (next === selUser.pin) { onLogin(selUser); return; }
-          const na = attempts + 1;
-          setAttempts(na); setPin('');
-          if (na >= 5) {
-            const until = Date.now() + 30000;
-            setLockUntil(until); setLockSecs(30);
-            setPinErr('ล็อกชั่วคราว 30 วินาที (พยายามผิดเกิน 5 ครั้ง)');
-          } else {
-            setPinErr(`PIN ไม่ถูกต้อง · เหลือ ${5 - na} ครั้ง`);
-          }
-        }, 180);
-      }
-    };
-    return renderShell(
-        <div style={{ ...cardStyle, textAlign: 'center' }}>
-          <BackBtn onClick={() => { setMode('select'); setPin(''); setPinErr(''); setAttempts(0); setLockUntil(0); }} />
-          <div style={{
-            width: 64, height: 64, borderRadius: '50%', margin: '0 auto 10px',
-            background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
-            boxShadow: '0 8px 24px rgba(37,99,235,0.45)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 24, fontWeight: 700, color: '#fff',
-          }}>{(selUser.name || '?').charAt(0)}</div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#FFFFFF', marginBottom: 2 }}>
-            {selUser.prefix}{selUser.name}
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>กรอก PIN 4 หลัก</div>
-          {isLocked ? (
-            <div style={{ padding: '24px 0 8px' }}>
-              <div style={{ fontSize: 38, marginBottom: 8 }}>🔒</div>
-              <div style={{ color: '#FCA5A5', fontSize: 14, fontWeight: 700 }}>บัญชีถูกล็อกชั่วคราว</div>
-              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 6 }}>ลองใหม่ใน {lockSecs} วินาที</div>
-            </div>
-          ) : (
-            <>
-              <PinDots count={4} filled={pin.length} />
-              <ErrBadge msg={pinErr} />
-              <Numpad onDigit={pushDigit} onBack={() => { setPin(p => p.slice(0,-1)); setPinErr(''); }} />
-            </>
-          )}
-        </div>
-    );
-  }
-
-  // ── Register mode ──────────────────────────────────
-  if (mode === 'register') {
-    const handleInfoNext = () => {
-      if (!regName.trim()) { setRegErr('กรุณากรอกชื่อ-นามสกุล'); return; }
-      if (!selUser) {
-        if (!regUname.trim()) { setRegErr('กรุณากรอก username'); return; }
-        const existing = (data && data.users) || [];
-        if (existing.find(u => u.username === regUname.trim().toLowerCase())) {
-          setRegErr('username นี้มีอยู่แล้ว'); return;
-        }
-      }
-      setRegErr(''); setRegPin(''); setRegConf(''); setRegPinStep('new'); setRegStep(2);
-    };
-    const pushRegPin = (d) => {
-      if (regPinStep === 'new') {
-        if (regPin.length >= 4) return;
-        const next = regPin + d;
-        setRegPin(next); setRegErr('');
-        if (next.length === 4) setTimeout(() => { setRegPinStep('confirm'); setRegConf(''); }, 200);
-      } else {
-        if (regConf.length >= 4) return;
-        const next = regConf + d;
-        setRegConf(next); setRegErr('');
-        if (next.length === 4) {
-          setTimeout(() => {
-            if (next !== regPin) {
-              setRegErr('PIN ไม่ตรงกัน ลองใหม่');
-              setRegPin(''); setRegConf(''); setRegPinStep('new'); return;
-            }
-            const existing = (data && data.users) || [];
-            if (selUser && !selUser.pin) {
-              const upd = { ...selUser, pin: regPin, username: regUname.trim().toLowerCase() || selUser.username };
-              onDataChange({ ...data, users: existing.map(u => u.id === selUser.id ? upd : u) });
-              onLogin(upd);
-            } else {
-              // user แรกที่สร้าง → เป็น Admin อัตโนมัติ
-              const isFirstUser = existing.length === 0;
-              const nu = { id: AppStore.generateId(), prefix: regPfx, name: regName.trim(), username: regUname.trim().toLowerCase(), pin: regPin, role: isFirstUser ? 'admin' : 'user' };
-              onDataChange({ ...data, users: [...existing, nu] });
-              onLogin(nu);
-            }
-          }, 200);
-        }
-      }
-    };
-    const iStyle = {
-      width: '100%', padding: '11px 14px', borderRadius: 10,
-      border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)',
-      color: '#FFFFFF', fontFamily: 'Sarabun, sans-serif', fontSize: 14,
-      outline: 'none', boxSizing: 'border-box', marginBottom: 10,
-    };
-    return renderShell(
-        <div style={cardStyle}>
-          <BackBtn onClick={() => { setMode('select'); setSelUser(null); setRegErr(''); setRegStep(1); }} />
-          {regStep === 1 ? (
-            <>
-              <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>
-                {selUser && !selUser.pin ? `ตั้ง PIN — ${selUser.prefix}${selUser.name}` : users.length === 0 ? '🛡️ สร้างบัญชี Admin' : '✦ สมัครสมาชิกใหม่'}
-              </h3>
-              {!(selUser && !selUser.pin) && (
-                <>
-                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'block' }}>คำนำหน้า</label>
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                    {['ภก.','ภญ.'].map(p => (
-                      <button key={p} onClick={() => setRegPfx(p)} style={{
-                        flex: 1, padding: '10px', borderRadius: 10,
-                        border: regPfx === p ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
-                        background: regPfx === p ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)',
-                        color: '#fff', fontFamily: 'Sarabun, sans-serif', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                      }}>{p}</button>
-                    ))}
-                  </div>
-                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4, display: 'block' }}>ชื่อ-นามสกุล</label>
-                  <input value={regName} onChange={e => { setRegName(e.target.value); setRegErr(''); }}
-                    placeholder="เช่น อนัส มะยีแต" autoFocus style={iStyle} />
-                  <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4, display: 'block' }}>Username (ภาษาอังกฤษ)</label>
-                  <input value={regUname} onChange={e => { setRegUname(e.target.value); setRegErr(''); }}
-                    placeholder="เช่น anas" style={iStyle} />
-                </>
-              )}
-              <ErrBadge msg={regErr} />
-              <PrimaryBtn onClick={handleInfoNext}>ถัดไป →</PrimaryBtn>
-            </>
-          ) : (
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#FFFFFF', marginBottom: 4 }}>
-                {regPinStep === 'new' ? '🔑 ตั้ง PIN 4 หลัก' : '✅ ยืนยัน PIN อีกครั้ง'}
-              </div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
-                {regPinStep === 'new' ? 'กด PIN ที่ต้องการตั้ง' : 'กด PIN ซ้ำเพื่อยืนยัน'}
-              </div>
-              <PinDots count={4} filled={regPinStep === 'new' ? regPin.length : regConf.length} />
-              <ErrBadge msg={regErr} />
-              <Numpad
-                onDigit={pushRegPin}
-                onBack={() => { setRegErr(''); regPinStep === 'new' ? setRegPin(p => p.slice(0,-1)) : setRegConf(p => p.slice(0,-1)); }}
-              />
-            </div>
-          )}
-        </div>
-    );
-  }
-
-  return null;
 }
 
 // ── UserManager (Settings) ────────────────────────────
@@ -3984,86 +3856,72 @@ function UserManager({ data, onDataChange, currentUser }) {
   const [adding,   setAdding]   = stState(false);
   const [newPfx,   setNewPfx]   = stState('ภก.');
   const [newNm,    setNewNm]    = stState('');
-  const [newUname, setNewUname] = stState('');
-  const [newPin,   setNewPin]   = stState('');
-  const [resetId,  setResetId]  = stState(null);
-  const [resetPin, setResetPin] = stState('');
+  const [newEmail, setNewEmail] = stState('');
+  const [newPw,    setNewPw]    = stState('');
+  const [newRole,  setNewRole]  = stState('user');
+  const [resetPwId, setResetPwId] = stState(null);
   const [msg,      setMsg]      = stState('');
-  const [codeEdit, setCodeEdit] = stState(false);
-  const [newCode,  setNewCode]  = stState('');
-  const [codeMsg,  setCodeMsg]  = stState('');
+  const [busy,     setBusy]     = stState(false);
 
-  const handleAdd = () => {
-    if (!newNm.trim() || !newUname.trim() || newPin.length !== 4) {
-      setMsg('กรุณากรอกข้อมูลให้ครบและ PIN 4 หลัก'); return;
+  const handleAdd = async () => {
+    if (!newNm.trim() || !newEmail.trim() || newPw.length < 6) {
+      setMsg('กรุณากรอกข้อมูลให้ครบ (รหัสผ่านอย่างน้อย 6 ตัว)'); return;
     }
-    if (users.find(u => u.username === newUname.trim().toLowerCase())) {
-      setMsg('username นี้มีอยู่แล้ว'); return;
+    if (users.find(u => u.email === newEmail.trim().toLowerCase())) {
+      setMsg('อีเมลนี้มีอยู่แล้ว'); return;
     }
-    const nu = { id: AppStore.generateId(), prefix: newPfx, name: newNm.trim(), username: newUname.trim().toLowerCase(), pin: newPin, role: 'user' };
-    onDataChange({ ...data, users: [...users, nu] });
-    setNewNm(''); setNewUname(''); setNewPin(''); setAdding(false); setMsg('');
+    setBusy(true); setMsg('');
+    try {
+      // ใช้ secondary Firebase app เพื่อไม่ให้ sign out admin ออก
+      const tempApp = firebase.initializeApp(firebase.app().options, 'rxUserCreate_' + Date.now());
+      let uid;
+      try {
+        const cred = await tempApp.auth().createUserWithEmailAndPassword(newEmail.trim().toLowerCase(), newPw);
+        uid = cred.user.uid;
+        await tempApp.auth().signOut();
+      } finally {
+        await tempApp.delete();
+      }
+      const nu = {
+        id: uid, uid,
+        email: newEmail.trim().toLowerCase(),
+        prefix: newPfx, name: newNm.trim(),
+        username: newEmail.trim().split('@')[0],
+        role: newRole,
+      };
+      onDataChange({ ...data, users: [...users, nu] });
+      setNewNm(''); setNewEmail(''); setNewPw(''); setNewRole('user'); setAdding(false);
+      window.rxToast?.(`สร้างบัญชี ${nu.prefix}${nu.name} สำเร็จ`, 'success');
+    } catch(e) {
+      const code = e.code || '';
+      if (code === 'auth/email-already-in-use') setMsg('อีเมลนี้มีบัญชีอยู่แล้วใน Firebase Auth');
+      else if (code === 'auth/invalid-email') setMsg('รูปแบบอีเมลไม่ถูกต้อง');
+      else if (code === 'auth/weak-password') setMsg('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+      else setMsg('สร้างบัญชีไม่สำเร็จ: ' + e.message);
+    }
+    setBusy(false);
   };
 
-  const handleResetPIN = (id) => {
-    if (resetPin.length !== 4) { setMsg('กรุณากรอก PIN 4 หลัก'); return; }
-    onDataChange({ ...data, users: users.map(u => u.id === id ? { ...u, pin: resetPin } : u) });
-    setResetId(null); setResetPin(''); setMsg('');
-  };
-
-  const handleSaveCode = () => {
-    const c = newCode.replace(/\D/g, '');
-    if (c.length < 4 || c.length > 6) { setCodeMsg('รหัสต้องเป็นตัวเลข 4–6 หลัก'); return; }
-    onDataChange({ ...data, clinicCode: c });
-    setCodeEdit(false); setNewCode(''); setCodeMsg('');
+  const handleSendResetEmail = async (email) => {
+    try {
+      await firebase.auth().sendPasswordResetEmail(email);
+      window.rxToast?.(`ส่งลิงก์รีเซ็ตรหัสผ่านไปที่ ${email} แล้ว`, 'success');
+    } catch(e) {
+      window.rxToast?.('ส่งอีเมลไม่สำเร็จ: ' + e.message, 'error');
+    }
+    setResetPwId(null);
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Clinic Access Code — admin only */}
       {isAdmin && <Card>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background:'#EFF6FF', border:'1px solid #BFDBFE' }}>
+          <span style={{ fontSize:20 }}>🔒</span>
           <div>
-            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>🔐 รหัสเข้าคลินิก</h4>
-            <p style={{ margin: '3px 0 0', fontSize: 11, color: C.textMuted }}>
-              ป้องกันคนนอกเข้าดูข้อมูลผู้ป่วย · ตัวเลข 4–6 หลัก
-            </p>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1E40AF' }}>Firebase Authentication เปิดใช้งานแล้ว</div>
+            <div style={{ fontSize:11, color:'#3B82F6' }}>ผู้ใช้ต้องล็อกอินด้วยอีเมล+รหัสผ่านทุกครั้ง · ข้อมูล PHI ถูกคุ้มครองด้วย Firestore Rules</div>
           </div>
-          <Btn size="sm" variant={clinicCode ? 'ghost' : 'primary'} onClick={() => { setCodeEdit(!codeEdit); setNewCode(''); setCodeMsg(''); }}>
-            {clinicCode ? 'เปลี่ยน' : 'ตั้งรหัส'}
-          </Btn>
         </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: 8,
-          background: clinicCode ? '#EFF6FF' : '#FEF2F2',
-          border: `1px solid ${clinicCode ? '#BFDBFE' : '#FECACA'}`,
-          fontSize: 13, fontWeight: 600,
-          color: clinicCode ? '#1E40AF' : '#DC2626',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          {clinicCode ? `🔒 ตั้งรหัสแล้ว (${clinicCode.length} หลัก)` : '🔓 ยังไม่ได้ตั้งรหัส — คนนอกสามารถเข้าได้'}
-          {clinicCode && (
-            <button onClick={() => { if (window.confirm('ลบรหัสเข้าคลินิก?')) onDataChange({ ...data, clinicCode: '' }); }} style={{
-              marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
-              color: '#DC2626', fontSize: 11, fontFamily: 'Sarabun, sans-serif',
-            }}>ลบรหัส</button>
-          )}
-        </div>
-        {codeEdit && (
-          <div style={{ marginTop: 10 }}>
-            <input value={newCode} onChange={e => { setNewCode(e.target.value.replace(/\D/g,'').slice(0,6)); setCodeMsg(''); }}
-              placeholder="รหัสใหม่ 4–6 หลัก" maxLength={6} type="password" style={{
-                width: '100%', padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`,
-                fontFamily: 'Sarabun, sans-serif', fontSize: 16, textAlign: 'center', letterSpacing: 10,
-                boxSizing: 'border-box', marginBottom: 8,
-              }} />
-            {codeMsg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{codeMsg}</p>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Btn size="sm" variant="primary" onClick={handleSaveCode}>บันทึก</Btn>
-              <Btn size="sm" variant="ghost" onClick={() => { setCodeEdit(false); setCodeMsg(''); }}>ยกเลิก</Btn>
-            </div>
-          </div>
-        )}
       </Card>}
 
       {/* User list */}
@@ -4076,22 +3934,28 @@ function UserManager({ data, onDataChange, currentUser }) {
           {isAdmin && <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่มผู้ใช้</Btn>}
         </div>
         {adding && isAdmin && (
-          <div style={{ padding: 12, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+          <div style={{ padding: 14, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+            <p style={{ margin:'0 0 10px', fontSize:12, color:C.textMuted }}>สร้างบัญชี Firebase Auth ใหม่สำหรับผู้ใช้</p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภญ.']} style={{ width: 90 }} />
               <Input value={newNm} onChange={v => { setNewNm(v); setMsg(''); }} placeholder="ชื่อ นามสกุล" />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <Input value={newUname} onChange={v => { setNewUname(v); setMsg(''); }} placeholder="username" />
-              <input type="password" value={newPin} onChange={e => { setNewPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
-                placeholder="PIN 4 หลัก" maxLength={4} style={{
-                  width: 120, padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
-                  fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
-                }} />
+            <Input value={newEmail} onChange={v => { setNewEmail(v); setMsg(''); }} placeholder="อีเมล (จะใช้ login)" type="email" />
+            <div style={{ marginBottom:8 }}>
+              <Input value={newPw} onChange={v => { setNewPw(v); setMsg(''); }} placeholder="รหัสผ่านเริ่มต้น (อย่างน้อย 6 ตัว)" type="password" />
+            </div>
+            <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+              {[['user','ผู้ใช้'],['admin','Admin']].map(([v,l]) => (
+                <button key={v} onClick={() => setNewRole(v)} style={{
+                  flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:12, fontFamily:'Sarabun,sans-serif',
+                  border: newRole===v ? `2px solid ${C.primary}` : `1px solid ${C.border}`,
+                  background: newRole===v ? '#EFF6FF' : '#fff', color: newRole===v ? C.primary : C.text, fontWeight:600,
+                }}>{l}</button>
+              ))}
             </div>
             {msg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <Btn size="sm" variant="primary" onClick={handleAdd}>บันทึก</Btn>
+              <Btn size="sm" variant="primary" onClick={handleAdd} disabled={busy}>{busy ? '⏳...' : 'สร้างบัญชี'}</Btn>
               <Btn size="sm" variant="ghost" onClick={() => { setAdding(false); setMsg(''); }}>ยกเลิก</Btn>
             </div>
           </div>
@@ -4116,31 +3980,17 @@ function UserManager({ data, onDataChange, currentUser }) {
                     {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:'#EFF6FF', color:'#1E40AF', padding:'2px 8px', borderRadius:20, border:'1px solid #BFDBFE' }}>ADMIN</span>}
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
-                    @{u.username} &nbsp;·&nbsp; {u.pin ? '🔒 มี PIN' : '🔓 ไม่มี PIN'}
+                    {u.email || `@${u.username}`} &nbsp;·&nbsp; {u.uid ? '🔐 Firebase Auth' : '⚠️ ยังไม่ได้ link'}
                     {currentUser?.id === u.id && <span style={{ marginLeft: 8, color: '#0369A1', fontWeight: 600 }}>● กำลังใช้งาน</span>}
                   </div>
                 </div>
                 {isAdmin && (
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Btn size="sm" variant="ghost" onClick={() => { setResetId(resetId === u.id ? null : u.id); setResetPin(''); setMsg(''); }}>
-                    รีเซ็ต PIN
-                  </Btn>
+                  {u.email && <Btn size="sm" variant="ghost" onClick={() => handleSendResetEmail(u.email)}>รีเซ็ตรหัสผ่าน</Btn>}
                   {currentUser?.id !== u.id && u.role !== 'admin' && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
                 </div>
                 )}
               </div>
-              {resetId === u.id && isAdmin && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input type="password" value={resetPin} onChange={e => { setResetPin(e.target.value.replace(/\D/g,'').slice(0,4)); setMsg(''); }}
-                    placeholder="PIN ใหม่ 4 หลัก" maxLength={4} style={{
-                      width: 160, padding: '7px 12px', borderRadius: 7, border: `1px solid ${C.border}`,
-                      fontFamily: 'Sarabun, sans-serif', fontSize: 14, textAlign: 'center', letterSpacing: 8,
-                    }} />
-                  <Btn size="sm" variant="primary" onClick={() => handleResetPIN(u.id)}>บันทึก PIN</Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => { setResetId(null); setMsg(''); }}>ยกเลิก</Btn>
-                  {msg && <span style={{ fontSize: 12, color: C.high }}>{msg}</span>}
-                </div>
-              )}
             </div>
           ))}
           {users.length === 0 && <EmptyState icon="👤" title="ยังไม่มีผู้ใช้ในระบบ" />}
@@ -4393,7 +4243,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
 }
 
 Object.assign(window, {
-  LoginScreen, SettingsView, UserManager, FirebaseSetup,
+  LoginScreen, ProfileSetup, SettingsView, UserManager, FirebaseSetup,
   loadFBConfig, saveFBConfig,
 });
 </script>
@@ -14179,10 +14029,10 @@ function Dashboard({ data, navigate }) {
 
 // ── App ───────────────────────────────────────────────
 function App() {
-  // Auth — session เก็บแค่ใน localStorage (ไม่ใช่ข้อมูลแอพ)
-  const [currentUser, setCurrentUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('copd_user_v1')); } catch { return null; }
-  });
+  // Auth — Firebase Authentication
+  const [currentUser, setCurrentUser] = useState(null);
+  const [fbUser,      setFbUser]      = useState(null);   // Firebase Auth user object
+  const [authReady,   setAuthReady]   = useState(false);  // wait for onAuthStateChanged first event
 
   // Data — null = ยังรอ Firebase (แสดง loading), object = โหลดแล้ว
   const [data, setData] = useState(null);
@@ -14247,11 +14097,24 @@ function App() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // Persist login session
+  // Sync currentUser profile whenever Firebase user or data changes
+  const dataRef = useRef(null);
+  useEffect(() => { dataRef.current = data; }, [data]);
   useEffect(() => {
-    if (currentUser) localStorage.setItem('copd_user_v1', JSON.stringify(currentUser));
-    else localStorage.removeItem('copd_user_v1');
-  }, [currentUser]);
+    if (!fbUser || !data) { if (fbUser === null && authReady) setCurrentUser(null); return; }
+    const profile = (data.users || []).find(u => u.uid === fbUser.uid || u.email === fbUser.email);
+    if (profile) {
+      // Auto-link uid if missing (migration from old PIN-based users)
+      if (!profile.uid) {
+        const linked = { ...profile, uid: fbUser.uid, email: fbUser.email || profile.email };
+        setCurrentUser(linked);
+      } else {
+        setCurrentUser(profile);
+      }
+    } else {
+      setCurrentUser(null); // triggers ProfileSetup
+    }
+  }, [fbUser, data, authReady]);
 
   // ── Firebase init ──────────────────────────────────
   const retryRef  = useRef(null);
@@ -14285,6 +14148,14 @@ function App() {
       const db = firebase.firestore();
       dbRef.current = db;
 
+      // Firebase Auth — set up listener once
+      const auth = firebase.auth();
+      auth.onAuthStateChanged(firebaseUser => {
+        setFbUser(firebaseUser);
+        setAuthReady(true);
+        if (!firebaseUser) setCurrentUser(null);
+      });
+
       // Offline persistence ถูกปิดไว้เพื่อป้องกัน IndexedDB pending-write queue
       // เขียนข้อมูลเก่ากลับ Firebase โดยไม่ตั้งใจ — ใช้ onSnapshot realtime แทน
       setSyncStatus('syncing');
@@ -14294,15 +14165,13 @@ function App() {
       let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
-      // Sync currentUser role from Firebase (localStorage session may have stale/missing role)
+      // Sync currentUser profile from Firebase data after first load
       setCurrentUser(prev => {
         if (!prev) return prev;
         const fresh = remote.users?.find(u => u.id === prev.id);
         if (!fresh) return prev;
-        if (fresh.role === prev.role) return prev;
-        const updated = { ...prev, role: fresh.role };
-        try { localStorage.setItem('copd_user_v1', JSON.stringify(updated)); } catch {}
-        return updated;
+        if (fresh.role === prev.role && fresh.name === prev.name) return prev;
+        return { ...prev, ...fresh };
       });
       setFbReady(true);
       setSyncStatus('synced');
@@ -14325,10 +14194,8 @@ function App() {
           setCurrentUser(prev => {
             if (!prev) return prev;
             const fresh = d.users?.find(u => u.id === prev.id);
-            if (!fresh || fresh.role === prev.role) return prev;
-            const updated = { ...prev, role: fresh.role };
-            try { localStorage.setItem('copd_user_v1', JSON.stringify(updated)); } catch {}
-            return updated;
+            if (!fresh || (fresh.role === prev.role && fresh.name === prev.name)) return prev;
+            return { ...prev, ...fresh };
           });
           setSyncStatus('synced');
         },
@@ -14409,7 +14276,10 @@ function App() {
     document.getElementById('main-scroll')?.scrollTo({ top: 0 });
   }, []);
 
-  const handleLogout = () => { localStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
+  const handleLogout = async () => {
+    try { await firebase.auth().signOut(); } catch(e) {}
+    setCurrentUser(null); setFbUser(null);
+  };
 
   // Deep link: ?hn=XXX (from QR patient card) → open that patient's history
   const hnLinkHandled = useRef(false);
@@ -14503,8 +14373,20 @@ function App() {
   }
 
   // ── Login gate ────────────────────────────────────
+  if (!authReady || (data === null && fbUser !== null)) {
+    return (
+      <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'linear-gradient(145deg,#050B1E,#0B1D45)', fontFamily:'Sarabun,sans-serif' }}>
+        <div style={{ fontSize:44 }}>🫁</div>
+        <div style={{ fontSize:15, fontWeight:700, color:'#FFFFFF' }}>กำลังโหลดระบบ...</div>
+        <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>Firebase Authentication</div>
+      </div>
+    );
+  }
+  if (!fbUser) {
+    return <LoginScreen syncStatus={syncStatus} />;
+  }
   if (!currentUser) {
-    return <LoginScreen onLogin={u => setCurrentUser(u)} data={data} onDataChange={handleDataChange} syncStatus={syncStatus} />;
+    return <ProfileSetup firebaseUser={fbUser} data={data} onDataChange={handleDataChange} />;
   }
 
   // Safety: data still null after fbReady (should not happen, but guard anyway)

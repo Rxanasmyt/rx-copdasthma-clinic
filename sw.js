@@ -2,7 +2,7 @@
 // HTML/navigation: network-first (always latest when online)
 // CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v27';
+const CACHE_VERSION = 'rxcopd-v28';
 const APP_SHELL = [
   './',
   './index.html',
@@ -51,10 +51,11 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
 
-  // Always network for Firebase/Firestore
+  // Always network for Firebase/Firestore/Auth
   if (url.hostname.includes('firestore.googleapis.com') ||
       url.hostname.includes('firebase.googleapis.com') ||
       url.hostname.includes('identitytoolkit.googleapis.com') ||
+      url.hostname.includes('securetoken.googleapis.com') ||
       url.hostname.includes('googleapis.com') && url.pathname.includes('firestore')) {
     return; // let the browser handle normally
   }

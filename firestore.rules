@@ -2,56 +2,34 @@ rules_version = '2';
 
 // ════════════════════════════════════════════════════════════
 // Firestore Security Rules — Rx-COPD/Asthma Clinic
-// ════════════════════════════════════════════════════════════
-//
-// บริบท: แอปนี้เก็บข้อมูลผู้ป่วย (PHI) ใน /clinic/main
-// ปัจจุบันแอปไม่ใช้ Firebase Authentication (ใช้รหัสคลินิก + role ในแอป)
-//
-// ⚠️ คำเตือนด้านความปลอดภัย:
-//   หากไม่เปิด Firebase Authentication ฐานข้อมูลจะถูกเข้าถึงได้
-//   โดยใครก็ตามที่มี API key (ซึ่งอยู่ในโค้ดฝั่ง client)
-//   แนะนำอย่างยิ่งให้เปิด Firebase Auth (เช่น Email/Password หรือ
-//   Anonymous + custom claims) เพื่อจำกัดสิทธิ์การเข้าถึงจริง
-//
-// วิธี deploy:
-//   1) ติดตั้ง Firebase CLI:  npm i -g firebase-tools
-//   2) firebase login
-//   3) firebase deploy --only firestore:rules
-//   หรือวางใน Firebase Console → Firestore Database → Rules
+// Firebase Authentication เปิดใช้แล้ว — require auth ทุก request
+// Deploy: firebase deploy --only firestore:rules
 // ════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── โหมดที่แนะนำ (ต้องเปิด Firebase Authentication ก่อน) ──
-    // อนุญาตเฉพาะผู้ใช้ที่ผ่านการยืนยันตัวตนเท่านั้น
-    //
-    // match /clinic/{docId} {
-    //   allow read, write: if request.auth != null;
-    // }
-    //
-    // match /clinic_backups/{slot} {
-    //   allow read, write: if request.auth != null;
-    // }
-
-    // ── โหมดปัจจุบัน (ยังไม่เปิด Auth) — จำกัดความเสียหายเท่าที่ทำได้ ──
-    // จำกัดขนาด document กัน abuse และห้ามลบทั้ง collection
+    // ── ข้อมูลคลินิกหลัก (/clinic/main) ──
+    // อนุญาตเฉพาะผู้ใช้ที่ผ่าน Firebase Authentication เท่านั้น
     match /clinic/{docId} {
-      allow read: if true;
+      allow read: if request.auth != null;
       allow create, update: if
-        request.resource.data.size() < 1500 &&             // จำกัดจำนวน field
-        request.resource.size < 2 * 1024 * 1024;           // จำกัดขนาด < 2MB
-      allow delete: if false;                              // ห้ามลบเอกสารหลัก
-    }
-
-    // Auto-backup slots (หมุนเวียน 10 ช่อง)
-    match /clinic_backups/{slot} {
-      allow read: if true;
-      allow create, update: if request.resource.size < 2 * 1024 * 1024;
+        request.auth != null &&
+        request.resource.data.size() < 1500 &&
+        request.resource.size < 2 * 1024 * 1024;
       allow delete: if false;
     }
 
-    // ปฏิเสธทุกอย่างที่เหลือโดย default
+    // ── Auto-backup slots (หมุนเวียน 10 ช่อง) ──
+    match /clinic_backups/{slot} {
+      allow read: if request.auth != null;
+      allow create, update: if
+        request.auth != null &&
+        request.resource.size < 2 * 1024 * 1024;
+      allow delete: if false;
+    }
+
+    // ปฏิเสธทุกอย่างที่เหลือ
     match /{document=**} {
       allow read, write: if false;
     }
