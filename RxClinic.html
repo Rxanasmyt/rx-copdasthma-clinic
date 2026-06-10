@@ -14138,26 +14138,42 @@ function App() {
     } catch (e) { /* best-effort — ไม่ขัดจังหวะการใช้งาน */ }
   }, []);
 
-  const initFirebase = useCallback(async (config, attempt = 0) => {
-    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
-    clearTimeout(retryRef.current);
+  const initFirebase = useCallback((config) => {
     if (!config || typeof firebase === 'undefined') { setSyncStatus('offline'); return; }
     try {
       if (!firebase.apps.length) firebase.initializeApp(config);
       else firebase.app();
-      const db = firebase.firestore();
-      dbRef.current = db;
+      dbRef.current = firebase.firestore();
 
-      // Firebase Auth — set up listener once
+      // Phase 1: Auth listener only — Firestore data load happens AFTER sign-in
       const auth = firebase.auth();
       auth.onAuthStateChanged(firebaseUser => {
         setFbUser(firebaseUser);
         setAuthReady(true);
-        if (!firebaseUser) setCurrentUser(null);
+        if (firebaseUser) {
+          // Phase 2: now load Firestore (user is authenticated)
+          initFirestore();
+        } else {
+          // Signed out — stop listener, clear data
+          if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+          setData(null);
+          setFbReady(false);
+          setCurrentUser(null);
+          setSyncStatus('offline');
+        }
       });
+    } catch (e) {
+      console.error('Firebase init error:', e);
+      setSyncStatus('offline');
+    }
+  }, []);
 
-      // Offline persistence ถูกปิดไว้เพื่อป้องกัน IndexedDB pending-write queue
-      // เขียนข้อมูลเก่ากลับ Firebase โดยไม่ตั้งใจ — ใช้ onSnapshot realtime แทน
+  const initFirestore = useCallback(async (attempt = 0) => {
+    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+    clearTimeout(retryRef.current);
+    const db = dbRef.current;
+    if (!db) return;
+    try {
       setSyncStatus('syncing');
 
       // โหลดครั้งแรก
@@ -14165,7 +14181,6 @@ function App() {
       let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
-      // Sync currentUser profile from Firebase data after first load
       setCurrentUser(prev => {
         if (!prev) return prev;
         const fresh = remote.users?.find(u => u.id === prev.id);
@@ -14176,7 +14191,6 @@ function App() {
       setFbReady(true);
       setSyncStatus('synced');
 
-      // Auto-backup ตอนโหลด (ถ้าถึงรอบ) — เก็บ snapshot หมุนเวียนใน Firebase
       maybeAutoBackup(db, remote);
 
       // Realtime listener
@@ -14184,7 +14198,6 @@ function App() {
         doc => {
           if (!doc.exists) return;
           const d = doc.data();
-          // ── เตือน conflict: ข้อมูลถูกแก้จากอีกเครื่อง/คน ──
           const me = currentUserRef.current?.name || currentUserRef.current?.username;
           if (d._editedBy && me && d._editedBy !== me && d._savedAt && (Date.now() - d._savedAt) < 60000) {
             setAppToast({ msg: `🔄 ข้อมูลถูกอัปเดตโดย ${d._editedBy} (อีกเครื่อง) — หน้าจอรีเฟรชแล้ว`, type: 'info' });
@@ -14202,15 +14215,15 @@ function App() {
         err => {
           console.error('Firebase snapshot error:', err);
           setSyncStatus('error');
-          if (attempt < 5) retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
+          if (attempt < 5) retryRef.current = setTimeout(() => initFirestore(attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
         }
       );
     } catch (e) {
-      console.error('Firebase init error:', e);
+      console.error('Firestore load error:', e);
       setSyncStatus('error');
-      if (attempt < 5) retryRef.current = setTimeout(() => initFirebase(config, attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
+      if (attempt < 5) retryRef.current = setTimeout(() => initFirestore(attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
     }
-  }, []);
+  }, [maybeAutoBackup]);
 
   useEffect(() => {
     const cfg = loadFBConfig();
@@ -14349,54 +14362,36 @@ function App() {
     });
   }, [data]);
 
-  // ── Loading — รอ Firebase โหลดครั้งแรก ───────────
-  if (!fbReady) {
-    return (
-      <div style={{
-        position:'fixed', inset:0, display:'flex', flexDirection:'column',
-        alignItems:'center', justifyContent:'center', gap:18,
-        background:'linear-gradient(145deg,#050B1E 0%,#0B1D45 38%,#0E2558 68%,#071230 100%)',
-        fontFamily:'Sarabun,sans-serif',
-      }}>
-        <div style={{fontSize:48}}>🫁</div>
-        <div style={{color:'#fff',fontSize:17,fontWeight:700}}>กำลังเชื่อมต่อ Firebase...</div>
-        {syncStatus==='error' && (
-          <div style={{color:'#FCA5A5',fontSize:13,marginTop:4}}>
-            ⚠ เชื่อมต่อไม่ได้ กำลังลองใหม่...
-          </div>
-        )}
-        <div style={{width:180,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden',marginTop:8}}>
-          <div style={{height:'100%',width:'60%',borderRadius:99,background:'#3B82F6',animation:'rxPulse 1.2s ease-in-out infinite'}} />
-        </div>
-      </div>
-    );
-  }
-
   // ── Login gate ────────────────────────────────────
-  if (!authReady || (data === null && fbUser !== null)) {
+  // รอ onAuthStateChanged fire ครั้งแรก
+  if (!authReady) {
     return (
       <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'linear-gradient(145deg,#050B1E,#0B1D45)', fontFamily:'Sarabun,sans-serif' }}>
         <div style={{ fontSize:44 }}>🫁</div>
         <div style={{ fontSize:15, fontWeight:700, color:'#FFFFFF' }}>กำลังโหลดระบบ...</div>
-        <div style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>Firebase Authentication</div>
+        <div style={{width:160,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden',marginTop:4}}>
+          <div style={{height:'100%',width:'60%',borderRadius:99,background:'#3B82F6',animation:'rxPulse 1.2s ease-in-out infinite'}} />
+        </div>
       </div>
     );
   }
   if (!fbUser) {
     return <LoginScreen syncStatus={syncStatus} />;
   }
-  if (!currentUser) {
-    return <ProfileSetup firebaseUser={fbUser} data={data} onDataChange={handleDataChange} />;
-  }
-
-  // Safety: data still null after fbReady (should not happen, but guard anyway)
-  if (!data) {
+  if (fbUser && !fbReady) {
     return (
-      <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'#F0F4F8', fontFamily:'Sarabun,sans-serif' }}>
-        <div style={{fontSize:40}}>🫁</div>
-        <div style={{fontSize:15,fontWeight:700,color:'#1E3A8A'}}>กำลังโหลดข้อมูล...</div>
+      <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'linear-gradient(145deg,#050B1E,#0B1D45)', fontFamily:'Sarabun,sans-serif' }}>
+        <div style={{ fontSize:44 }}>🫁</div>
+        <div style={{ fontSize:15, fontWeight:700, color:'#FFFFFF' }}>กำลังโหลดข้อมูล...</div>
+        {syncStatus==='error' && <div style={{color:'#FCA5A5',fontSize:13}}>⚠ เชื่อมต่อไม่ได้ กำลังลองใหม่...</div>}
+        <div style={{width:160,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden',marginTop:4}}>
+          <div style={{height:'100%',width:'60%',borderRadius:99,background:'#3B82F6',animation:'rxPulse 1.2s ease-in-out infinite'}} />
+        </div>
       </div>
     );
+  }
+  if (!currentUser) {
+    return <ProfileSetup firebaseUser={fbUser} data={data} onDataChange={handleDataChange} />;
   }
   const renderView = () => {
     switch (view) {
