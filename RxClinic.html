@@ -13755,6 +13755,20 @@ function Dashboard({ data, navigate }) {
     }).filter(Boolean).sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
   }, [pts, vis, todayStr]);
 
+  // Overdue follow-ups: นัดผ่านไปแล้วแต่ผู้ป่วยยังไม่มาตามนัด (ไม่มี visit ตั้งแต่วันนัด)
+  const overdueFollowups = useMemo(() => {
+    return pts.map(p => {
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
+      if (!latestNextVisit || latestNextVisit >= todayStr) return null;
+      // ถ้ามี visit ในวันนัดหรือหลังจากนั้น = มาแล้ว ไม่ overdue
+      const cameAfter = ptVisits.some(v => v.visitDate >= latestNextVisit);
+      if (cameAfter) return null;
+      const daysOverdue = Math.floor((new Date(todayStr) - new Date(latestNextVisit)) / 86400000);
+      return { patient: p, nextVisit: latestNextVisit, daysOverdue };
+    }).filter(Boolean).sort((a, b) => b.daysOverdue - a.daysOverdue);
+  }, [pts, vis, todayStr]);
+
   // Time-based greeting + workload summary
   const hour = new Date().getHours();
   const greet = hour < 12 ? { t: 'สวัสดีตอนเช้า', icon: '🌅' } : hour < 17 ? { t: 'สวัสดีตอนบ่าย', icon: '☀️' } : { t: 'สวัสดีตอนเย็น', icon: '🌆' };
@@ -13880,6 +13894,33 @@ function Dashboard({ data, navigate }) {
       )}
 
       {/* Upcoming visit reminders */}
+      {overdueFollowups.length > 0 && (
+        <Card style={{ marginBottom: 20, padding: 0, overflow: 'hidden', border: `2px solid ${C.highBorder}` }}>
+          <div style={{ background: 'linear-gradient(135deg, #DC2626 0%, #991B1B 100%)', color: '#fff', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.06em' }}>⚠️ เกินกำหนดนัด (ยังไม่มาตามนัด)</div>
+              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 2 }}>{overdueFollowups.length} ราย</div>
+            </div>
+          </div>
+          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+            {overdueFollowups.slice(0, 12).map(({ patient: p, nextVisit, daysOverdue }) => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: C.highBg, border: `1px solid ${C.highBorder}`, borderRadius: 8, cursor: 'pointer' }}
+                onClick={() => navigate('history', p.id)}>
+                <div style={{ width: 38, height: 32, borderRadius: 8, background: C.high, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  +{daysOverdue}d
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · นัดเดิม {nextVisit} (เกิน {daysOverdue} วัน)</div>
+                </div>
+                <RiskBadge level={p.riskLevel || 'Low'} />
+                <Btn size="sm" variant="primary" onClick={e => { e.stopPropagation(); navigate('telepharmacy-add', p.id); }}>📞 ติดตาม</Btn>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {upcomingVisits.length > 0 && (
         <Card style={{ marginBottom: 20, padding: 0, overflow: 'hidden', border: `2px solid #7C3AED30` }}>
           <div style={{ background: 'linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)', color: '#fff', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
