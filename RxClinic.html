@@ -14480,9 +14480,9 @@ function App() {
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
               boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
             }}>{NAV.find(n=>n.id===view)?.icon || '📄'}</div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: C.primary, lineHeight: 1.2 }}>{crumb}</div>
-              <div style={{ fontSize: 10, color: C.textMuted }}>{NAV.find(n=>n.id===view)?.sub || ''}</div>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.primary, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{crumb}</div>
+              <div style={{ fontSize: 10, color: C.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NAV.find(n=>n.id===view)?.sub || ''}</div>
             </div>
           </div>
 

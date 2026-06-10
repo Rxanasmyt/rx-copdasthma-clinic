@@ -13,19 +13,14 @@ service cloud.firestore {
     // อนุญาตเฉพาะผู้ใช้ที่ผ่าน Firebase Authentication เท่านั้น
     match /clinic/{docId} {
       allow read: if request.auth != null;
-      allow create, update: if
-        request.auth != null &&
-        request.resource.data.size() < 1500 &&
-        request.resource.size < 2 * 1024 * 1024;
+      allow create, update: if request.auth != null;
       allow delete: if false;
     }
 
     // ── Auto-backup slots (หมุนเวียน 10 ช่อง) ──
     match /clinic_backups/{slot} {
       allow read: if request.auth != null;
-      allow create, update: if
-        request.auth != null &&
-        request.resource.size < 2 * 1024 * 1024;
+      allow create, update: if request.auth != null;
       allow delete: if false;
     }
 
