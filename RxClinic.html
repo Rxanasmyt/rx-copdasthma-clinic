@@ -314,6 +314,7 @@
 
   /* ── Toast slide-in ── */
   @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes rxConfettiFall { 0% { opacity: 0; transform: translateY(-10px) rotate(0deg); } 12% { opacity: 1; } 100% { opacity: 0.9; transform: translateY(102vh) rotate(540deg); } }
 
   /* ── Spinner ── */
   @keyframes rxSpin { to { transform: rotate(360deg); } }
@@ -1404,6 +1405,31 @@ if (typeof window !== 'undefined') {
   window.rxToast = (msg, type = 'info', duration = 3200) =>
     window.dispatchEvent(new CustomEvent('rx-toast', { detail: { msg, type, duration } }));
 }
+
+// ── Confetti — เฉลิมฉลองเมื่อบันทึกสำเร็จ (ปิดเองเมื่อ reduce-motion) ──
+function rxConfetti(count = 28) {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const colors = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
+    const root = document.createElement('div');
+    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden';
+    document.body.appendChild(root);
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('div');
+      const size = 7 + Math.random() * 7;
+      const left = Math.random() * 100;
+      const dur = 1.1 + Math.random() * 0.9;
+      const delay = Math.random() * 0.25;
+      const rot = Math.random() * 360;
+      p.style.cssText = `position:absolute;top:-16px;left:${left}vw;width:${size}px;height:${size * 0.5}px;`
+        + `background:${colors[i % colors.length]};border-radius:2px;opacity:0;`
+        + `transform:rotate(${rot}deg);animation:rxConfettiFall ${dur}s cubic-bezier(0.4,0.1,0.5,1) ${delay}s forwards`;
+      root.appendChild(p);
+    }
+    setTimeout(() => root.remove(), 2600);
+  } catch (e) { /* no-op */ }
+}
+window.rxConfetti = rxConfetti;
 
 // ── SkeletonRow — placeholder loader ─────────────────
 function SkeletonRows({ count = 5 }) {
@@ -4205,6 +4231,80 @@ function CompetencyLog({ currentUser }) {
 }
 
 // ── SettingsView ──────────────────────────────────────
+// ── AuditLogView — บันทึกการเปลี่ยนแปลงข้อมูล (admin) ──
+function AuditLogView({ data }) {
+  const log = (data && data.auditLog) || [];
+  const [filter, setFilter] = stState('all');
+  const [q, setQ] = stState('');
+
+  const actionMeta = {
+    'create-visit': { icon: '➕', label: 'สร้าง Visit', color: C.low },
+    'edit-visit':   { icon: '✏️', label: 'แก้ไข Visit', color: C.primary },
+    'delete-visit': { icon: '🗑️', label: 'ลบ Visit',   color: C.high },
+  };
+
+  const filtered = log.filter(e => {
+    if (filter !== 'all' && e.action !== filter) return false;
+    if (q.trim()) {
+      const s = (e.summary + ' ' + (e.user || '')).toLowerCase();
+      if (!s.includes(q.trim().toLowerCase())) return false;
+    }
+    return true;
+  });
+
+  const fmt = (ts) => {
+    const d = new Date(ts);
+    return d.toLocaleString('th-TH', { day:'2-digit', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+  };
+
+  return (
+    <Card>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
+        <div>
+          <h4 style={{ margin:0, fontSize:14, fontWeight:700, color:C.primary }}>🛡️ บันทึกการเปลี่ยนแปลงข้อมูล</h4>
+          <p style={{ margin:'3px 0 0', fontSize:11, color:C.textMuted }}>เก็บล่าสุด {log.length} รายการ (สูงสุด 1,000) · ใครแก้อะไรเมื่อไร</p>
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา (ชื่อผู้ป่วย / ผู้ใช้)" style={{
+          flex:1, minWidth:160, padding:'8px 12px', borderRadius:8, border:`1px solid ${C.border}`,
+          fontFamily:'Sarabun,sans-serif', fontSize:13, boxSizing:'border-box',
+        }} />
+        <Select value={filter} onChange={setFilter} options={[
+          { value:'all', label:'ทุกประเภท' },
+          { value:'create-visit', label:'สร้าง Visit' },
+          { value:'edit-visit', label:'แก้ไข Visit' },
+          { value:'delete-visit', label:'ลบ Visit' },
+        ]} style={{ width:150 }} />
+      </div>
+      {filtered.length === 0 ? (
+        <EmptyState icon="🛡️" title="ยังไม่มีบันทึก" subtitle="การสร้าง/แก้ไข/ลบ Visit จะถูกบันทึกที่นี่" />
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:520, overflowY:'auto' }}>
+          {filtered.map(e => {
+            const m = actionMeta[e.action] || { icon:'•', label:e.action, color:C.textMuted };
+            return (
+              <div key={e.id} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'10px 14px', borderRadius:8,
+                background:C.bgAlt, border:`1px solid ${C.border}`,
+              }}>
+                <div style={{ fontSize:18, flexShrink:0 }}>{m.icon}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{e.summary}</div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                    <span style={{ fontWeight:600, color:m.color }}>{m.label}</span> · โดย {e.user || 'ไม่ทราบ'}
+                  </div>
+                </div>
+                <div style={{ fontSize:11, color:C.textMuted, flexShrink:0, textAlign:'right' }}>{fmt(e.ts)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave, syncStatus }) {
   const [tab, setTab] = stState('users');
 
@@ -4229,6 +4329,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
         { id: 'users',      label: '👤 จัดการผู้ใช้' },
         { id: 'templates',  label: '🏷️ SOAP Templates' },
         { id: 'competency', label: '🎓 Competency Log' },
+        { id: 'audit',      label: '🛡️ Audit Log' },
         { id: 'firebase',   label: '☁️ Firebase Cloud Sync' },
       ]} active={tab} onChange={setTab} />
       {tab === 'users' && (
@@ -4236,6 +4337,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
       )}
       {tab === 'templates' && <TemplateManager />}
       {tab === 'competency' && <CompetencyLog currentUser={currentUser} />}
+      {tab === 'audit' && <AuditLogView data={data} />}
       {tab === 'firebase' && (
         <FirebaseSetup onConfigSave={onConfigSave} syncStatus={syncStatus} />
       )}
@@ -4244,7 +4346,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
 }
 
 Object.assign(window, {
-  LoginScreen, ProfileSetup, SettingsView, UserManager, FirebaseSetup,
+  LoginScreen, ProfileSetup, SettingsView, UserManager, FirebaseSetup, AuditLogView,
   loadFBConfig, saveFBConfig,
 });
 </script>
@@ -7287,6 +7389,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     clearDraft(patientId, isEditing ? editingVisit.id : null);
     onSave(newData);
     window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
+    window.rxConfetti?.();
     setTimeout(() => navigate('history', patientId), 100);
   };
 
@@ -14334,6 +14437,32 @@ function App() {
     }
   }, [refreshing]);
 
+  // ── Auto-logout เมื่อไม่มีการใช้งาน (security สำหรับข้อมูลผู้ป่วย) ──
+  // เตือนที่ 14 นาที, ออกจากระบบที่ 15 นาที
+  const [idleWarn, setIdleWarn] = useState(false);
+  useEffect(() => {
+    if (!currentUser) return;
+    const IDLE_MS = 15 * 60 * 1000;       // 15 นาที
+    const WARN_MS = 14 * 60 * 1000;       // เตือนก่อน 1 นาที
+    let warnTimer, logoutTimer;
+    const reset = () => {
+      clearTimeout(warnTimer); clearTimeout(logoutTimer);
+      setIdleWarn(false);
+      warnTimer   = setTimeout(() => setIdleWarn(true), WARN_MS);
+      logoutTimer = setTimeout(() => {
+        window.rxToast?.('ออกจากระบบอัตโนมัติ (ไม่มีการใช้งาน 15 นาที)', 'info', 5000);
+        handleLogout();
+      }, IDLE_MS);
+    };
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(warnTimer); clearTimeout(logoutTimer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [currentUser]);
+
   // Ctrl+K / Cmd+K to open QuickSearch
   useEffect(() => {
     if (!currentUser) return;
@@ -14671,6 +14800,25 @@ function App() {
             <div style={{ fontSize: 11, color: C.high, opacity: 0.8 }}>แตะเพื่อดูรายการคัดกรองความเสี่ยง</div>
           </div>
           <span style={{ fontSize: 12, color: C.high, fontWeight: 700, opacity: 0.7 }}>›</span>
+        </div>
+      )}
+
+      {/* Idle warning — เตือนก่อน auto-logout */}
+      {idleWarn && (
+        <div style={{
+          position:'fixed', top:64, left:'50%', transform:'translateX(-50%)',
+          padding:'12px 20px', display:'flex', alignItems:'center', gap:12,
+          background:C.medium, color:'#fff', borderRadius:12,
+          boxShadow:'0 10px 30px rgba(0,0,0,0.25)', fontSize:13, fontWeight:600,
+          zIndex:3500, maxWidth:'calc(100vw - 32px)', animation:'rxToastIn 0.25s ease both',
+        }}>
+          <span style={{ fontSize:18 }}>⏰</span>
+          <span>ไม่มีการใช้งาน — ระบบจะออกจากระบบใน 1 นาที</span>
+          <button onClick={() => setIdleWarn(false)} style={{
+            background:'rgba(255,255,255,0.25)', border:'none', borderRadius:8,
+            color:'#fff', padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer',
+            fontFamily:'Sarabun,sans-serif',
+          }}>ใช้งานต่อ</button>
         </div>
       )}
 
