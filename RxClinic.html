@@ -324,6 +324,87 @@
     animation: rxSpin 0.6s linear infinite; vertical-align: -2px;
   }
 
+  /* ══════════════════════════════════════════════════════
+     ✨ Global animation polish layer (Wave 6)
+     ══════════════════════════════════════════════════════ */
+
+  /* Smooth entrance utilities */
+  @keyframes rxFadeIn   { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes rxScaleIn  { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @keyframes rxRise     { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes rxRiseSm   { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes rxFloatY   { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+  @keyframes rxWiggle   { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-7deg); } 75% { transform: rotate(7deg); } }
+  @keyframes rxGlowPulse{ 0%,100% { box-shadow: 0 0 0 0 rgba(37,99,235,0.35); } 50% { box-shadow: 0 0 0 6px rgba(37,99,235,0); } }
+
+  /* Staggered children — add .rx-stagger to a container */
+  .rx-stagger > * { animation: rxRiseSm 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+  .rx-stagger > *:nth-child(1){animation-delay:.03s} .rx-stagger > *:nth-child(2){animation-delay:.06s}
+  .rx-stagger > *:nth-child(3){animation-delay:.09s} .rx-stagger > *:nth-child(4){animation-delay:.12s}
+  .rx-stagger > *:nth-child(5){animation-delay:.15s} .rx-stagger > *:nth-child(6){animation-delay:.18s}
+  .rx-stagger > *:nth-child(7){animation-delay:.21s} .rx-stagger > *:nth-child(8){animation-delay:.24s}
+  .rx-stagger > *:nth-child(9){animation-delay:.27s} .rx-stagger > *:nth-child(n+10){animation-delay:.30s}
+
+  /* Table row entrance + theme-aware hover */
+  tbody tr.rx-trow { animation: rxFadeIn 0.35s ease both; }
+  tbody tr.rx-trow:nth-child(1){animation-delay:.02s} tbody tr.rx-trow:nth-child(2){animation-delay:.05s}
+  tbody tr.rx-trow:nth-child(3){animation-delay:.08s} tbody tr.rx-trow:nth-child(4){animation-delay:.11s}
+  tbody tr.rx-trow:nth-child(5){animation-delay:.14s} tbody tr.rx-trow:nth-child(6){animation-delay:.17s}
+  tbody tr.rx-trow:nth-child(7){animation-delay:.20s} tbody tr.rx-trow:nth-child(n+8){animation-delay:.22s}
+  tbody tr.rx-trow { transition: background 0.16s ease, transform 0.16s ease; }
+  tbody tr.rx-trow:hover { background: var(--c-bgAlt) !important; }
+  tr.rx-row:hover td { background: var(--c-bgAlt); }
+
+  /* Button micro-interactions: press + sheen */
+  .rx-btn { position: relative; overflow: hidden; }
+  .rx-btn:active:not(:disabled) { transform: scale(0.96) !important; }
+  .rx-btn::after {
+    content: ''; position: absolute; top: 0; left: -120%; width: 60%; height: 100%;
+    background: linear-gradient(115deg, transparent, rgba(255,255,255,0.28), transparent);
+    transform: skewX(-20deg); transition: left 0.55s ease; pointer-events: none;
+  }
+  .rx-btn:hover::after { left: 130%; }
+
+  /* Card entrance + lift (theme-aware shadow) */
+  .rx-anim-card { animation: rxScaleIn 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+  .rx-card-hover { transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s; }
+  .rx-card-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 36px rgba(15,23,42,0.14) !important; }
+  [data-theme="dark"] .rx-card-hover:hover { box-shadow: 0 14px 36px rgba(0,0,0,0.5) !important; }
+
+  /* Tab active pop */
+  @keyframes rxTabPop { from { transform: scale(0.92); } to { transform: scale(1); } }
+  .rx-tab-active { animation: rxTabPop 0.22s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+  /* Modal: backdrop fade + content spring */
+  @keyframes rxModalBg { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes rxModalIn { from { opacity: 0; transform: translateY(18px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .rx-modal-bg { animation: rxModalBg 0.22s ease both; }
+  .rx-modal-card { animation: rxModalIn 0.34s cubic-bezier(0.16,1,0.3,1) both; }
+
+  /* Icon hover effects */
+  .rx-icon-wiggle:hover { animation: rxWiggle 0.4s ease; }
+  .rx-float { animation: rxFloatY 3s ease-in-out infinite; }
+
+  /* Badge pop-in */
+  @keyframes rxBadgePop { 0% { transform: scale(0); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+  .rx-badge-pop { animation: rxBadgePop 0.34s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+  /* Link underline grow */
+  a.rx-link { position: relative; text-decoration: none; }
+  a.rx-link::after { content:''; position:absolute; left:0; bottom:-2px; width:100%; height:1.5px;
+    background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform 0.22s ease; }
+  a.rx-link:hover::after { transform: scaleX(1); }
+
+  /* Respect user motion preferences (accessibility) */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   /* ── Medication row: reflow to stacked layout on phones ── */
   @media (max-width: 640px) {
     .rx-med-head { display: none !important; }
@@ -1134,12 +1215,12 @@ function Modal({ open, onClose, title, children, width = 640 }) {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{
+    <div onClick={onClose} className="rx-modal-bg" style={{
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
       backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
-      <div onClick={e => e.stopPropagation()} className="rx-fade" style={{
+      <div onClick={e => e.stopPropagation()} className="rx-modal-card" style={{
         background: C.surface, borderRadius: 18, width: '100%', maxWidth: width,
         maxHeight: '92vh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 64px rgba(15,23,42,0.3), 0 4px 16px rgba(15,23,42,0.15)',
@@ -1224,7 +1305,7 @@ function Btn({ onClick, children, variant = 'primary', size = 'md', disabled, ty
 // ── Card ──────────────────────────────────────────────
 function Card({ children, style: extra, padding = 20, hover = false }) {
   return (
-    <div className={hover ? 'rx-card-hover' : ''} style={{
+    <div className={`rx-anim-card${hover ? ' rx-card-hover' : ''}`} style={{
       background: C.surface, borderRadius: 14, padding,
       boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.06)',
       border: `1px solid ${C.border}`, ...extra,
@@ -1424,7 +1505,7 @@ function Tabs({ tabs, active, onChange }) {
   return (
     <div style={{ display: 'flex', gap: 4, padding: '4px', background: C.bgAlt, borderRadius: 12, marginBottom: 20, width: 'fit-content' }}>
       {tabs.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)} style={{
+        <button key={t.id} onClick={() => onChange(t.id)} className={active === t.id ? 'rx-tab-active' : ''} style={{
           padding: '8px 18px', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
           fontSize: 13, fontWeight: active === t.id ? 700 : 500, borderRadius: 9,
           background: active === t.id ? C.surface : 'transparent',
@@ -1461,10 +1542,8 @@ function Table({ cols, rows, emptyIcon, emptyTitle, emptySubtitle, emptyAction, 
         </thead>
         <tbody>
           {rows.map((row, ri) => (
-            <tr key={ri} style={{ borderBottom: ri < rows.length-1 ? `1px solid ${C.border}` : 'none', cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.12s' }}
-              onClick={() => onRowClick && onRowClick(row)}
-              onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <tr key={ri} className="rx-trow" style={{ borderBottom: ri < rows.length-1 ? `1px solid ${C.border}` : 'none', cursor: onRowClick ? 'pointer' : 'default' }}
+              onClick={() => onRowClick && onRowClick(row)}>
               {cols.map((c, ci) => (
                 <td key={ci} style={{
                   padding: '12px 16px', color: C.text, textAlign: c.align || 'left',
@@ -14537,7 +14616,7 @@ function App() {
             )}
 
             {/* Dark mode toggle */}
-            <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" style={{
+            <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" className="rx-icon-wiggle" style={{
               width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
               background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary, fontSize: 15,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
