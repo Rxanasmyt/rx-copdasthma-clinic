@@ -3510,7 +3510,7 @@ const LOGIN_FEATURES = [
 
 // ── Login Screen ──────────────────────────────────────
 // ── ProfileSetup — แสดงเมื่อผู้ใช้ login Firebase แล้วแต่ยังไม่มี profile ──
-function ProfileSetup({ firebaseUser, data, onDataChange }) {
+function ProfileSetup({ firebaseUser, data, onDataChange, onProfileCreated }) {
   const users   = (data && data.users) || [];
   const isFirst = users.filter(u => u.uid).length === 0;
 
@@ -3552,7 +3552,8 @@ function ProfileSetup({ firebaseUser, data, onDataChange }) {
       username: (firebaseUser.email || '').split('@')[0],
       role: isFirst ? 'admin' : role,
     };
-    onDataChange({ ...data, users: [...users, nu] });
+    onDataChange({ ...(data || { patients:[], visits:[], telepharmacy:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]} }), users: [...users, nu] });
+    onProfileCreated?.(nu);  // set currentUser ทันที ไม่ต้องรอ round-trip
     setBusy(false);
   };
 
@@ -14098,21 +14099,19 @@ function App() {
   }, []);
 
   // Sync currentUser profile whenever Firebase user or data changes
-  const dataRef = useRef(null);
-  useEffect(() => { dataRef.current = data; }, [data]);
   useEffect(() => {
-    if (!fbUser || !data) { if (fbUser === null && authReady) setCurrentUser(null); return; }
-    const profile = (data.users || []).find(u => u.uid === fbUser.uid || u.email === fbUser.email);
+    if (!fbUser) { if (authReady) setCurrentUser(null); return; }
+    if (!data) return;  // ยังโหลด Firestore ไม่เสร็จ — อย่าเพิ่งตัดสินใจ
+    const emailLc = (fbUser.email || '').toLowerCase();
+    const profile = (data.users || []).find(u =>
+      u.uid === fbUser.uid || (u.email && u.email.toLowerCase() === emailLc));
     if (profile) {
       // Auto-link uid if missing (migration from old PIN-based users)
-      if (!profile.uid) {
-        const linked = { ...profile, uid: fbUser.uid, email: fbUser.email || profile.email };
-        setCurrentUser(linked);
-      } else {
-        setCurrentUser(profile);
-      }
+      const resolved = profile.uid ? profile : { ...profile, uid: fbUser.uid, email: fbUser.email || profile.email };
+      setCurrentUser(prev => (prev && prev.id === resolved.id && prev.role === resolved.role && prev.name === resolved.name) ? prev : resolved);
     } else {
-      setCurrentUser(null); // triggers ProfileSetup
+      // ไม่พบ profile — อย่า reset ถ้าเพิ่งสร้าง currentUser ของ uid เดียวกัน (กัน bounce จาก snapshot ที่ยังไม่ทันอัปเดต)
+      setCurrentUser(prev => (prev && prev.uid === fbUser.uid) ? prev : null);
     }
   }, [fbUser, data, authReady]);
 
@@ -14391,7 +14390,7 @@ function App() {
     );
   }
   if (!currentUser) {
-    return <ProfileSetup firebaseUser={fbUser} data={data} onDataChange={handleDataChange} />;
+    return <ProfileSetup firebaseUser={fbUser} data={data} onDataChange={handleDataChange} onProfileCreated={u => setCurrentUser(u)} />;
   }
   const renderView = () => {
     switch (view) {
