@@ -8,10 +8,32 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
+  /* ── Theme variables (light default + dark override) ── */
+  :root {
+    --c-high:#DC2626; --c-highBg:#FEF2F2; --c-highBorder:#FECACA;
+    --c-medium:#D97706; --c-mediumBg:#FFFBEB; --c-mediumBorder:#FDE68A;
+    --c-low:#059669; --c-lowBg:#F0FDF4; --c-lowBorder:#A7F3D0;
+    --c-primary:#1E3A8A; --c-primaryLight:#2563EB; --c-primaryDark:#1E40AF;
+    --c-accent:#0891B2; --c-accentLight:#06B6D4;
+    --c-text:#0F172A; --c-textMuted:#64748B; --c-textLight:#94A3B8;
+    --c-border:#E2E8F0; --c-borderLight:#F8FAFC;
+    --c-surface:#FFFFFF; --c-bg:#F1F5F9; --c-bgAlt:#F8FAFC;
+  }
+  [data-theme="dark"] {
+    --c-high:#F87171; --c-highBg:#3B1A1A; --c-highBorder:#7F2D2D;
+    --c-medium:#FBBF24; --c-mediumBg:#3A2E12; --c-mediumBorder:#7C5E1E;
+    --c-low:#34D399; --c-lowBg:#0F2E22; --c-lowBorder:#1F5C44;
+    --c-primary:#93C5FD; --c-primaryLight:#60A5FA; --c-primaryDark:#3B82F6;
+    --c-accent:#22D3EE; --c-accentLight:#67E8F9;
+    --c-text:#E2E8F0; --c-textMuted:#94A3B8; --c-textLight:#64748B;
+    --c-border:#2A3650; --c-borderLight:#1B2436;
+    --c-surface:#16202F; --c-bg:#0B1220; --c-bgAlt:#1B2436;
+  }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body, #root { height: 100%; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #0F172A; background: #F1F5F9; -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: var(--c-text); background: var(--c-bg); -webkit-font-smoothing: antialiased; transition: background 0.3s, color 0.3s; }
   input, select, textarea, button { font-family: 'Sarabun', sans-serif; }
+  [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea { background: var(--c-bgAlt); color: var(--c-text); }
 
   /* Scrollbar */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -333,6 +355,26 @@
 })();
 </script>
 </head>
+<script>
+// Theme bootstrap — apply before render to prevent flash
+(function(){
+  try {
+    var t = localStorage.getItem('copd_theme_v1') || 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e){}
+  window.rxSetTheme = function(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('copd_theme_v1', theme); } catch(e){}
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0B1220' : '#0B1D45');
+    window.dispatchEvent(new CustomEvent('rx-theme-change', { detail: { theme } }));
+  };
+  window.rxToggleTheme = function(){
+    var cur = document.documentElement.getAttribute('data-theme') || 'light';
+    window.rxSetTheme(cur === 'dark' ? 'light' : 'dark');
+  };
+})();
+</script>
 <div id="root"></div>
 <script>
 // COPD/Asthma Clinic - Data Store (plain JS, no JSX)
@@ -985,14 +1027,14 @@ const { useState, useEffect, useRef } = React;
 
 // ── Colors / tokens ──────────────────────────────────
 const C = {
-  high: '#DC2626', highBg: '#FEF2F2', highBorder: '#FECACA',
-  medium: '#D97706', mediumBg: '#FFFBEB', mediumBorder: '#FDE68A',
-  low: '#059669', lowBg: '#F0FDF4', lowBorder: '#A7F3D0',
-  primary: '#1E3A8A', primaryLight: '#2563EB', primaryDark: '#1E40AF',
-  accent: '#0891B2', accentLight: '#06B6D4',
-  text: '#0F172A', textMuted: '#64748B', textLight: '#94A3B8',
-  border: '#E2E8F0', borderLight: '#F8FAFC',
-  surface: '#FFFFFF', bg: '#F1F5F9', bgAlt: '#F8FAFC',
+  high: 'var(--c-high)', highBg: 'var(--c-highBg)', highBorder: 'var(--c-highBorder)',
+  medium: 'var(--c-medium)', mediumBg: 'var(--c-mediumBg)', mediumBorder: 'var(--c-mediumBorder)',
+  low: 'var(--c-low)', lowBg: 'var(--c-lowBg)', lowBorder: 'var(--c-lowBorder)',
+  primary: 'var(--c-primary)', primaryLight: 'var(--c-primaryLight)', primaryDark: 'var(--c-primaryDark)',
+  accent: 'var(--c-accent)', accentLight: 'var(--c-accentLight)',
+  text: 'var(--c-text)', textMuted: 'var(--c-textMuted)', textLight: 'var(--c-textLight)',
+  border: 'var(--c-border)', borderLight: 'var(--c-borderLight)',
+  surface: 'var(--c-surface)', bg: 'var(--c-bg)', bgAlt: 'var(--c-bgAlt)',
 };
 
 // ── RiskBadge ─────────────────────────────────────────
@@ -5026,10 +5068,91 @@ function printQuarterlyReport(data, year, quarter) {
   openPrintWindow(html, `รายงานไตรมาส ${quarter}/${parseInt(year)+543}`);
 }
 
+// ── PDF: QR Patient Card (พิมพ์บัตรผู้ป่วย QR) ──────────
+function printPatientQRCard(patient) {
+  if (!patient) return;
+  const link = `${location.origin}${location.pathname}?hn=${encodeURIComponent(patient.hn)}`;
+  const qrURL = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(link)}`;
+  const rc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[patient.riskLevel] || '#059669';
+  const html = `
+    <div style="display:flex;justify-content:center;padding:10px">
+      <div style="width:340px;border:2px solid #0F2D5E;border-radius:14px;overflow:hidden;font-family:'Sarabun',sans-serif">
+        <div style="background:linear-gradient(135deg,#0F2D5E,#1848A0);color:#fff;padding:12px 16px;text-align:center">
+          <div style="font-size:11px;opacity:0.85;letter-spacing:0.05em">คลินิก COPD / Asthma</div>
+          <div style="font-size:16px;font-weight:800;margin-top:2px">บัตรประจำตัวผู้ป่วย</div>
+        </div>
+        <div style="padding:16px;text-align:center">
+          <img src="${qrURL}" alt="QR" style="width:200px;height:200px" />
+          <div style="font-size:18px;font-weight:800;color:#0F2D5E;margin-top:10px">${patient.prefix}${patient.firstName} ${patient.lastName}</div>
+          <div style="font-size:13px;color:#475569;margin-top:2px">HN: <strong>${patient.hn}</strong></div>
+          <div style="font-size:12px;color:#475569;margin-top:4px">อายุ ${patient.age} ปี · ${patient.diagnosis}</div>
+          <div style="display:inline-block;margin-top:8px;font-size:12px;font-weight:700;color:${rc}">● ${patient.riskLevel||'Low'} Risk</div>
+          <div style="font-size:10px;color:#94A3B8;margin-top:10px">สแกนเพื่อเปิดประวัติผู้ป่วยในระบบ</div>
+        </div>
+      </div>
+    </div>`;
+  openPrintWindow(html, `บัตร QR — ${patient.firstName} ${patient.lastName}`);
+}
+
+// ── LINE message templates (copy to clipboard, no API key) ──
+function buildLineAppointment(patient, rec, clinicName) {
+  if (!patient) return '';
+  const d = rec?.scheduledDate || '';
+  const thDate = d ? new Date(d).toLocaleDateString('th-TH', { weekday:'long', year:'numeric', month:'long', day:'numeric' }) : '—';
+  return [
+    `🏥 ${clinicName || 'คลินิก COPD/Asthma'}`,
+    ``,
+    `เรียน คุณ${patient.firstName} ${patient.lastName}`,
+    `(HN: ${patient.hn})`,
+    ``,
+    `📞 นัดติดตามการใช้ยาทางโทรศัพท์ (Telepharmacy)`,
+    `🗓️ วันที่: ${thDate}`,
+    rec?.pharmacistNote ? `📋 เรื่อง: ${rec.pharmacistNote}` : '',
+    ``,
+    `กรุณาเตรียมยาที่ใช้อยู่ทั้งหมดไว้ใกล้ตัว`,
+    `และสะดวกรับสายในวันเวลาดังกล่าว`,
+    ``,
+    `หากไม่สะดวก กรุณาแจ้งล่วงหน้าเพื่อเลื่อนนัด`,
+    `ขอบคุณค่ะ/ครับ 🙏`,
+  ].filter(l => l !== '').join('\n');
+}
+
+function buildLineFollowup(patient, visit, clinicName) {
+  if (!patient) return '';
+  const meds = (visit?.medications || []).filter(m => m.name).map(m => `• ${m.name}${m.dose?' '+m.dose:''}`).join('\n');
+  const nextV = visit?.nextVisit ? new Date(visit.nextVisit).toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' }) : '';
+  return [
+    `🏥 ${clinicName || 'คลินิก COPD/Asthma'}`,
+    ``,
+    `เรียน คุณ${patient.firstName} ${patient.lastName} (HN: ${patient.hn})`,
+    ``,
+    `สรุปการรับยาวันนี้ 💊`,
+    meds || '• (ไม่มีรายการยา)',
+    ``,
+    visit?.soap?.p ? `📝 คำแนะนำ:\n${visit.soap.p}` : '',
+    nextV ? `🗓️ นัดครั้งถัดไป: ${nextV}` : '',
+    ``,
+    `หากมีอาการผิดปกติ เช่น หอบเหนื่อยมากขึ้น`,
+    `กรุณาติดต่อคลินิกหรือไปโรงพยาบาลทันที 🚨`,
+    ``,
+    `ดูแลสุขภาพนะคะ/ครับ 🙏`,
+  ].filter(l => l !== '').join('\n');
+}
+
+async function copyLineMessage(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    window.rxToast?.('คัดลอกข้อความ LINE แล้ว — วางในแชทได้เลย', 'success');
+  } catch {
+    window.rxToast?.('คัดลอกไม่สำเร็จ — กรุณาคัดลอกด้วยตนเอง', 'error');
+  }
+}
+
 Object.assign(window, {
   downloadCSV, exportPatients, exportVisits, exportTelepharmacy,
   printPatientReport, printMonthlyReport, openPrintWindow, ExportSection,
   printPatientTakeHome, printVisitSOAP, printDRPReport, printQuarterlyReport,
+  buildLineAppointment, buildLineFollowup, copyLineMessage, printPatientQRCard,
 });
 </script>
 <script type="text/babel">
@@ -5745,6 +5868,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
 
   const [tab, setTab]       = pvState('visits');
   const [visitFilter, setVF] = pvState('all');
+  const [visitSearch, setVisitSearch] = pvState('');
 
   if (!patient) return (
     <EmptyState icon="❓" title="ไม่พบข้อมูลผู้ป่วย" subtitle="กลับไปที่ทะเบียนผู้ป่วย" />
@@ -5782,6 +5906,14 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           )}
           <Btn size="sm" variant="ghost" onClick={() => typeof window.printDRPReport === 'function' && window.printDRPReport(patient, data.visits)}>
             📊 DRP Report
+          </Btn>
+          {visits[0] && (
+            <Btn size="sm" variant="ghost" onClick={() => window.copyLineMessage?.(window.buildLineFollowup(patient, visits[0], data.clinicCode))}>
+              💬 LINE สรุป
+            </Btn>
+          )}
+          <Btn size="sm" variant="ghost" onClick={() => window.printPatientQRCard?.(patient)}>
+            🏷️ บัตร QR
           </Btn>
         </div>
       </div>
@@ -5844,6 +5976,13 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
 
       {tab === 'visits' && (
         <>
+          {/* Search within visits */}
+          {visits.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <Input value={visitSearch} onChange={setVisitSearch}
+                placeholder="🔍  ค้นหาใน SOAP, ยา, DRP, อาการ (เช่น 'exacerbation', 'Salbutamol')..." />
+            </div>
+          )}
           {/* Filter bar */}
           {visits.length > 0 && (
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -5864,11 +6003,22 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           )}
           {/* List */}
           {(() => {
-            const fv = visitFilter === 'drp'          ? visits.filter(x => x.drp?.noDRP === false)
+            let fv = visitFilter === 'drp'          ? visits.filter(x => x.drp?.noDRP === false)
                      : visitFilter === 'exacerbation' ? visits.filter(x => (x.exacerbation?.countThisYear || 0) > 0)
                      : visitFilter === 'high-risk'    ? visits.filter(x => x.riskLevel === 'High')
                      : visits;
-            if (fv.length === 0) return <EmptyState icon="🔍" title="ไม่พบ Visit ที่ตรงกับตัวกรอง" subtitle="ลองเปลี่ยนตัวกรอง" />;
+            if (visitSearch.trim()) {
+              const q = visitSearch.toLowerCase();
+              fv = fv.filter(v => {
+                const hay = [
+                  v.chiefComplaint, v.soap?.s, v.soap?.o, v.soap?.a, v.soap?.p, v.pharmacistNote,
+                  ...(v.medications || []).map(m => m.name),
+                  ...(v.drp?.items || []),
+                ].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(q);
+              });
+            }
+            if (fv.length === 0) return <EmptyState icon="🔍" title="ไม่พบ Visit ที่ตรงกับการค้นหา" subtitle="ลองเปลี่ยนคำค้นหาหรือตัวกรอง" />;
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {fv.map(v => (
@@ -6028,6 +6178,11 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
         // CAT/ACT trend data
         const catPts = sorted.map(v => ({ date: v.visitDate, v: v.assessments?.cat?.allAnswered ? v.assessments.cat.score : null })).filter(x => x.v !== null);
         const actPts = sorted.map(v => ({ date: v.visitDate, v: v.assessments?.act?.allAnswered ? v.assessments.act.score : null })).filter(x => x.v !== null);
+        // Lab/vitals trend data (FEV1, SpO2, eGFR)
+        const numOrNull = (x) => { const n = Number(x); return (x !== '' && x != null && !isNaN(n)) ? n : null; };
+        const spo2Pts = sorted.map(v => ({ date: v.visitDate, v: numOrNull(v.vitals?.spO2) })).filter(x => x.v !== null);
+        const fev1Pts = sorted.map(v => ({ date: v.visitDate, v: numOrNull(v.vitals?.fev1) })).filter(x => x.v !== null);
+        const pefPts  = sorted.map(v => ({ date: v.visitDate, v: numOrNull(v.vitals?.peakFlow) })).filter(x => x.v !== null);
 
         // Full SVG line chart with zone bands
         const LineChart = ({ pts, minV, maxV, color, zones, title, unit, W = 520, H = 110 }) => {
@@ -6128,6 +6283,38 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                     { min: 15, max: 20, color: '#D97706', label: '15–19 ควบคุมได้บางส่วน', textColor: '#D97706' },
                     { min: 20, max: 25, color: '#059669', label: '≥20 ควบคุมได้ดี', textColor: '#059669' },
                   ]} />
+              </Card>
+            )}
+
+            {/* Lab Trend — SpO₂ */}
+            {spo2Pts.length > 0 && (
+              <Card>
+                <LineChart pts={spo2Pts} minV={85} maxV={100} color="#0891B2" title="SpO₂ (%) — ความอิ่มตัวออกซิเจน (สูง = ดี)" unit="%"
+                  zones={[
+                    { min: 85, max: 92, color: '#DC2626', label: '<92 Hypoxemia', textColor: '#DC2626' },
+                    { min: 92, max: 95, color: '#D97706', label: '92–94 เฝ้าระวัง', textColor: '#D97706' },
+                    { min: 95, max: 100, color: '#059669', label: '≥95 ปกติ', textColor: '#059669' },
+                  ]} />
+              </Card>
+            )}
+
+            {/* Lab Trend — FEV₁ */}
+            {fev1Pts.length > 0 && (
+              <Card>
+                <LineChart pts={fev1Pts} minV={0} maxV={100} color="#7C3AED" title="FEV₁ (% predicted) — สมรรถภาพปอด (สูง = ดี)" unit="%"
+                  zones={[
+                    { min: 0, max: 30, color: '#7F1D1D', label: '<30 GOLD 4 (Very severe)', textColor: '#991B1B' },
+                    { min: 30, max: 50, color: '#DC2626', label: '30–49 GOLD 3 (Severe)', textColor: '#DC2626' },
+                    { min: 50, max: 80, color: '#D97706', label: '50–79 GOLD 2 (Moderate)', textColor: '#D97706' },
+                    { min: 80, max: 100, color: '#059669', label: '≥80 GOLD 1 (Mild)', textColor: '#059669' },
+                  ]} />
+              </Card>
+            )}
+
+            {/* Lab Trend — Peak Flow */}
+            {pefPts.length > 0 && (
+              <Card>
+                <LineChart pts={pefPts} minV={0} maxV={600} color="#0369A1" title="Peak Flow (L/min) — อัตราการไหลสูงสุด (สูง = ดี)" unit="L/min" />
               </Card>
             )}
 
@@ -6910,6 +7097,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     patientId, visitDate: today, pharmacist: defaultPharmacist,
     chiefComplaint: '',
     exacerbation: { countThisYear: 0, lastDate: '', severity: 'None', hospitalized: false, erVisit: false, triggers: [], rescueMedUse: 'Never' },
+    vitals: { spO2: '', rr: '', bp: '', fev1: '', peakFlow: '' },
     medications: [],
     inhalerTechnique: [],
     adherence: { answers: [false, false, false, false], score: 0, level: 'Good' },
@@ -6987,6 +7175,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setEx = (k, v) => setF(prev => ({ ...prev, exacerbation: { ...prev.exacerbation, [k]: v } }));
+  const setVital = (k, v) => setF(prev => ({ ...prev, vitals: { ...(prev.vitals || {}), [k]: v } }));
   const setSOAP = (k, v) => setF(prev => ({ ...prev, soap: { ...prev.soap, [k]: v } }));
   const setAssessment = (k, v) => setF(prev => ({
     ...prev,
@@ -7360,6 +7549,33 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               </div>
             </>
           )}
+
+          {/* Vitals & Spirometry */}
+          <SecHd n="V" title="สัญญาณชีพ & Spirometry" color="#0891B2" />
+          <Card>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+              <FormField label="SpO₂ (%)">
+                <Input type="number" value={f.vitals?.spO2 ?? ''} onChange={v => setVital('spO2', v)} placeholder="เช่น 96" />
+              </FormField>
+              <FormField label="RR (/min)">
+                <Input type="number" value={f.vitals?.rr ?? ''} onChange={v => setVital('rr', v)} placeholder="เช่น 18" />
+              </FormField>
+              <FormField label="BP (mmHg)">
+                <Input value={f.vitals?.bp ?? ''} onChange={v => setVital('bp', v)} placeholder="เช่น 130/80" />
+              </FormField>
+              <FormField label="FEV₁ (% predicted)">
+                <Input type="number" value={f.vitals?.fev1 ?? ''} onChange={v => setVital('fev1', v)} placeholder="เช่น 65" />
+              </FormField>
+              <FormField label="Peak Flow (L/min)">
+                <Input type="number" value={f.vitals?.peakFlow ?? ''} onChange={v => setVital('peakFlow', v)} placeholder="เช่น 350" />
+              </FormField>
+            </div>
+            {f.vitals?.spO2 && Number(f.vitals.spO2) < 92 && (
+              <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: C.highBg, border: `1px solid ${C.highBorder}`, fontSize: 12, color: C.high, fontWeight: 600 }}>
+                ⚠️ SpO₂ &lt; 92% — พิจารณาประเมินภาวะ hypoxemia และความจำเป็นในการให้ออกซิเจน
+              </div>
+            )}
+          </Card>
 
           {/* ④ Medications */}
           <SecHd n="4" title="ยาที่ผู้ป่วยใช้อยู่ในปัจจุบัน" color="#0369A1"
@@ -7946,8 +8162,24 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
   const [preselPt,   setPreselPt]   = trState(initPatientId || '');
   const [filterStatus, setFilterStatus] = trState('');
   const [batchOpen,    setBatchOpen]    = trState(false);
+  const [selectedIds,  setSelectedIds]  = trState([]);  // bulk-action selection
 
   const getPatient = (pid) => data.patients.find(p => p.id === pid);
+
+  // ── Bulk actions on selected telepharmacy records ──
+  const toggleSel = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const bulkUpdate = (mutator) => {
+    const upd = data.telepharmacy.map(t => selectedIds.includes(t.id) ? mutator(t) : t);
+    onDataChange({ ...data, telepharmacy: upd });
+    window.rxToast?.(`อัปเดต ${selectedIds.length} รายการสำเร็จ`, 'success');
+    setSelectedIds([]);
+  };
+  const bulkMarkNoAnswer = () => bulkUpdate(t => ({ ...t, status: 'No Answer', actualDate: new Date().toISOString().slice(0,10) }));
+  const bulkCancel       = () => bulkUpdate(t => ({ ...t, status: 'Cancelled' }));
+  const bulkReschedule7  = () => bulkUpdate(t => {
+    const d = new Date(t.scheduledDate); d.setDate(d.getDate() + 7);
+    return { ...t, scheduledDate: d.toISOString().slice(0,10) };
+  });
 
   const records = [...data.telepharmacy].sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
   const filtered = filterStatus ? records.filter(r => r.status === filterStatus) : records;
@@ -8246,6 +8478,14 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
       },
     },
     {
+      key: 'sel', label: '', width: 38,
+      render: r => (
+        <input type="checkbox" checked={selectedIds.includes(r.id)}
+          onChange={() => toggleSel(r.id)} onClick={e => e.stopPropagation()}
+          style={{ accentColor: C.primary, width: 15, height: 15, cursor: 'pointer' }} />
+      ),
+    },
+    {
       key: 'scheduledDate', label: 'วันนัดโทร', width: 130,
       render: r => {
         const todayStr = new Date().toISOString().slice(0, 10);
@@ -8279,6 +8519,10 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
       key: 'actions', label: '', width: 100, align: 'right',
       render: r => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+          {r.status === 'Pending' && (
+            <Btn size="sm" variant="ghost" title="คัดลอกข้อความนัด LINE"
+              onClick={() => window.copyLineMessage?.(window.buildLineAppointment(getPatient(r.patientId), r, data.clinicCode))}>💬</Btn>
+          )}
           {r.status === 'Pending' && (
             <Btn size="sm" variant="primary" onClick={() => { setSelectedId(r.id); setRecordOpen(true); }}>บันทึกผล</Btn>
           )}
@@ -8380,6 +8624,18 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         <StatCard label="โทรสำเร็จ"       value={successCount}  color={C.low}   icon="✅" />
         <StatCard label="ไม่รับสาย"        value={noAnswerCount} color={C.medium} icon="📵" />
       </div>
+
+      {/* Bulk action toolbar */}
+      {selectedIds.length > 0 && calView !== 'calendar' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', marginBottom: 12, borderRadius: 10, background: C.primaryLight, color: '#fff', boxShadow: '0 4px 14px rgba(37,99,235,0.3)', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>เลือก {selectedIds.length} รายการ</span>
+          <div style={{ flex: 1 }} />
+          <Btn size="sm" variant="ghost" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }} onClick={bulkReschedule7}>📅 เลื่อน +7 วัน</Btn>
+          <Btn size="sm" variant="ghost" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }} onClick={bulkMarkNoAnswer}>📵 ไม่รับสาย</Btn>
+          <Btn size="sm" variant="ghost" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }} onClick={bulkCancel}>✕ ยกเลิกนัด</Btn>
+          <Btn size="sm" variant="ghost" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }} onClick={() => setSelectedIds([])}>ล้าง</Btn>
+        </div>
+      )}
 
       {calView === 'calendar' ? <CalendarView /> : (
         <Card padding={0}>
@@ -8652,6 +8908,93 @@ function ReportsView({ data, navigate, onDataChange }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* Pharmacist Productivity Report */}
+      {(() => {
+        const stats = {};
+        const ensure = (name) => { if (!stats[name]) stats[name] = { name, visits: 0, drps: 0, highDrps: 0, teleSuccess: 0, teleTotal: 0 }; return stats[name]; };
+        vis.forEach(v => {
+          const ph = v.pharmacist || 'ไม่ระบุ';
+          const s = ensure(ph);
+          s.visits++;
+          const pt = pts.find(p => p.id === v.patientId);
+          const drps = (typeof window.detectDRP === 'function' && pt) ? window.detectDRP(v, pt) : [];
+          s.drps += drps.length;
+          s.highDrps += drps.filter(d => d.severity === 'High').length;
+        });
+        const rows = Object.values(stats).sort((a, b) => b.visits - a.visits);
+        if (rows.length === 0) return null;
+        const maxV = Math.max(...rows.map(r => r.visits), 1);
+        return (
+          <Card style={{ marginBottom: 24 }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>👨‍⚕️ ผลงานเภสัชกร (Productivity)</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 12, color: C.textMuted }}>สรุปจำนวนการเยี่ยมและ DRP ที่ตรวจพบ แยกตามเภสัชกร</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: C.bgAlt }}>
+                  {['เภสัชกร', 'จำนวน Visit', 'DRP รวม', 'High DRP', 'DRP/Visit'].map((h, i) => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: i === 0 ? 'left' : 'center', borderBottom: `1px solid ${C.border}`, color: C.textMuted, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.name} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ fontWeight: 600, color: C.text }}>{r.name}</div>
+                        <div style={{ height: 4, marginTop: 4, borderRadius: 4, background: C.border, overflow: 'hidden', maxWidth: 160 }}>
+                          <div style={{ width: `${(r.visits / maxV) * 100}%`, height: '100%', background: C.primaryLight }} />
+                        </div>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: C.primary }}>{r.visits}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>{r.drps}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center', color: r.highDrps > 0 ? C.high : C.textMuted, fontWeight: r.highDrps > 0 ? 700 : 400 }}>{r.highDrps}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center', color: C.textMuted }}>{r.visits > 0 ? (r.drps / r.visits).toFixed(1) : '0'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* Patient Cohort Timeline — กลุ่มตามเดือนที่ขึ้นทะเบียน */}
+      {(() => {
+        const cohorts = {};
+        pts.forEach(p => {
+          const m = (p.createdAt || '').slice(0, 7) || 'ไม่ระบุ';
+          if (!cohorts[m]) cohorts[m] = { month: m, total: 0, high: 0, withVisit: 0 };
+          cohorts[m].total++;
+          if (p.riskLevel === 'High') cohorts[m].high++;
+          if (vis.some(v => v.patientId === p.id)) cohorts[m].withVisit++;
+        });
+        const rows = Object.values(cohorts).filter(c => c.month !== 'ไม่ระบุ').sort((a, b) => a.month.localeCompare(b.month));
+        if (rows.length === 0) return null;
+        const maxT = Math.max(...rows.map(r => r.total), 1);
+        const thMonth = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+        const fmtM = (m) => { const [y, mo] = m.split('-'); return `${thMonth[parseInt(mo)]} ${parseInt(y) + 543}`; };
+        return (
+          <Card style={{ marginBottom: 24 }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>📈 Patient Cohort — กลุ่มขึ้นทะเบียนตามเดือน</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 12, color: C.textMuted }}>ติดตามจำนวนผู้ป่วยใหม่และอัตราการได้รับการเยี่ยม แยกตามเดือนที่ขึ้นทะเบียน</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {rows.map(r => (
+                <div key={r.month} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 110, fontSize: 12, fontWeight: 600, color: C.text, flexShrink: 0 }}>{fmtM(r.month)}</div>
+                  <div style={{ flex: 1, height: 22, borderRadius: 6, background: C.bgAlt, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ width: `${(r.total / maxT) * 100}%`, height: '100%', background: 'linear-gradient(90deg,#2563EB,#06B6D4)', borderRadius: 6, display: 'flex', alignItems: 'center', paddingLeft: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>{r.total} ราย</span>
+                    </div>
+                  </div>
+                  <div style={{ width: 150, fontSize: 11, color: C.textMuted, flexShrink: 0, textAlign: 'right' }}>
+                    🔴 {r.high} High · ✓ เยี่ยมแล้ว {r.total > 0 ? Math.round(r.withVisit / r.total * 100) : 0}%
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         );
@@ -13752,6 +14095,8 @@ function App() {
   const [fabOpen,      setFabOpen]      = useState(false);  // speed-dial quick actions
   const [appToast,     setAppToast]     = useState(null);   // {msg,type} global toast
   const [refreshing,   setRefreshing]   = useState(false);
+  const [themeTick,    setThemeTick]    = useState(0);  // re-render on theme change
+  const isDark = (typeof document !== 'undefined') && document.documentElement.getAttribute('data-theme') === 'dark';
   const prevSync = useRef('syncing');
 
   // แจ้งเตือนเมื่อ sync ล้มเหลว (toast ระดับแอพ)
@@ -13893,24 +14238,46 @@ function App() {
 
   // ── เขียนข้อมูลขึ้น Firebase เท่านั้น ──────────────
   const saveTimer = useRef(null);
+  const pendingData = useRef(null);     // ข้อมูลล่าสุดที่ยังเขียนขึ้น cloud ไม่สำเร็จ
+  const [pendingSync, setPendingSync] = useState(false);  // มีงานค้าง sync หรือไม่
+
+  const flushToCloud = useCallback((nd) => {
+    const sig = dataSig(nd);
+    if (sig === lastRemoteSig.current) { pendingData.current = null; setPendingSync(false); return; }
+    setSyncStatus('syncing');
+    const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
+    dbRef.current.collection('clinic').doc('main').set(payload)
+      .then(() => {
+        lastRemoteSig.current = dataSig(nd);
+        pendingData.current = null; setPendingSync(false);
+        setSyncStatus('synced');
+        maybeAutoBackup(dbRef.current, payload);
+      })
+      .catch(err => {
+        console.error('Firebase save error:', err);
+        pendingData.current = nd; setPendingSync(true);  // เก็บไว้รอ retry เมื่อกลับมาออนไลน์
+        setSyncStatus('error');
+      });
+  }, [maybeAutoBackup]);
+
   const handleDataChange = useCallback((nd) => {
     setData(nd);
     if (!dbRef.current || !fbReady) return;
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      const sig = dataSig(nd);
-      if (sig === lastRemoteSig.current) return; // ข้อมูลไม่เปลี่ยน (echo) → ไม่เขียน
-      setSyncStatus('syncing');
-      const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
-      dbRef.current.collection('clinic').doc('main').set(payload)
-        .then(() => {
-          lastRemoteSig.current = dataSig(nd);
-          setSyncStatus('synced');
-          maybeAutoBackup(dbRef.current, payload); // เก็บ backup ถ้าถึงรอบ
-        })
-        .catch(err => { console.error('Firebase save error:', err); setSyncStatus('error'); });
-    }, 600);
-  }, [fbReady, maybeAutoBackup]);
+    saveTimer.current = setTimeout(() => flushToCloud(nd), 600);
+  }, [fbReady, flushToCloud]);
+
+  // เมื่อกลับมาออนไลน์ → flush งานที่ค้างอัตโนมัติ
+  useEffect(() => {
+    const onOnline = () => {
+      if (pendingData.current && dbRef.current) {
+        window.rxToast?.('เชื่อมต่ออีกครั้ง — กำลังซิงค์ข้อมูลที่ค้างไว้...', 'info');
+        flushToCloud(pendingData.current);
+      }
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [flushToCloud]);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
     if (target === 'telepharmacy-add') {
@@ -13928,6 +14295,26 @@ function App() {
   }, []);
 
   const handleLogout = () => { localStorage.removeItem('copd_user_v1'); setCurrentUser(null); };
+
+  // Deep link: ?hn=XXX (from QR patient card) → open that patient's history
+  const hnLinkHandled = useRef(false);
+  useEffect(() => {
+    if (hnLinkHandled.current || !currentUser || !data) return;
+    const params = new URLSearchParams(window.location.search);
+    const hn = params.get('hn');
+    if (hn) {
+      const pt = (data.patients || []).find(p => p.hn === hn);
+      if (pt) {
+        navigate('history', pt.id);
+        window.rxToast?.(`เปิดประวัติ ${pt.prefix}${pt.firstName} ${pt.lastName} จาก QR`, 'info');
+      } else {
+        window.rxToast?.(`ไม่พบผู้ป่วย HN: ${hn}`, 'error');
+      }
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    hnLinkHandled.current = true;
+  }, [currentUser, data, navigate]);
 
   // ดึงข้อมูลล่าสุดจาก Firebase ด้วยตนเอง (กดรีเฟรช)
   const handleRefresh = useCallback(async () => {
@@ -14139,6 +14526,23 @@ function App() {
                 ⚫ ออฟไลน์
               </span>
             )}
+
+            {/* Pending sync queue badge */}
+            {pendingSync && !isMobile && (
+              <button onClick={() => { if (pendingData.current) flushToCloud(pendingData.current); }}
+                title="มีข้อมูลรอซิงค์ขึ้น Cloud — คลิกเพื่อลองอีกครั้ง"
+                className="rx-pulse" style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: C.mediumBg, color: C.medium, border: `1px solid ${C.mediumBorder}`, cursor: 'pointer' }}>
+                ⏳ รอซิงค์ · ลองใหม่
+              </button>
+            )}
+
+            {/* Dark mode toggle */}
+            <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" style={{
+              width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
+              background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary, fontSize: 15,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+            }}>{isDark ? '☀️' : '🌙'}</button>
 
             {/* Refresh button — ดึงข้อมูลล่าสุดจาก Cloud */}
             <button onClick={handleRefresh} disabled={refreshing} aria-label="รีเฟรชข้อมูล" title="ดึงข้อมูลล่าสุดจาก Cloud" style={{
