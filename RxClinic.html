@@ -144,6 +144,7 @@
 
   /* ── Responsive: phones & small tablets ── */
   @media (max-width: 900px) {
+    .rx-stat-grid { grid-template-columns: repeat(2,1fr) !important; }
     /* stack multi-column card grids → single column (tables excluded: they start with 'auto') */
     #main-scroll [style*="grid-template-columns: repeat"],
     #main-scroll [style*="grid-template-columns:repeat"],
@@ -1941,6 +1942,8 @@ function TemplateManager() {
   const [templates, setTemplates] = tplState(loadTemplates);
   const [edit, setEdit] = tplState(null);  // {id, field, name, text} or null
   const [filter, setFilter] = tplState('all');
+  const [confirmDelete, setConfirmDelete] = tplState(null);
+  const [confirmReset, setConfirmReset] = tplState(false);
 
   const save = (list) => { setTemplates(list); saveTemplatesToStorage(list); };
 
@@ -1953,13 +1956,9 @@ function TemplateManager() {
     save(list); setEdit(null);
   };
 
-  const handleDelete = (id) => save(templates.filter(t => t.id !== id));
+  const handleDelete = (id) => setConfirmDelete(id);
 
-  const handleResetDefaults = () => {
-    if (confirm('คืนค่า Templates เริ่มต้น? Templates ที่เพิ่มเองจะหายไปทั้งหมด')) {
-      save(DEFAULT_TEMPLATES);
-    }
-  };
+  const handleResetDefaults = () => setConfirmReset(true);
 
   const handleSaveAsTemplate = () => {
     const field = prompt('เลือก field (cc/s/o/a/p):') || 'p';
@@ -2065,6 +2064,22 @@ function TemplateManager() {
         )}
       </Modal>
     </Card>
+    <ConfirmModal
+      open={!!confirmDelete}
+      title="ลบ Template"
+      message="ยืนยันลบ Template นี้? การกระทำนี้ย้อนกลับไม่ได้"
+      danger
+      onConfirm={() => { save(templates.filter(t => t.id !== confirmDelete)); setConfirmDelete(null); }}
+      onClose={() => setConfirmDelete(null)}
+    />
+    <ConfirmModal
+      open={confirmReset}
+      title="คืนค่าเริ่มต้น"
+      message="คืนค่า Templates เริ่มต้น? Templates ที่เพิ่มเองจะหายไปทั้งหมด"
+      danger
+      onConfirm={() => { save(DEFAULT_TEMPLATES); setConfirmReset(false); }}
+      onClose={() => setConfirmReset(false)}
+    />
   );
 }
 
@@ -2132,7 +2147,7 @@ function Sparkline({ data, color, height = 50, width = 200, label, unit, formatV
 // ── Trends Section ────────────────────────────────────
 function TrendsSection({ visits }) {
   if (!visits || visits.length === 0) return null;
-  const sorted = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const sorted = [...visits].filter(v => v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
 
   // Detect interventions: SOAP P contains key intervention keywords OR DRP found
   const interventions = sorted.map(v => {
@@ -3889,6 +3904,7 @@ function UserManager({ data, onDataChange, currentUser }) {
   const [resetPwId, setResetPwId] = stState(null);
   const [msg,      setMsg]      = stState('');
   const [busy,     setBusy]     = stState(false);
+  const [confirmDeleteUser, setConfirmDeleteUser] = stState(null);
 
   const handleAdd = async () => {
     if (!newNm.trim() || !newEmail.trim() || newPw.length < 6) {
@@ -4014,7 +4030,7 @@ function UserManager({ data, onDataChange, currentUser }) {
                 {isAdmin && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   {u.email && <Btn size="sm" variant="ghost" onClick={() => handleSendResetEmail(u.email)}>รีเซ็ตรหัสผ่าน</Btn>}
-                  {(!u.uid || (currentUser?.id !== u.id && u.role !== 'admin')) && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
+                  {(!u.uid || (currentUser?.id !== u.id && u.role !== 'admin')) && <Btn size="sm" variant="danger" onClick={() => setConfirmDeleteUser(u)}>ลบ</Btn>}
                 </div>
                 )}
               </div>
@@ -4040,6 +4056,14 @@ function UserManager({ data, onDataChange, currentUser }) {
         </Card>
       )}
     </div>
+    <ConfirmModal
+      open={!!confirmDeleteUser}
+      title="ลบผู้ใช้"
+      message={`ยืนยันลบ "${confirmDeleteUser?.prefix || ''}${confirmDeleteUser?.name || ''}" ออกจากระบบ? การกระทำนี้ย้อนกลับไม่ได้`}
+      danger
+      onConfirm={() => { onDataChange({ ...data, users: users.filter(x => x.id !== confirmDeleteUser.id) }); setConfirmDeleteUser(null); }}
+      onClose={() => setConfirmDeleteUser(null)}
+    />
   );
 }
 
@@ -4146,6 +4170,7 @@ function CompetencyLog({ currentUser }) {
     localStorage.setItem(CPKEY, JSON.stringify(updated));
     setForm(f => ({ ...f, topic: '', patient: '', outcome: '' }));
   };
+  const [confirmRemove, setConfirmRemove] = React.useState(null);
   const remove = (id) => { const u = logs.filter(l => l.id !== id); setLogs(u); localStorage.setItem(CPKEY, JSON.stringify(u)); };
   const totalHours = logs.reduce((s, l) => s + (parseFloat(l.hours) || 0), 0);
   const types = ['Case Discussion', 'Journal Club', 'Grand Round', 'In-service Training', 'Self-Study', 'Workshop', 'Conference', 'Other'];
@@ -4221,11 +4246,19 @@ function CompetencyLog({ currentUser }) {
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{l.date} · {l.type} · {l.pharmacist}</div>
                 {l.outcome && <div style={{ fontSize: 11, color: C.accent, marginTop: 2 }}>💡 {l.outcome}</div>}
               </div>
-              <button onClick={() => remove(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 14, flexShrink: 0 }}>✕</button>
+              <button onClick={() => setConfirmRemove(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 14, flexShrink: 0, minWidth: 32, minHeight: 32 }}>✕</button>
             </div>
           ))
         }
       </Card>
+      <ConfirmModal
+        open={!!confirmRemove}
+        title="ลบรายการ CPD"
+        message="ยืนยันลบรายการ CPD นี้?"
+        danger
+        onConfirm={() => { remove(confirmRemove); setConfirmRemove(null); }}
+        onClose={() => setConfirmRemove(null)}
+      />
     </div>
   );
 }
@@ -9520,12 +9553,12 @@ const OutcomeTracking = ({ data }) => {
     const exacerbReduction = [];
 
     patients.forEach(p => {
-      const visits = (data.visits || []).filter(v => v.patientId === p.id).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+      const visits = (data.visits || []).filter(v => v.patientId === p.id && v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
       if (visits.length >= 2) {
         const first = visits[0];
         const last = visits[visits.length - 1];
-        if (first.cat?.score != null && last.cat?.score != null) {
-          catImprovement.push({ hn: p.hn, before: first.cat.score, after: last.cat.score, delta: first.cat.score - last.cat.score });
+        if (first.assessments?.cat?.score != null && last.assessments?.cat?.score != null) {
+          catImprovement.push({ hn: p.hn, before: first.assessments.cat.score, after: last.assessments.cat.score, delta: first.assessments.cat.score - last.assessments.cat.score });
         }
         const firstExacerb = first.exacerbation?.countThisYear || 0;
         const lastExacerb = last.exacerbation?.countThisYear || 0;
@@ -9582,10 +9615,11 @@ const TechniqueMasteryCurve = ({ data }) => {
         .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
       
       if (visits.length >= 2) {
+        const scoreMap = { Good: 3, Fair: 2, Poor: 1 };
         const scores = visits.map(v => {
           const techniques = v.inhalerTechnique || [];
           if (techniques.length === 0) return null;
-          const avg = techniques.reduce((sum, t) => sum + t.overallScore, 0) / techniques.length;
+          const avg = techniques.reduce((sum, t) => sum + (scoreMap[t.overallScore] ?? Number(t.overallScore) ?? 0), 0) / techniques.length;
           return avg;
         }).filter(s => s != null);
         
@@ -12624,21 +12658,30 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
   const [rows, setRows] = useState([{ ...empty }]);
   const [note, setNote] = useState('');
   const [pharmacist, setPharmacist] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const addRow = () => setRows(r => [...r, { ...empty }]);
   const updateRow = (i, k, v) => setRows(r => r.map((row, j) => j === i ? { ...row, [k]: v } : row));
   const removeRow = (i) => setRows(r => r.filter((_, j) => j !== i));
 
-  const handleSave = () => {
-    const rec = {
-      id: AppStore.generateId(),
-      patientId: patient.id,
-      type, rows, note, pharmacist,
-      date: new Date().toISOString().slice(0, 10),
-      timestamp: new Date().toISOString(),
-    };
-    onSave(rec);
-    onClose();
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const rec = {
+        id: AppStore.generateId(),
+        patientId: patient.id,
+        type, rows, note, pharmacist,
+        date: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+      };
+      await onSave(rec);
+      onClose();
+    } catch (e) {
+      window.rxToast?.('บันทึกไม่สำเร็จ: ' + (e.message || 'เกิดข้อผิดพลาด'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const discrepancyCount = rows.filter(r => r.discrepancy !== 'none').length;
@@ -12680,19 +12723,19 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
               <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: row.discrepancy !== 'none' ? C.highBg : 'transparent' }}>
                 <td style={{ padding: '4px 6px' }}>
                   <input value={row.drug} onChange={e => updateRow(i, 'drug', e.target.value)}
-                    style={{ width: 140, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
+                    style={{ minWidth: 100, width: '100%', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
                 </td>
                 <td style={{ padding: '4px 6px' }}>
                   <input value={row.dose} onChange={e => updateRow(i, 'dose', e.target.value)}
-                    style={{ width: 70, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
+                    style={{ minWidth: 60, width: '100%', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
                 </td>
                 <td style={{ padding: '4px 6px' }}>
                   <input value={row.frequency} onChange={e => updateRow(i, 'frequency', e.target.value)}
-                    style={{ width: 70, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
+                    style={{ minWidth: 60, width: '100%', padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }} />
                 </td>
                 <td style={{ padding: '4px 6px' }}>
                   <select value={row.route} onChange={e => updateRow(i, 'route', e.target.value)}
-                    style={{ width: 70, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }}>
+                    style={{ minWidth: 60, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 12, fontFamily: 'inherit' }}>
                     {['PO','INH','SC','IV','TOP','PR'].map(r => <option key={r}>{r}</option>)}
                   </select>
                 </td>
@@ -12716,7 +12759,7 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
                     style={{ width: 140, padding: '4px 7px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: 'inherit', opacity: row.discrepancy === 'none' ? 0.4 : 1 }} />
                 </td>
                 <td style={{ padding: '4px 6px' }}>
-                  <button onClick={() => removeRow(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.high, fontSize: 14 }}>✕</button>
+                  <button onClick={() => removeRow(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.high, fontSize: 14, minWidth: 32, minHeight: 32 }}>✕</button>
                 </td>
               </tr>
             ))}
@@ -12744,7 +12787,7 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave}>💾 บันทึก Reconciliation</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก Reconciliation'}</Btn>
       </div>
     </Modal>
   );
@@ -12763,16 +12806,25 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = () => {
-    const report = {
-      id: AppStore.generateId(),
-      patientId: patient.id,
-      ...form,
-      reportDate: new Date().toISOString().slice(0, 10),
-      timestamp: new Date().toISOString(),
-    };
-    onSave(report);
-    onClose();
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const report = {
+        id: AppStore.generateId(),
+        patientId: patient.id,
+        ...form,
+        reportDate: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+      };
+      await onSave(report);
+      onClose();
+    } catch (e) {
+      window.rxToast?.('บันทึกไม่สำเร็จ: ' + (e.message || 'เกิดข้อผิดพลาด'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open) return null;
@@ -12856,7 +12908,7 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
       </label>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="accent" onClick={handleSave}>📋 ส่งรายงาน ADR</Btn>
+        <Btn variant="accent" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '📋 ส่งรายงาน ADR'}</Btn>
       </div>
     </Modal>
   );
@@ -12873,9 +12925,18 @@ function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = () => {
-    onSave({ id: AppStore.generateId(), patientId: patient.id, ...form, date: new Date().toISOString().slice(0, 10), timestamp: new Date().toISOString() });
-    onClose();
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave({ id: AppStore.generateId(), patientId: patient.id, ...form, date: new Date().toISOString().slice(0, 10), timestamp: new Date().toISOString() });
+      onClose();
+    } catch (e) {
+      window.rxToast?.('บันทึกไม่สำเร็จ: ' + (e.message || 'เกิดข้อผิดพลาด'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const urgencyColor = { routine: C.low, urgent: C.medium, stat: C.high }[form.urgency];
@@ -12943,7 +13004,7 @@ function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
       </div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave}>🔗 ส่งต่อ</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '🔗 ส่งต่อ'}</Btn>
       </div>
     </Modal>
   );
@@ -12978,13 +13039,22 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
   const toggle = (id) => setChecked(c => ({ ...c, [id]: !c[id] }));
   const doneCount = ITEMS.filter(i => checked[i.id]).length;
 
-  const handleSave = () => {
-    onSave({
-      id: AppStore.generateId(), patientId: patient.id,
-      checklist: checked, consent, followupDate, pharmacist, notes,
-      date: new Date().toISOString().slice(0, 10), timestamp: new Date().toISOString(),
-    });
-    onClose();
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave({
+        id: AppStore.generateId(), patientId: patient.id,
+        checklist: checked, consent, followupDate, pharmacist, notes,
+        date: new Date().toISOString().slice(0, 10), timestamp: new Date().toISOString(),
+      });
+      onClose();
+    } catch (e) {
+      window.rxToast?.('บันทึกไม่สำเร็จ: ' + (e.message || 'เกิดข้อผิดพลาด'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open) return null;
@@ -13061,8 +13131,8 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave} disabled={!consent}>
-          🏠 บันทึก Discharge Checklist
+        <Btn variant="primary" onClick={handleSave} disabled={!consent || saving}>
+          {saving ? '⏳ กำลังบันทึก...' : '🏠 บันทึก Discharge Checklist'}
         </Btn>
       </div>
     </Modal>
@@ -13081,9 +13151,18 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = () => {
-    onSave({ id: AppStore.generateId(), patientId: patient.id, ...form, date: new Date().toISOString().slice(0, 10) });
-    onClose();
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave({ id: AppStore.generateId(), patientId: patient.id, ...form, date: new Date().toISOString().slice(0, 10) });
+      onClose();
+    } catch (e) {
+      window.rxToast?.('บันทึกไม่สำเร็จ: ' + (e.message || 'เกิดข้อผิดพลาด'), 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open) return null;
@@ -13160,7 +13239,7 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave}>💾 บันทึก RCA</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก RCA'}</Btn>
       </div>
     </Modal>
   );
@@ -13593,7 +13672,7 @@ function AppBgCanvas() {
 }
 
 // ── Animated counter (counts up from 0 on mount) ──────
-function AnimatedNumber({ target, duration = 900 }) {
+function AnimatedCounter({ target, duration = 900 }) {
   const [val, setVal] = useState(0);
   const rafRef = useRef(null);
   useEffect(() => {
@@ -13952,7 +14031,7 @@ function Dashboard({ data, navigate }) {
       )}
 
       {/* ── Stat cards (animated) ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:22 }}>
+      <div className="rx-stat-grid" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:22 }}>
         {[
           { label:'ผู้ป่วยทั้งหมด', value:pts.length,         color:C.primary,    icon:'👥', sub:'ราย' },
           { label:'High Risk',       value:highRisk.length,    color:'#DC2626',    icon:'🔴', sub:'ต้องติดตามด่วน' },
@@ -13972,7 +14051,7 @@ function Dashboard({ data, navigate }) {
             }}>{s.icon}</div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:30, fontWeight:800, color:s.color, lineHeight:1 }}>
-                <AnimatedNumber target={s.value} />
+                <AnimatedCounter target={s.value} />
               </div>
               <div style={{ fontSize:12, fontWeight:700, color:C.text, marginTop:3 }}>{s.label}</div>
               {s.sub && <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{s.sub}</div>}
