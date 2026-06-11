@@ -183,6 +183,24 @@
     box-shadow: 0 0 0 3px rgba(37,99,235,0.15) !important;
   }
 
+  /* ── Button press feedback (tactile) ── */
+  .rx-btn:active:not(:disabled) { transform: translateY(0) scale(0.97) !important; }
+
+  /* ── Keyboard focus-visible ring for buttons (accessibility) ── */
+  .rx-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.35) !important;
+  }
+
+  /* ── Respect reduced-motion preference (accessibility) ── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
   /* ── Page view transition ── */
   @keyframes rxViewIn {
     from { opacity: 0; transform: translateY(12px) scale(0.995); }
@@ -13976,8 +13994,8 @@ function Dashboard({ data, navigate }) {
             { n: highRisk.length,       label:'High Risk',     icon:'🔴' },
           ].map(s => (
             <div key={s.label} style={{ background:'rgba(255,255,255,0.13)', borderRadius:14, padding:'12px 18px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.2)', minWidth: 96 }}>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{s.icon} {s.label}</div>
-              <div style={{ fontSize:26, fontWeight:800 }}>{s.n}</div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.85)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4, fontWeight:600 }}>{s.icon} {s.label}</div>
+              <div style={{ fontSize:28, fontWeight:800 }}>{s.n}</div>
             </div>
           ))}
         </div>
@@ -14081,7 +14099,7 @@ function Dashboard({ data, navigate }) {
             {upcomingVisits.map(({ patient: p, nextVisit }) => {
               const daysLeft = Math.round((new Date(nextVisit) - new Date(todayStr)) / 86400000);
               return (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: daysLeft <= 2 ? C.mediumBg : '#F5F3FF', border: `1px solid ${daysLeft <= 2 ? C.mediumBorder : '#DDD6FE'}`, borderRadius: 8, cursor: 'pointer' }}
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: daysLeft <= 2 ? C.mediumBg : 'rgba(124,58,237,0.10)', border: `1px solid ${daysLeft <= 2 ? C.mediumBorder : 'rgba(124,58,237,0.30)'}`, borderRadius: 8, cursor: 'pointer' }}
                   onClick={() => navigate('history', p.id)}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', background: daysLeft <= 2 ? C.medium : '#7C3AED', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
                     {daysLeft}d
