@@ -4047,9 +4047,11 @@ function UserManager({ data, onDataChange, currentUser }) {
           <p style={{ margin: '4px 0 10px', fontSize: 11, color: C.textMuted }}>
             ลบข้อมูลผู้ป่วย การเยี่ยม และ Telepharmacy ทั้งหมดออกจากระบบ (เก็บบัญชีผู้ใช้และรหัสคลินิกไว้) — ใช้กรณีต้องการเริ่มต้นใหม่ด้วยข้อมูลจริงเท่านั้น
           </p>
-          <Btn size="sm" variant="danger" onClick={() => {
+          <Btn size="sm" variant="danger" onClick={async () => {
             if (!window.confirm('ยืนยันลบข้อมูลผู้ป่วย/การเยี่ยม/Telepharmacy ทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้')) return;
             if (!window.confirm('ยืนยันอีกครั้ง — ข้อมูลผู้ป่วยทั้งหมดจะถูกลบถาวร')) return;
+            // Auto-backup ก่อนล้างข้อมูลเสมอ
+            if (window._rxForceBackup) await window._rxForceBackup();
             onDataChange({ ...data, patients: [], visits: [], telepharmacy: [],
               haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
           }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
@@ -4338,7 +4340,7 @@ function AuditLogView({ data }) {
   );
 }
 
-function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave, syncStatus }) {
+function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave, syncStatus, onForceBackup, onLoadBackupSlots }) {
   const [tab, setTab] = stState('users');
 
   // Block non-admin users with a locked screen
@@ -4640,13 +4642,16 @@ function printMonthlyReport(data, yearMonth) {
 }
 
 // ── ExportSection Component ───────────────────────────
-function ExportSection({ data, onDataChange }) {
+function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const [selPt,      setSelPt]      = React.useState('');
   const [selMonth,   setSelMonth]   = React.useState(new Date().toISOString().slice(0,7));
   const [selQYear,   setSelQYear]   = React.useState(new Date().getFullYear());
   const [selQuarter, setSelQuarter] = React.useState(Math.ceil((new Date().getMonth()+1)/3));
-  const [restoreInfo, setRestoreInfo] = React.useState(null); // {parsed, counts} หลังเลือกไฟล์ → รอยืนยัน
+  const [restoreInfo, setRestoreInfo] = React.useState(null);
   const [restoreErr,  setRestoreErr]  = React.useState('');
+  const [backupSlots, setBackupSlots] = React.useState(null); // null=ยังไม่โหลด
+  const [backupBusy,  setBackupBusy]  = React.useState(false);
+  const [restoreSlotInfo, setRestoreSlotInfo] = React.useState(null);
   const fileRef = React.useRef(null);
 
   const months = Array.from(new Set(
@@ -4705,8 +4710,10 @@ function ExportSection({ data, onDataChange }) {
     e.target.value = ''; // reset เพื่อให้เลือกไฟล์เดิมซ้ำได้
   };
 
-  const confirmRestore = () => {
+  const confirmRestore = async () => {
     if (!restoreInfo) return;
+    // Backup ก่อนเขียนทับเสมอ
+    if (onForceBackup) await onForceBackup();
     const p = restoreInfo.parsed;
     const merged = {
       ...data,
@@ -4720,7 +4727,17 @@ function ExportSection({ data, onDataChange }) {
     onDataChange(merged);
     setRestoreInfo(null);
     setRestoreErr('');
-    alert('✓ กู้คืนข้อมูลสำเร็จ — ข้อมูลถูกซิงค์ขึ้น Cloud แล้ว');
+    window.rxToast?.('✓ กู้คืนข้อมูลสำเร็จ — ข้อมูลถูกซิงค์ขึ้น Cloud แล้ว', 'success');
+  };
+
+  const confirmRestoreSlot = async () => {
+    if (!restoreSlotInfo) return;
+    if (onForceBackup) await onForceBackup();
+    const p = restoreSlotInfo.data;
+    const merged = { ...data, patients: p.patients || [], visits: p.visits || [], telepharmacy: p.telepharmacy || [], haCompliance: p.haCompliance || data.haCompliance || {} };
+    onDataChange(merged);
+    setRestoreSlotInfo(null);
+    window.rxToast?.('✓ กู้คืนจาก Cloud Backup สำเร็จ', 'success');
   };
 
   return (
@@ -4842,12 +4859,60 @@ function ExportSection({ data, onDataChange }) {
             </p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <Btn size="sm" variant="primary" onClick={exportBackup}>💾 ดาวน์โหลด Backup ทั้งหมด</Btn>
+              <Btn size="sm" variant="ghost" onClick={async () => {
+                setBackupBusy(true);
+                const ok = onForceBackup ? await onForceBackup() : false;
+                setBackupBusy(false);
+                window.rxToast?.(ok ? '✅ สำรองข้อมูล Cloud สำเร็จ' : '❌ สำรองข้อมูลไม่สำเร็จ', ok ? 'success' : 'error');
+              }} disabled={backupBusy}>{backupBusy ? '⏳ กำลังสำรอง...' : '☁️ สำรอง Cloud ทันที'}</Btn>
               <input ref={fileRef} type="file" accept="application/json,.json" onChange={onFilePick} style={{ display: 'none' }} />
-              <Btn size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>📂 เลือกไฟล์ Backup เพื่อกู้คืน</Btn>
+              <Btn size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>📂 กู้คืนจากไฟล์ JSON</Btn>
+              {onLoadBackupSlots && (
+                <Btn size="sm" variant="ghost" onClick={async () => {
+                  setBackupBusy(true);
+                  const slots = await onLoadBackupSlots();
+                  setBackupSlots(slots);
+                  setBackupBusy(false);
+                }} disabled={backupBusy}>{backupBusy ? '⏳ กำลังโหลด...' : '🔁 ดู Cloud Backup ทั้งหมด'}</Btn>
+              )}
             </div>
             <p style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
               Backup รวมผู้ป่วย, บันทึกการเยี่ยม, Telepharmacy, ผู้ใช้ และ HA — ใช้สำหรับสำรอง/ย้ายเครื่อง/กู้คืน
             </p>
+
+            {/* Cloud backup slots list */}
+            {backupSlots !== null && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.primary, marginBottom: 8 }}>☁️ Cloud Backup (10 ช่องล่าสุด)</div>
+                {backupSlots.length === 0 ? (
+                  <div style={{ fontSize: 12, color: C.textMuted }}>ยังไม่มี backup บน Cloud</div>
+                ) : backupSlots.map(s => (
+                  <div key={s.slot} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: '#F8FAFC', border: `1px solid ${C.border}`, marginBottom: 6 }}>
+                    <div style={{ flex: 1, fontSize: 12 }}>
+                      <strong>{new Date(s.backupAt).toLocaleString('th-TH')}</strong>
+                      <span style={{ color: C.textMuted, marginLeft: 8 }}>โดย {s.editedBy || '—'} · {(s.data?.patients||[]).length} ผู้ป่วย · {(s.data?.visits||[]).length} visits</span>
+                    </div>
+                    <Btn size="sm" variant="ghost" onClick={() => setRestoreSlotInfo(s)}>กู้คืน</Btn>
+                  </div>
+                ))}
+                <Btn size="sm" variant="ghost" onClick={() => setBackupSlots(null)} style={{ marginTop: 4 }}>ปิด</Btn>
+              </div>
+            )}
+
+            {restoreSlotInfo && (
+              <div style={{ marginTop: 12, padding: '14px 16px', background: C.mediumBg, border: `2px solid ${C.mediumBorder}`, borderRadius: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>
+                  ⚠ ยืนยันกู้คืนจาก Cloud Backup — จะ <span style={{ color: C.high }}>เขียนทับข้อมูลผู้ป่วยปัจจุบัน</span>
+                </div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+                  Backup วันที่ {new Date(restoreSlotInfo.backupAt).toLocaleString('th-TH')} มี {(restoreSlotInfo.data?.patients||[]).length} ผู้ป่วย / {(restoreSlotInfo.data?.visits||[]).length} visits
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <Btn size="sm" variant="ghost" onClick={() => setRestoreSlotInfo(null)}>ยกเลิก</Btn>
+                  <Btn size="sm" variant="danger" onClick={confirmRestoreSlot}>ยืนยันกู้คืน</Btn>
+                </div>
+              </div>
+            )}
 
             {restoreErr && (
               <div style={{ marginTop: 10, padding: '10px 12px', background: C.highBg, border: `1px solid ${C.highBorder}`, borderRadius: 8, fontSize: 12, color: C.high, fontWeight: 600 }}>
@@ -8771,7 +8836,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
 }
 
 // ── ReportsView ───────────────────────────────────────
-function ReportsView({ data, navigate, onDataChange }) {
+function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const pts = data.patients;
   const vis = data.visits;
   const tel = data.telepharmacy;
@@ -9103,7 +9168,7 @@ function ReportsView({ data, navigate, onDataChange }) {
       })()}
 
       {/* Export Section */}
-      <ExportSection data={data} onDataChange={onDataChange} />
+      <ExportSection data={data} onDataChange={onDataChange} onForceBackup={onForceBackup} onLoadBackupSlots={onLoadBackupSlots} />
     </div>
   );
 }
@@ -14395,6 +14460,13 @@ function App() {
     clearTimeout(retryRef.current);
     const db = dbRef.current;
     if (!db) return;
+
+    // Enable offline persistence (once per app session)
+    if (!initFirestore._persistTried) {
+      initFirestore._persistTried = true;
+      try { await db.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* already enabled or unsupported */ }
+    }
+
     try {
       setSyncStatus('syncing');
 
@@ -14420,6 +14492,8 @@ function App() {
         doc => {
           if (!doc.exists) return;
           const d = doc.data();
+          // Shape validation — reject obviously corrupt snapshots
+          if (!d || typeof d !== 'object' || !Array.isArray(d.patients)) return;
           const me = currentUserRef.current?.name || currentUserRef.current?.username;
           if (d._editedBy && me && d._editedBy !== me && d._savedAt && (Date.now() - d._savedAt) < 60000) {
             setAppToast({ msg: `🔄 ข้อมูลถูกอัปเดตโดย ${d._editedBy} (อีกเครื่อง) — หน้าจอรีเฟรชแล้ว`, type: 'info' });
@@ -14495,6 +14569,59 @@ function App() {
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, [flushToCloud]);
+
+  // flush ก่อนปิดแท็บ — กันหาย 600ms debounce
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      const nd = pendingData.current;
+      if (nd && dbRef.current) {
+        clearTimeout(saveTimer.current);
+        try {
+          const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || '' };
+          dbRef.current.collection('clinic').doc('main').set(payload);
+        } catch {}
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // Force backup — เรียกได้จากหน้า Settings
+  const forceBackup = useCallback(async () => {
+    const db = dbRef.current;
+    if (!db || !data) return false;
+    try {
+      const KEY = 'copd_autobackup_v1';
+      const meta = JSON.parse(localStorage.getItem(KEY) || '{"slot":0,"at":0}');
+      const slot = (meta.slot || 0) % 10;
+      await db.collection('clinic_backups').doc('slot_' + slot).set({
+        _backupAt: Date.now(),
+        _editedBy: currentUserRef.current?.name || '',
+        data: { ...data, _savedAt: data._savedAt || Date.now() },
+      });
+      localStorage.setItem(KEY, JSON.stringify({ slot: (slot + 1) % 10, at: Date.now() }));
+      return true;
+    } catch { return false; }
+  }, [data]);
+
+  // Expose forceBackup globally so components deep in tree can use it
+  useEffect(() => { window._rxForceBackup = forceBackup; return () => { delete window._rxForceBackup; }; }, [forceBackup]);
+
+  // Load backup slots list
+  const loadBackupSlots = useCallback(async () => {
+    const db = dbRef.current;
+    if (!db) return [];
+    try {
+      const snaps = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => db.collection('clinic_backups').doc('slot_' + i).get())
+      );
+      return snaps
+        .filter(s => s.exists)
+        .map(s => { const d = s.data(); return { slot: s.id, backupAt: d._backupAt, editedBy: d._editedBy, data: d.data }; })
+        .filter(s => s.data && Array.isArray(s.data.patients))
+        .sort((a, b) => (b.backupAt || 0) - (a.backupAt || 0));
+    } catch { return []; }
+  }, []);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
     if (target === 'telepharmacy-add') {
@@ -14663,7 +14790,7 @@ function App() {
       case 'telepharmacy':
         return <TelepharmacyView data={data} onDataChange={handleDataChange} navigate={navigate} initPatientId={teleAddPtId} />;
       case 'reports':
-        return <ReportsView data={data} navigate={navigate} onDataChange={handleDataChange} />;
+        return <ReportsView data={data} navigate={navigate} onDataChange={handleDataChange} onForceBackup={forceBackup} onLoadBackupSlots={loadBackupSlots} />;
       case 'analytics':
         return <AnalyticsDashboard data={data} />;
       case 'ha':
@@ -14680,7 +14807,8 @@ function App() {
         );
         return <SettingsView data={data} onDataChange={handleDataChange}
           currentUser={currentUser} onSwitch={u => setCurrentUser(u)}
-          onConfigSave={initFirebase} syncStatus={syncStatus} />;
+          onConfigSave={initFirebase} syncStatus={syncStatus}
+          onForceBackup={forceBackup} onLoadBackupSlots={loadBackupSlots} />;
       default:
         return <Dashboard data={data} navigate={navigate} />;
     }
