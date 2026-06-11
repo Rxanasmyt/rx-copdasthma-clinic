@@ -4014,7 +4014,7 @@ function UserManager({ data, onDataChange, currentUser }) {
                 {isAdmin && (
                 <div style={{ display: 'flex', gap: 6 }}>
                   {u.email && <Btn size="sm" variant="ghost" onClick={() => handleSendResetEmail(u.email)}>รีเซ็ตรหัสผ่าน</Btn>}
-                  {currentUser?.id !== u.id && (!u.uid || u.role !== 'admin') && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
+                  {(!u.uid || (currentUser?.id !== u.id && u.role !== 'admin')) && <Btn size="sm" variant="danger" onClick={() => onDataChange({ ...data, users: users.filter(x => x.id !== u.id) })}>ลบ</Btn>}
                 </div>
                 )}
               </div>
