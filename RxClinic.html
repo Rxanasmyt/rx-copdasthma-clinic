@@ -286,6 +286,7 @@
   .rx-bar-fill { animation: rxBarFill 0.85s cubic-bezier(0.16,1,0.3,1) both; }
   @keyframes rxRingFill { from { stroke-dashoffset: var(--rx-circ); } }
   @keyframes rxPopIn { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  .rx-insight-card.rx-reveal { opacity: 0; transform: translateY(18px); }
   .rx-insight-card {
     animation: rxPopIn 0.5s cubic-bezier(0.16,1,0.3,1) backwards;
     transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s;
@@ -441,6 +442,225 @@
   a.rx-link::after { content:''; position:absolute; left:0; bottom:-2px; width:100%; height:1.5px;
     background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform 0.22s ease; }
   a.rx-link:hover::after { transform: scaleX(1); }
+
+  /* ══════════════════════════════════════════════════════════════
+     ✨ Wave 11 — Comprehensive UI Animation Layer
+     ══════════════════════════════════════════════════════════════
+
+     1. Input focus — animated border-bottom sweep + glow burst
+     2. Validation shake — fields/cards shake on error
+     3. High-risk badge — pulsing red ring
+     4. Nav active indicator — left-border glow + icon scale
+     5. Scroll-reveal — sections/cards fade-rise into view
+     6. Danger button — shake before confirm
+     7. Page-top loading bar — thin stripe animates on view change
+     8. Card entrance variants — slide-up from bottom for modals
+     9. Hover depth — 3-level lift system for interactive cards
+    10. Toggle / switch — flip animation for theme toggle
+    11. Select / dropdown — slide-down open animation
+    12. Delete exit — shrink-fade when row is removed
+    13. Tooltip — fade+scale from anchor point
+    14. Number badge refresh — scale-bounce on count change
+    15. Sidebar collapse transition — smooth icon-only mode
+  ══════════════════════════════════════════════════════════════ */
+
+  /* 1 ── Input focus: animated bottom border sweep ── */
+  .rx-field { position: relative; transition: border-color 0.2s, box-shadow 0.2s; }
+  .rx-field:focus {
+    outline: none;
+    border-color: #2563EB !important;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.15), 0 1px 0 0 #2563EB inset !important;
+    background: var(--c-surface) !important;
+  }
+  [data-theme="dark"] .rx-field:focus {
+    box-shadow: 0 0 0 3px rgba(96,165,250,0.2), 0 1px 0 0 #60A5FA inset !important;
+    border-color: #60A5FA !important;
+  }
+  /* label floats & colours when sibling field is focused */
+  .rx-field-wrap { position: relative; }
+  .rx-field-wrap:focus-within .rx-field-label {
+    color: #2563EB !important;
+    transform: translateY(-1px);
+    transition: color 0.18s ease, transform 0.18s ease;
+  }
+  [data-theme="dark"] .rx-field-wrap:focus-within .rx-field-label { color: #60A5FA !important; }
+
+  /* 2 ── Validation shake ── */
+  @keyframes rxShake {
+    0%,100% { transform: translateX(0); }
+    15%     { transform: translateX(-6px); }
+    30%     { transform: translateX(5px); }
+    45%     { transform: translateX(-4px); }
+    60%     { transform: translateX(3px); }
+    75%     { transform: translateX(-2px); }
+    90%     { transform: translateX(1px); }
+  }
+  .rx-shake { animation: rxShake 0.45s cubic-bezier(0.36,0.07,0.19,0.97) both; }
+  .rx-field.rx-invalid {
+    border-color: #EF4444 !important;
+    box-shadow: 0 0 0 3px rgba(239,68,68,0.15) !important;
+    animation: rxShake 0.45s cubic-bezier(0.36,0.07,0.19,0.97) both;
+  }
+  .rx-field-error { color: #EF4444; font-size: 11px; margin-top: 3px;
+    animation: rxRiseSm 0.22s ease both; }
+
+  /* 3 ── High-risk pulsing ring ── */
+  @keyframes rxRiskPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
+    50%     { box-shadow: 0 0 0 7px rgba(239,68,68,0); }
+  }
+  @keyframes rxMedPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(234,179,8,0.45); }
+    50%     { box-shadow: 0 0 0 5px rgba(234,179,8,0); }
+  }
+  .rx-risk-high   { animation: rxRiskPulse 2s ease-in-out infinite; }
+  .rx-risk-medium { animation: rxMedPulse  2.8s ease-in-out infinite; }
+  /* risk badge pill */
+  .rx-risk-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .rx-risk-pill:hover { transform: scale(1.06); }
+  .rx-risk-pill.high   { background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; }
+  .rx-risk-pill.medium { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+  .rx-risk-pill.low    { background:#F0FDF4; color:#166534; border:1px solid #BBF7D0; }
+  [data-theme="dark"] .rx-risk-pill.high   { background:#3B1010; color:#FCA5A5; border-color:#7F1D1D; }
+  [data-theme="dark"] .rx-risk-pill.medium { background:#2D1F06; color:#FCD34D; border-color:#78350F; }
+  [data-theme="dark"] .rx-risk-pill.low    { background:#052E16; color:#86EFAC; border-color:#14532D; }
+
+  /* 4 ── Nav active: icon scale + glow ── */
+  .rx-nav-btn { transition: background 0.18s, border-color 0.18s, transform 0.14s !important; }
+  .rx-nav-btn:active { transform: scale(0.97); }
+  .rx-nav-btn.active .rx-nav-icon { transform: scale(1.18); transition: transform 0.22s cubic-bezier(0.34,1.56,0.64,1); }
+  .rx-nav-btn:not(.active) .rx-nav-icon { transition: transform 0.18s ease; }
+  .rx-nav-btn:hover .rx-nav-icon { transform: scale(1.1); }
+
+  /* 5 ── Scroll-reveal: js adds .rx-revealed when IntersectionObserver fires ── */
+  .rx-reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.48s ease, transform 0.48s cubic-bezier(0.16,1,0.3,1); }
+  .rx-reveal.rx-revealed { opacity: 1; transform: translateY(0); }
+  .rx-reveal-delay-1 { transition-delay: 0.06s; }
+  .rx-reveal-delay-2 { transition-delay: 0.12s; }
+  .rx-reveal-delay-3 { transition-delay: 0.18s; }
+  .rx-reveal-delay-4 { transition-delay: 0.24s; }
+
+  /* 6 ── Danger shake (applied to button, not the row) ── */
+  @keyframes rxDangerPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+    50%     { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+  }
+  .rx-btn-danger-confirm {
+    animation: rxDangerPulse 0.9s ease-out 1;
+  }
+
+  /* 7 ── Page-top loading bar ── */
+  @keyframes rxTopBarLoad {
+    0%   { width: 0%;   opacity: 1; }
+    80%  { width: 90%;  opacity: 1; }
+    100% { width: 100%; opacity: 0; }
+  }
+  .rx-topbar-progress {
+    position: fixed; top: 0; left: 0; height: 3px; z-index: 9999;
+    background: linear-gradient(90deg, #2563EB, #06B6D4, #7C3AED);
+    border-radius: 0 3px 3px 0;
+    animation: rxTopBarLoad 0.65s cubic-bezier(0.16,1,0.3,1) forwards;
+    pointer-events: none;
+  }
+
+  /* 8 ── Card entrance variants ── */
+  @keyframes rxSlideUp { from { opacity:0; transform:translateY(24px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+  @keyframes rxDropDown { from { opacity:0; transform:translateY(-12px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+  .rx-slide-up   { animation: rxSlideUp  0.38s cubic-bezier(0.16,1,0.3,1) both; }
+  .rx-drop-down  { animation: rxDropDown 0.28s cubic-bezier(0.16,1,0.3,1) both; }
+
+  /* 9 ── 3-level hover depth system ── */
+  /* level-1: subtle (stat cards, list items) */
+  .rx-hover-1 { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+  .rx-hover-1:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15,23,42,0.10) !important; }
+  /* level-2: medium (action cards, insight cards) */
+  .rx-hover-2 { transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s ease; }
+  .rx-hover-2:hover { transform: translateY(-4px) scale(1.01); box-shadow: 0 12px 32px rgba(15,23,42,0.14) !important; }
+  /* level-3: prominent (hero cards, feature highlights) */
+  .rx-hover-3 { transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.25s ease; }
+  .rx-hover-3:hover { transform: translateY(-6px) scale(1.02); box-shadow: 0 20px 48px rgba(15,23,42,0.18) !important; }
+  [data-theme="dark"] .rx-hover-1:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.45) !important; }
+  [data-theme="dark"] .rx-hover-2:hover { box-shadow: 0 12px 32px rgba(0,0,0,0.55) !important; }
+  [data-theme="dark"] .rx-hover-3:hover { box-shadow: 0 20px 48px rgba(0,0,0,0.65) !important; }
+
+  /* 10 ── Theme toggle flip ── */
+  @keyframes rxFlipY { 0% { transform: rotateY(0deg); } 50% { transform: rotateY(90deg); } 100% { transform: rotateY(0deg); } }
+  .rx-theme-flip { animation: rxFlipY 0.4s ease both; }
+
+  /* 11 ── Dropdown / select open ── */
+  @keyframes rxSelectOpen { from { opacity:0; transform:translateY(-6px) scaleY(0.92); } to { opacity:1; transform:translateY(0) scaleY(1); } }
+  .rx-dropdown-open { animation: rxSelectOpen 0.2s cubic-bezier(0.16,1,0.3,1) both; transform-origin: top center; }
+
+  /* 12 ── Row / item delete exit ── */
+  @keyframes rxDeleteOut {
+    0%   { opacity:1; transform:scaleY(1) scaleX(1); max-height:200px; }
+    40%  { opacity:0.4; transform:scaleX(0.97); }
+    100% { opacity:0; transform:scaleY(0) scaleX(0.9); max-height:0; padding:0; margin:0; }
+  }
+  .rx-delete-out { animation: rxDeleteOut 0.38s cubic-bezier(0.4,0,1,1) forwards; overflow: hidden; transform-origin: top; }
+
+  /* 13 ── Tooltip ── */
+  @keyframes rxTipIn { from { opacity:0; transform:translateY(4px) scale(0.95); } to { opacity:1; transform:translateY(0) scale(1); } }
+  .rx-tooltip-wrap { position: relative; display: inline-block; }
+  .rx-tooltip {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: #0F172A; color: #F1F5F9; font-size: 11px; font-weight: 500;
+    padding: 5px 10px; border-radius: 8px; white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.18s ease, transform 0.18s ease; transform-origin: bottom center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25); z-index: 9000;
+  }
+  .rx-tooltip::after { content:''; position:absolute; top:100%; left:50%; margin-left:-5px;
+    border:5px solid transparent; border-top-color:#0F172A; }
+  .rx-tooltip-wrap:hover .rx-tooltip { opacity:1; transform:translateX(-50%) translateY(-2px); }
+  [data-theme="dark"] .rx-tooltip { background:#E2E8F0; color:#0F172A; }
+  [data-theme="dark"] .rx-tooltip::after { border-top-color:#E2E8F0; }
+
+  /* 14 ── Badge count refresh bounce ── */
+  @keyframes rxBadgeBounce { 0%,100% { transform:scale(1); } 30% { transform:scale(1.4); } 60% { transform:scale(0.9); } 80% { transform:scale(1.08); } }
+  .rx-badge-bounce { animation: rxBadgeBounce 0.5s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+  /* 15 ── Sidebar smooth collapse / expand ── */
+  .rx-nav-label, .rx-nav-sub, .rx-logo-text, .rx-user-chip, .rx-footer-stats, .rx-nav-badge {
+    transition: opacity 0.18s ease, max-width 0.22s ease;
+  }
+  .rx-sidebar-collapsed .rx-nav-label,
+  .rx-sidebar-collapsed .rx-nav-sub,
+  .rx-sidebar-collapsed .rx-logo-text {
+    opacity: 0; max-width: 0; overflow: hidden;
+  }
+
+  /* ── Gradient text utility ── */
+  .rx-gradient-text {
+    background: linear-gradient(135deg, #2563EB, #06B6D4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  [data-theme="dark"] .rx-gradient-text {
+    background: linear-gradient(135deg, #60A5FA, #22D3EE);
+    -webkit-background-clip: text; background-clip: text;
+  }
+
+  /* ── Glow border on focus-visible cards ── */
+  .rx-card-focus:focus-within {
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.2) !important;
+    transition: box-shadow 0.2s ease;
+  }
+  [data-theme="dark"] .rx-card-focus:focus-within {
+    box-shadow: 0 0 0 3px rgba(96,165,250,0.25) !important;
+  }
+
+  /* ── Micro-interaction: icon bounce on parent hover ── */
+  .rx-icon-parent:hover .rx-icon-child {
+    animation: rxRiseSm 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
+  }
+
+  /* ── Smooth number transition (for inline counters) ── */
+  .rx-number-change { transition: opacity 0.15s ease, transform 0.15s ease; }
+  .rx-number-change.changing { opacity: 0; transform: translateY(-4px); }
 
   /* Print: force light theme + remove animations/shadows */
   @media print {
@@ -1183,26 +1403,17 @@ const C = {
 
 // ── RiskBadge ─────────────────────────────────────────
 function RiskBadge({ level, size = 'sm' }) {
-  const cfg = {
-    High:   { label: 'ความเสี่ยงสูง',   color: C.high,   bg: C.highBg,   border: C.highBorder },
-    Medium: { label: 'ความเสี่ยงปานกลาง', color: C.medium, bg: C.mediumBg, border: C.mediumBorder },
-    Low:    { label: 'ความเสี่ยงต่ำ',    color: C.low,    bg: C.lowBg,    border: C.lowBorder },
-  }[level] || { label: level, color: C.textMuted, bg: C.bg, border: C.border };
-
+  const lvlKey = level === 'High' ? 'high' : level === 'Medium' ? 'medium' : 'low';
+  const pulseClass = level === 'High' ? ' rx-risk-high' : level === 'Medium' ? ' rx-risk-medium' : '';
   const pad = size === 'lg' ? '5px 14px' : '3px 10px';
   const fs  = size === 'lg' ? '13px' : '11px';
+  const dotSz = size === 'lg' ? 8 : 6;
+  const labels = { High: 'ความเสี่ยงสูง', Medium: 'ความเสี่ยงปานกลาง', Low: 'ความเสี่ยงต่ำ' };
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: pad, borderRadius: 20, fontSize: fs, fontWeight: 600,
-      color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`,
-      whiteSpace: 'nowrap', lineHeight: 1.4,
-    }}>
-      <span style={{
-        width: size === 'lg' ? 8 : 6, height: size === 'lg' ? 8 : 6,
-        borderRadius: '50%', background: cfg.color, flexShrink: 0,
-      }} />
-      {cfg.label}
+    <span className={`rx-risk-pill ${lvlKey}${pulseClass}`}
+      style={{ padding: pad, fontSize: fs, whiteSpace: 'nowrap', lineHeight: 1.4 }}>
+      <span style={{ width: dotSz, height: dotSz, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
+      {labels[level] || level}
     </span>
   );
 }
@@ -1270,7 +1481,7 @@ function TechniqueBadge({ score }) {
 }
 
 // ── Modal ─────────────────────────────────────────────
-function Modal({ open, onClose, title, children, width = 640 }) {
+function Modal({ open, onClose, title, children, width = 640, cardClassName = '' }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     if (open) document.addEventListener('keydown', handler);
@@ -1283,7 +1494,7 @@ function Modal({ open, onClose, title, children, width = 640 }) {
       backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
-      <div onClick={e => e.stopPropagation()} className="rx-modal-card" style={{
+      <div onClick={e => e.stopPropagation()} className={`rx-modal-card${cardClassName ? ' ' + cardClassName : ''}`} style={{
         background: C.surface, borderRadius: 18, width: '100%', maxWidth: width,
         maxHeight: '92vh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 64px rgba(15,23,42,0.3), 0 4px 16px rgba(15,23,42,0.15)',
@@ -1479,6 +1690,34 @@ function rxConfetti(count = 28) {
   } catch (e) { /* no-op */ }
 }
 window.rxConfetti = rxConfetti;
+
+// ── rxProgress — page-top loading bar ───────────────
+window.rxProgress = (() => {
+  let el = null;
+  return {
+    show() {
+      if (el) { el.remove(); el = null; }
+      el = document.createElement('div');
+      el.className = 'rx-topbar-progress';
+      document.body.appendChild(el);
+      el.addEventListener('animationend', () => { if (el) { el.remove(); el = null; } });
+    },
+  };
+})();
+
+// ── rxScrollReveal — IntersectionObserver for .rx-reveal elements ──
+window.rxScrollReveal = (() => {
+  if (typeof IntersectionObserver === 'undefined') return { observe() {} };
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('rx-revealed'); io.unobserve(e.target); } });
+  }, { threshold: 0.1, rootMargin: '0px 0px -30px 0px' });
+  return {
+    observe(root) {
+      if (!root) return;
+      root.querySelectorAll('.rx-reveal').forEach(el => { el.classList.remove('rx-revealed'); io.observe(el); });
+    },
+  };
+})();
 
 // ── SkeletonRow — placeholder loader ─────────────────
 function SkeletonRows({ count = 5 }) {
@@ -1690,7 +1929,7 @@ function StatCard({ label, value, sub, color, icon, gradient }) {
   const col = color || C.primary;
   const grad = gradient || `linear-gradient(135deg, ${col}22 0%, ${col}10 100%)`;
   return (
-    <div className="rx-card-hover" style={{
+    <div className="rx-card-hover rx-hover-2" style={{
       background: C.surface, borderRadius: 14, padding: '18px 20px',
       boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.06)',
       border: `1px solid ${C.border}`,
@@ -1698,10 +1937,12 @@ function StatCard({ label, value, sub, color, icon, gradient }) {
       borderLeft: `4px solid ${col}`,
     }}>
       {icon && (
-        <div style={{
+        <div className="rx-icon-parent" style={{
           width: 50, height: 50, borderRadius: 14, background: grad,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0,
-        }}>{icon}</div>
+        }}>
+          <span className="rx-icon-child">{icon}</span>
+        </div>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: col, lineHeight: 1.1 }}><CountUp value={value} /></div>
@@ -6682,12 +6923,17 @@ const { useState: vfState, useEffect: vfEffect, useMemo: vfMemo, useRef: vfRef }
 
 // ── Sec header ────────────────────────────────────────
 function SecHd({ n, title, color, right }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) window.rxScrollReveal?.observe(ref.current.parentElement);
+  }, []);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 14px' }}>
+    <div ref={ref} className="rx-reveal" style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 14px' }}>
       <div style={{
         width: 26, height: 26, borderRadius: '50%', background: color || C.primary,
         color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 12, fontWeight: 700, flexShrink: 0,
+        boxShadow: `0 2px 8px ${(color || C.primary)}55`,
       }}>{n}</div>
       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>{title}</h3>
       <div style={{ flex: 1, height: 1, background: C.border }} />
@@ -8234,7 +8480,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       {/* Validation Warning Modal */}
       {showValidation && (
         <Modal open={true} onClose={() => setShowValidation(null)}
-          title="⚠️ ตรวจสอบข้อมูลก่อนบันทึก" width={500}>
+          title="⚠️ ตรวจสอบข้อมูลก่อนบันทึก" width={500} cardClassName="rx-shake">
           <p style={{ margin: '0 0 14px', fontSize: 13, color: C.text, lineHeight: 1.6 }}>
             ตรวจพบข้อมูลที่อาจตกหล่น {showValidation.warnings.length} รายการ — ต้องการระบุเพิ่มหรือไม่?
           </p>
@@ -10447,7 +10693,7 @@ const InsightsDashboard = ({ data }) => {
       {/* ── Hero KPI strip ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         {heroCards.map((c, i) => (
-          <div key={i} className="rx-insight-card" style={{
+          <div key={i} className="rx-insight-card rx-reveal" style={{
             position: 'relative', overflow: 'hidden',
             background: `linear-gradient(135deg, ${c.color} 0%, ${c.color}cc 100%)`,
             borderRadius: 16, padding: '18px 20px', color: '#fff',
@@ -10465,7 +10711,7 @@ const InsightsDashboard = ({ data }) => {
       </div>
 
       {/* ── DRP Intelligence ── */}
-      <div style={{ ...card }} className="rx-insight-card">
+      <div style={{ ...card }} className="rx-insight-card rx-reveal">
         <SectionTitle icon="🧠" title="DRP Intelligence" sub="วิเคราะห์ปัญหาจากการใช้ยาทั้งระบบ (auto-detected ตาม PCNE)" />
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24 }} className="rx-insights-grid">
           {/* category breakdown */}
@@ -10512,7 +10758,7 @@ const InsightsDashboard = ({ data }) => {
       </div>
 
       {/* ── Clinical Outcomes ── */}
-      <div style={{ ...card }} className="rx-insight-card">
+      <div style={{ ...card }} className="rx-insight-card rx-reveal">
         <SectionTitle icon="📈" title="Clinical Outcomes" sub="ผลลัพธ์ทางคลินิกจากการบริบาล — พิสูจน์ว่าผู้ป่วยดีขึ้นจริง" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 18 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 12 }}>
@@ -10542,7 +10788,7 @@ const InsightsDashboard = ({ data }) => {
 
       {/* ── Workflow / Productivity ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16 }} className="rx-insights-grid">
-        <div style={{ ...card }} className="rx-insight-card">
+        <div style={{ ...card }} className="rx-insight-card rx-reveal">
           <SectionTitle icon="⚡" title="Pharmacist Performance" sub="ภาระงานและ DRP ที่ตรวจพบรายเภสัชกร" />
           {ins.pharmList.length ? (
             <div>
@@ -10569,7 +10815,7 @@ const InsightsDashboard = ({ data }) => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ ...card }} className="rx-insight-card">
+          <div style={{ ...card }} className="rx-insight-card rx-reveal">
             <SectionTitle icon="📞" title="Follow-up Compliance" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <ProgressRing pct={ins.followupRate} color="#2563EB" size={88} sub="สำเร็จ" />
@@ -10580,7 +10826,7 @@ const InsightsDashboard = ({ data }) => {
               </div>
             </div>
           </div>
-          <div style={{ ...card, background: ins.overdueHighRisk.length ? '#FEF2F2' : '#fff', border: `1px solid ${ins.overdueHighRisk.length ? C.highBorder : C.border}` }} className="rx-insight-card">
+          <div style={{ ...card, background: ins.overdueHighRisk.length ? '#FEF2F2' : '#fff', border: `1px solid ${ins.overdueHighRisk.length ? C.highBorder : C.border}` }} className="rx-insight-card rx-reveal">
             <SectionTitle icon="🚨" title="High-Risk เลยนัด" sub="ผู้ป่วยเสี่ยงสูงที่ไม่มี visit >30 วัน" />
             <div style={{ fontSize: 36, fontWeight: 800, color: ins.overdueHighRisk.length ? C.high : C.low }}>
               <AnimatedNumber value={ins.overdueHighRisk.length} /> <span style={{ fontSize: 14, fontWeight: 600, color: C.textMuted }}>ราย</span>
@@ -13628,7 +13874,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
       || (view === 'telepharmacy-add' && n.id === 'telepharmacy');
     const badge = badges[n.id];
     return (
-      <button onClick={() => { navigate(n.id); if (mobile && onClose) onClose(); }} className="rx-nav-btn" title={collapsed ? n.label : undefined} style={{
+      <button onClick={() => { navigate(n.id); if (mobile && onClose) onClose(); }} className={`rx-nav-btn${active ? ' active' : ''}`} title={collapsed ? n.label : undefined} style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
         padding: collapsed ? '10px 0' : '9px 12px 9px 14px', borderRadius: 10, border: 'none',
         cursor: 'pointer', textAlign: 'left', marginBottom: 1, justifyContent: collapsed ? 'center' : 'flex-start',
@@ -13638,7 +13884,7 @@ function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false
       }}
       onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderLeftColor = 'rgba(96,165,250,0.4)'; }}}
       onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; }}}>
-        <span style={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.75, position: 'relative' }}>
+        <span className="rx-nav-icon" style={{ fontSize: 17, flexShrink: 0, opacity: active ? 1 : 0.75, position: 'relative', display: 'inline-block' }}>
           {n.icon}
           {badge > 0 && collapsed && (
             <span style={{ position: 'absolute', top: -5, right: -5, width: 8, height: 8, borderRadius: '50%', background: n.id === 'risk' ? '#EF4444' : '#06B6D4', border: '1.5px solid #0D1F4E' }} />
@@ -14200,17 +14446,19 @@ function Dashboard({ data, navigate }) {
           { label:'รอ Telepharmacy', value:pending.length,     color:'#0891B2',    icon:'📞', sub:'Pending calls' },
           { label:'บันทึกทั้งหมด',  value:vis.length,         color:'#7C3AED',    icon:'📋', sub:'Visit records' },
         ].map((s, i) => (
-          <div key={i} className="rx-stat-card rx-card-hover" style={{
+          <div key={i} className={`rx-stat-card rx-card-hover rx-hover-2 rx-reveal rx-reveal-delay-${i + 1}`} style={{
             background:C.surface, borderRadius:16, padding:'18px 20px',
             border:`1px solid ${C.border}`, borderLeft:`4px solid ${s.color}`,
             boxShadow:'0 2px 12px rgba(15,23,42,0.07)',
             display:'flex', alignItems:'center', gap:14,
           }}>
-            <div style={{
+            <div className="rx-icon-parent" style={{
               width:52, height:52, borderRadius:16, flexShrink:0,
               background:`linear-gradient(135deg,${s.color}22,${s.color}10)`,
               display:'flex', alignItems:'center', justifyContent:'center', fontSize:26,
-            }}>{s.icon}</div>
+            }}>
+              <span className="rx-icon-child">{s.icon}</span>
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:30, fontWeight:800, color:s.color, lineHeight:1 }}>
                 <AnimatedCounter target={s.value} />
@@ -14722,6 +14970,7 @@ function App() {
   }, []);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
+    window.rxProgress?.show();
     if (target === 'telepharmacy-add') {
       setTeleAddPtId(patientId); setView('telepharmacy');
     } else if (target === 'visit-form-edit') {
@@ -14733,7 +14982,9 @@ function App() {
       if (target !== 'visit-form') setEditVisitId(null);
       if (target !== 'telepharmacy') setTeleAddPtId(null);
     }
-    document.getElementById('main-scroll')?.scrollTo({ top: 0 });
+    const ms = document.getElementById('main-scroll');
+    ms?.scrollTo({ top: 0 });
+    requestAnimationFrame(() => window.rxScrollReveal?.observe(ms));
   }, []);
 
   // Expose navigate globally for components that can't receive it via props (e.g. NotificationCenter)
@@ -15029,7 +15280,7 @@ function App() {
             })()}
 
             {/* Dark mode toggle */}
-            <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" className="rx-icon-wiggle" style={{
+            <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" className="rx-theme-flip" key={themeTick} style={{
               width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
               background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary, fontSize: 15,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
