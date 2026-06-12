@@ -18,6 +18,7 @@
     --c-text:#0F172A; --c-textMuted:#64748B; --c-textLight:#94A3B8;
     --c-border:#E2E8F0; --c-borderLight:#F8FAFC;
     --c-surface:#FFFFFF; --c-bg:#F1F5F9; --c-bgAlt:#F8FAFC;
+    --c-primaryBg:#EFF6FF; --c-accentBg:#ECFEFF; --c-primaryBorder:#BFDBFE; --c-accentBorder:#A5F3FC;
   }
   [data-theme="dark"] {
     --c-high:#F87171; --c-highBg:#3B1A1A; --c-highBorder:#7F2D2D;
@@ -28,6 +29,7 @@
     --c-text:#E2E8F0; --c-textMuted:#94A3B8; --c-textLight:#64748B;
     --c-border:#2A3650; --c-borderLight:#1B2436;
     --c-surface:#16202F; --c-bg:#0B1220; --c-bgAlt:#1B2436;
+    --c-primaryBg:#15243D; --c-accentBg:#0E2A33; --c-primaryBorder:#2A4A6E; --c-accentBorder:#1A4752;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body, #root { height: 100%; }
@@ -169,10 +171,10 @@
   .rx-scroll-x {
     position: relative;
     background:
-      linear-gradient(to right, var(--rx-surface,#fff) 30%, rgba(255,255,255,0)) left center / 28px 100% no-repeat,
-      linear-gradient(to left,  var(--rx-surface,#fff) 30%, rgba(255,255,255,0)) right center / 28px 100% no-repeat,
-      linear-gradient(to right, rgba(15,23,42,0.10), rgba(255,255,255,0)) left center / 14px 100% no-repeat,
-      linear-gradient(to left,  rgba(15,23,42,0.10), rgba(255,255,255,0)) right center / 14px 100% no-repeat;
+      linear-gradient(to right, var(--c-surface) 30%, transparent) left center / 28px 100% no-repeat,
+      linear-gradient(to left,  var(--c-surface) 30%, transparent) right center / 28px 100% no-repeat,
+      linear-gradient(to right, rgba(15,23,42,0.10), transparent) left center / 14px 100% no-repeat,
+      linear-gradient(to left,  rgba(15,23,42,0.10), transparent) right center / 14px 100% no-repeat;
     background-attachment: local, local, scroll, scroll;
   }
 
@@ -422,6 +424,7 @@
       --c-border:#E2E8F0; --c-borderLight:#F8FAFC;
       --c-surface:#FFFFFF; --c-bg:#FFFFFF; --c-bgAlt:#F8FAFC;
       --c-primary:#1E3A8A; --c-primaryLight:#2563EB;
+      --c-primaryBg:#EFF6FF; --c-accentBg:#ECFEFF; --c-primaryBorder:#BFDBFE; --c-accentBorder:#A5F3FC;
     }
     body { background: #fff !important; }
     *, *::before, *::after { animation: none !important; transition: none !important; box-shadow: none !important; }
@@ -1149,6 +1152,8 @@ const C = {
   text: 'var(--c-text)', textMuted: 'var(--c-textMuted)', textLight: 'var(--c-textLight)',
   border: 'var(--c-border)', borderLight: 'var(--c-borderLight)',
   surface: 'var(--c-surface)', bg: 'var(--c-bg)', bgAlt: 'var(--c-bgAlt)',
+  primaryBg: 'var(--c-primaryBg)', accentBg: 'var(--c-accentBg)',
+  primaryBorder: 'var(--c-primaryBorder)', accentBorder: 'var(--c-accentBorder)',
 };
 
 // ── RiskBadge ─────────────────────────────────────────
@@ -1157,7 +1162,7 @@ function RiskBadge({ level, size = 'sm' }) {
     High:   { label: 'ความเสี่ยงสูง',   color: C.high,   bg: C.highBg,   border: C.highBorder },
     Medium: { label: 'ความเสี่ยงปานกลาง', color: C.medium, bg: C.mediumBg, border: C.mediumBorder },
     Low:    { label: 'ความเสี่ยงต่ำ',    color: C.low,    bg: C.lowBg,    border: C.lowBorder },
-  }[level] || { label: level, color: C.textMuted, bg: '#F1F5F9', border: C.border };
+  }[level] || { label: level, color: C.textMuted, bg: C.bg, border: C.border };
 
   const pad = size === 'lg' ? '5px 14px' : '3px 10px';
   const fs  = size === 'lg' ? '13px' : '11px';
@@ -1183,7 +1188,7 @@ function DiagBadge({ diagnosis }) {
     COPD:   { label: 'COPD',         color: '#0369A1', bg: '#E0F2FE' },
     Asthma: { label: 'Asthma',       color: '#7C3AED', bg: '#EDE9FE' },
     Both:   { label: 'COPD + Asthma', color: '#0F766E', bg: '#CCFBF1' },
-  }[diagnosis] || { label: diagnosis || '—', color: C.textMuted, bg: '#F1F5F9' };
+  }[diagnosis] || { label: diagnosis || '—', color: C.textMuted, bg: C.bg };
   return (
     <span style={{
       display: 'inline-block', padding: '3px 10px', borderRadius: 20,
@@ -1200,7 +1205,7 @@ function StatusBadge({ status }) {
     Success:    { label: 'โทรสำเร็จ',   color: '#059669', bg: '#F0FDF4' },
     'No Answer':{ label: 'ไม่รับสาย',   color: '#D97706', bg: '#FFFBEB' },
     Cancelled:  { label: 'ยกเลิก',      color: '#DC2626', bg: '#FEF2F2' },
-  }[status] || { label: status, color: C.textMuted, bg: '#F1F5F9' };
+  }[status] || { label: status, color: C.textMuted, bg: C.bg };
   return (
     <span style={{
       display: 'inline-block', padding: '3px 10px', borderRadius: 20,
@@ -1215,7 +1220,7 @@ function AdherenceBadge({ level }) {
     Good: { label: 'ดี', color: '#059669', bg: '#F0FDF4' },
     Fair: { label: 'พอใช้', color: '#D97706', bg: '#FFFBEB' },
     Poor: { label: 'ต่ำ', color: '#DC2626', bg: '#FEF2F2' },
-  }[level] || { label: level || '—', color: C.textMuted, bg: '#F1F5F9' };
+  }[level] || { label: level || '—', color: C.textMuted, bg: C.bg };
   return (
     <span style={{
       display: 'inline-block', padding: '2px 9px', borderRadius: 20,
@@ -1230,7 +1235,7 @@ function TechniqueBadge({ score }) {
     Good:       { label: 'ถูกต้อง',    color: '#059669', bg: '#F0FDF4' },
     Acceptable: { label: 'พอใช้',      color: '#D97706', bg: '#FFFBEB' },
     Poor:       { label: 'ไม่ถูกต้อง', color: '#DC2626', bg: '#FEF2F2' },
-  }[score] || { label: score || '—', color: C.textMuted, bg: '#F1F5F9' };
+  }[score] || { label: score || '—', color: C.textMuted, bg: C.bg };
   return (
     <span style={{
       display: 'inline-block', padding: '2px 9px', borderRadius: 20,
@@ -1397,7 +1402,7 @@ function RxToastHost() {
     success: { icon: '✅', bg: '#ECFDF5', border: '#A7F3D0', color: '#065F46', bar: '#10B981' },
     error:   { icon: '⛔', bg: '#FEF2F2', border: '#FECACA', color: '#991B1B', bar: '#EF4444' },
     warn:    { icon: '⚠️', bg: '#FFFBEB', border: '#FDE68A', color: '#92400E', bar: '#F59E0B' },
-    info:    { icon: 'ℹ️', bg: '#EFF6FF', border: '#BFDBFE', color: '#1E40AF', bar: '#3B82F6' },
+    info:    { icon: 'ℹ️', bg: C.primaryBg, border: C.primaryBorder, color: C.primary, bar: '#3B82F6' },
   };
 
   return (
@@ -1631,6 +1636,30 @@ function PageHeader({ title, subtitle, action }) {
   );
 }
 
+// ── CountUp — animate integer from 0 → value (respects reduced-motion) ──
+function CountUp({ value, duration = 900 }) {
+  const target = typeof value === 'number' ? value : parseFloat(value);
+  const isNum = Number.isFinite(target);
+  const [n, setN] = useState(isNum ? 0 : value);
+  useEffect(() => {
+    if (!isNum) { setN(value); return; }
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || target === 0) { setN(target); return; }
+    let raf, start;
+    const isInt = Number.isInteger(target);
+    const step = (t) => {
+      if (start == null) start = t;
+      const p = Math.min((t - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+      setN(isInt ? Math.round(target * eased) : Math.round(target * eased * 10) / 10);
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, isNum, value, duration]);
+  return <>{n}</>;
+}
+
 // ── StatCard ──────────────────────────────────────────
 function StatCard({ label, value, sub, color, icon, gradient }) {
   const col = color || C.primary;
@@ -1650,7 +1679,7 @@ function StatCard({ label, value, sub, color, icon, gradient }) {
         }}>{icon}</div>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, color: col, lineHeight: 1.1 }}>{value}</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: col, lineHeight: 1.1 }}><CountUp value={value} /></div>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 3 }}>{label}</div>
         {sub && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{sub}</div>}
       </div>
@@ -1798,8 +1827,8 @@ function BeersAlert({ patient, medications, compact }) {
   const alerts = checkBeers(patient, medications);
   if (alerts.length === 0) return null;
   const sevColor = { High: '#DC2626', Medium: '#D97706', Low: '#0369A1' };
-  const sevBg    = { High: '#FEF2F2', Medium: '#FFFBEB', Low: '#EFF6FF' };
-  const sevBorder= { High: '#FECACA', Medium: '#FDE68A', Low: '#BFDBFE' };
+  const sevBg    = { High: '#FEF2F2', Medium: '#FFFBEB', Low: C.primaryBg };
+  const sevBorder= { High: '#FECACA', Medium: '#FDE68A', Low: C.primaryBorder };
 
   if (compact) {
     return (
@@ -1914,7 +1943,7 @@ function TemplatePicker({ field, onInsert }) {
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <button type="button" onClick={() => setOpen(o => !o)} style={{
         padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-        background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE',
+        background: C.primaryBg, color: C.primary, border: '1px solid #BFDBFE',
         cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex',
         alignItems: 'center', gap: 4,
       }}>
@@ -1941,7 +1970,7 @@ function TemplatePicker({ field, onInsert }) {
               cursor: 'pointer', fontFamily: 'inherit', borderBottom: `1px solid ${C.border}`,
               transition: 'background 0.1s',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#F8FAFC'}
+            onMouseEnter={e => e.currentTarget.style.background = C.bgAlt}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}>
               <div style={{ fontSize: 12, fontWeight: 600, color: C.primary }}>{t.name}</div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2031,12 +2060,12 @@ function TemplateManager() {
         {filtered.map(t => (
           <div key={t.id} style={{
             padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
-            background: '#F8FAFC',
+            background: C.bgAlt,
           }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 4 }}>
               <span style={{
                 fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
-                background: '#EFF6FF', color: '#1E40AF', flexShrink: 0, marginTop: 1,
+                background: C.primaryBg, color: C.primary, flexShrink: 0, marginTop: 1,
               }}>{fieldName[t.field]?.split(' ')[0] || t.field}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{t.name}</div>
@@ -2322,7 +2351,7 @@ function CATAssessment({ value, onChange }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {AppStore.CAT_QUESTIONS.map((q, i) => (
           <div key={i} style={{
-            padding: '10px 12px', borderRadius: 8, background: '#F8FAFC',
+            padding: '10px 12px', borderRadius: 8, background: C.bgAlt,
             border: `1px solid ${answers[i] !== null ? C.border : '#FCA5A5'}`,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 12 }}>
@@ -2381,7 +2410,7 @@ function MMRCAssessment({ value, onChange }) {
           <label key={m.grade} style={{
             display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer',
             padding: '10px 14px', borderRadius: 8,
-            background: grade === m.grade ? '#EFF6FF' : '#F8FAFC',
+            background: grade === m.grade ? C.primaryBg : C.bgAlt,
             border: `1.5px solid ${grade === m.grade ? '#93C5FD' : C.border}`,
             transition: 'all 0.15s',
           }}>
@@ -2426,7 +2455,7 @@ function ACTAssessment({ value, onChange }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {AppStore.ACT_QUESTIONS.map((q, i) => (
           <div key={i} style={{
-            padding: '12px', borderRadius: 8, background: '#F8FAFC',
+            padding: '12px', borderRadius: 8, background: C.bgAlt,
             border: `1px solid ${answers[i] !== null ? C.border : '#FCA5A5'}`,
           }}>
             <div style={{ fontSize: 12, color: C.text, marginBottom: 8, lineHeight: 1.5 }}>
@@ -2763,8 +2792,8 @@ function InteractionAlerts({ medications, patient, compact }) {
   if (alerts.length === 0) return null;
 
   const severityColor = { High: '#DC2626', Medium: '#D97706', Low: '#0369A1' };
-  const severityBg    = { High: '#FEF2F2', Medium: '#FFFBEB', Low: '#EFF6FF' };
-  const severityBorder= { High: '#FECACA', Medium: '#FDE68A', Low: '#BFDBFE' };
+  const severityBg    = { High: '#FEF2F2', Medium: '#FFFBEB', Low: C.primaryBg };
+  const severityBorder= { High: '#FECACA', Medium: '#FDE68A', Low: C.primaryBorder };
   const severityLabel = { High: 'สูง', Medium: 'ปานกลาง', Low: 'ต่ำ' };
 
   if (compact) {
@@ -2908,7 +2937,7 @@ function SmokingBadge({ status, packYears, compact }) {
     Current: { icon: '🚬', label: `ยังสูบ${packYears ? ` (${packYears} pack-years)` : ''}`, color: C.high, bg: C.highBg },
     Ex:      { icon: '✋', label: `เลิกแล้ว${packYears ? ` (${packYears} pack-years)` : ''}`, color: C.medium, bg: C.mediumBg },
     Never:   { icon: '✓',  label: 'ไม่เคยสูบ', color: C.low, bg: C.lowBg },
-    Unknown: { icon: '?',  label: 'ไม่ทราบสถานะการสูบบุหรี่', color: C.textMuted, bg: '#F1F5F9' },
+    Unknown: { icon: '?',  label: 'ไม่ทราบสถานะการสูบบุหรี่', color: C.textMuted, bg: C.bg },
   }[status];
   if (!cfg) return null;
   return (
@@ -2975,7 +3004,7 @@ function VaccinationStatus({ patient, compact }) {
           return (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
-              borderRadius: 6, background: '#F8FAFC',
+              borderRadius: 6, background: C.bgAlt,
             }}>
               <span style={{ fontSize: 14, color: c }}>{icon}</span>
               <div style={{ flex: 1, fontSize: 12 }}>
@@ -3979,10 +4008,10 @@ function UserManager({ data, onDataChange, currentUser }) {
     <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {isAdmin && <Card>
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background:'#EFF6FF', border:'1px solid #BFDBFE' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background:C.primaryBg, border:'1px solid #BFDBFE' }}>
           <span style={{ fontSize:20 }}>🔒</span>
           <div>
-            <div style={{ fontSize:13, fontWeight:700, color:'#1E40AF' }}>Firebase Authentication เปิดใช้งานแล้ว</div>
+            <div style={{ fontSize:13, fontWeight:700, color: C.primary }}>Firebase Authentication เปิดใช้งานแล้ว</div>
             <div style={{ fontSize:11, color:'#3B82F6' }}>ผู้ใช้ต้องล็อกอินด้วยอีเมล+รหัสผ่านทุกครั้ง · ข้อมูล PHI ถูกคุ้มครองด้วย Firestore Rules</div>
           </div>
         </div>
@@ -3998,7 +4027,7 @@ function UserManager({ data, onDataChange, currentUser }) {
           {isAdmin && <Btn size="sm" variant="primary" onClick={() => { setAdding(true); setMsg(''); }}>+ เพิ่มผู้ใช้</Btn>}
         </div>
         {adding && isAdmin && (
-          <div style={{ padding: 14, background: '#F8FAFC', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+          <div style={{ padding: 14, background: C.bgAlt, borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12 }}>
             <p style={{ margin:'0 0 10px', fontSize:12, color:C.textMuted }}>สร้างบัญชี Firebase Auth ใหม่สำหรับผู้ใช้</p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <Select value={newPfx} onChange={setNewPfx} options={['ภก.','ภญ.']} style={{ width: 90 }} />
@@ -4013,7 +4042,7 @@ function UserManager({ data, onDataChange, currentUser }) {
                 <button key={v} onClick={() => setNewRole(v)} style={{
                   flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:12, fontFamily:'Sarabun,sans-serif',
                   border: newRole===v ? `2px solid ${C.primary}` : `1px solid ${C.border}`,
-                  background: newRole===v ? '#EFF6FF' : '#fff', color: newRole===v ? C.primary : C.text, fontWeight:600,
+                  background: newRole===v ? C.primaryBg : C.surface, color: newRole===v ? C.primary : C.text, fontWeight:600,
                 }}>{l}</button>
               ))}
             </div>
@@ -4028,8 +4057,8 @@ function UserManager({ data, onDataChange, currentUser }) {
           {users.map(u => (
             <div key={u.id} style={{
               padding: '12px 14px', borderRadius: 8,
-              border: `1px solid ${currentUser?.id === u.id ? '#BFDBFE' : C.border}`,
-              background: currentUser?.id === u.id ? '#EFF6FF' : '#F8FAFC',
+              border: `1px solid ${currentUser?.id === u.id ? C.primaryBorder : C.border}`,
+              background: currentUser?.id === u.id ? C.primaryBg : C.bgAlt,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
@@ -4041,7 +4070,7 @@ function UserManager({ data, onDataChange, currentUser }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</span>
-                    {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:'#EFF6FF', color:'#1E40AF', padding:'2px 8px', borderRadius:20, border:'1px solid #BFDBFE' }}>ADMIN</span>}
+                    {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:C.primaryBg, color: C.primary, padding:'2px 8px', borderRadius:20, border:'1px solid #BFDBFE' }}>ADMIN</span>}
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
                     {u.email || `@${u.username}`} &nbsp;·&nbsp; {u.uid ? '🔐 Firebase Auth' : '⚠️ ยังไม่ได้ link'}
@@ -4126,7 +4155,7 @@ function FirebaseSetup({ onConfigSave, syncStatus }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Card style={{ background: syncStatus==='synced' ? C.lowBg : syncStatus==='error' ? C.highBg : '#F8FAFC' }}>
+      <Card style={{ background: syncStatus==='synced' ? C.lowBg : syncStatus==='error' ? C.highBg : C.bgAlt }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>{sIcon[syncStatus]||'⚫'}</span>
           <div>
@@ -4136,20 +4165,20 @@ function FirebaseSetup({ onConfigSave, syncStatus }) {
         </div>
       </Card>
 
-      <Card style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-        <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#1E40AF' }}>📋 วิธีตั้งค่า Firebase (ฟรี)</h4>
+      <Card style={{ background: C.primaryBg, border: '1px solid #BFDBFE' }}>
+        <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: C.primary }}>📋 วิธีตั้งค่า Firebase (ฟรี)</h4>
         {['ไปที่ console.firebase.google.com → สร้าง Project ใหม่',
           'เลือก Firestore Database → Create database → Production mode',
           'ไปที่ Rules แก้เป็น: allow read, write: if true;  (สำหรับ intranet)',
           'Project Settings → Your apps → เพิ่ม Web App → คัดลอก firebaseConfig',
           'วาง config ด้านล่าง กด "เชื่อมต่อ"',
         ].map((s,i) => (
-          <div key={i} style={{ display:'flex', gap:8, marginBottom:5, fontSize:12, color:'#1E40AF', alignItems:'flex-start' }}>
+          <div key={i} style={{ display:'flex', gap:8, marginBottom:5, fontSize:12, color: C.primary, alignItems:'flex-start' }}>
             <span style={{ width:18,height:18,borderRadius:'50%',background:'#1E40AF',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,flexShrink:0,marginTop:1 }}>{i+1}</span>
             {s}
           </div>
         ))}
-        <div style={{ marginTop:10, padding:'8px 10px', background:'#DBEAFE', borderRadius:6, fontSize:11, color:'#1E40AF' }}>
+        <div style={{ marginTop:10, padding:'8px 10px', background:'#DBEAFE', borderRadius:6, fontSize:11, color: C.primary }}>
           ⚠️ ข้อมูลผู้ป่วยจะถูกเก็บใน Google Cloud — กรุณาตรวจสอบนโยบาย PDPA ของโรงพยาบาลก่อนใช้งานจริง
         </div>
       </Card>
@@ -4204,7 +4233,7 @@ function CompetencyLog({ currentUser }) {
       <Card>
         <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: C.primary }}>🎓 Pharmacist Competency Log — HRM Standard</h4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12 }}>
-          <div style={{ padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, textAlign: 'center' }}>
+          <div style={{ padding: '10px 14px', background: C.primaryBg, borderRadius: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 24, fontWeight: 800, color: C.primary }}>{logs.length}</div>
             <div style={{ fontSize: 11, color: C.textMuted }}>กิจกรรม CPD</div>
           </div>
@@ -4262,7 +4291,7 @@ function CompetencyLog({ currentUser }) {
           ? <div style={{ fontSize: 12, color: C.textMuted }}>ยังไม่มีบันทึก</div>
           : logs.map(l => (
             <div key={l.id} style={{ padding: '10px 0', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <div style={{ width: 40, height: 40, borderRadius: 8, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: C.primaryLight, textAlign: 'center', flexShrink: 0, lineHeight: 1.3 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: C.primaryBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: C.primaryLight, textAlign: 'center', flexShrink: 0, lineHeight: 1.3 }}>
                 {l.hours}h
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -4909,7 +4938,7 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
                 {backupSlots.length === 0 ? (
                   <div style={{ fontSize: 12, color: C.textMuted }}>ยังไม่มี backup บน Cloud</div>
                 ) : backupSlots.map(s => (
-                  <div key={s.slot} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: '#F8FAFC', border: `1px solid ${C.border}`, marginBottom: 6 }}>
+                  <div key={s.slot} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: C.bgAlt, border: `1px solid ${C.border}`, marginBottom: 6 }}>
                     <div style={{ flex: 1, fontSize: 12 }}>
                       <strong>{new Date(s.backupAt).toLocaleString('th-TH')}</strong>
                       <span style={{ color: C.textMuted, marginLeft: 8 }}>โดย {s.editedBy || '—'} · {(s.data?.patients||[]).length} ผู้ป่วย · {(s.data?.visits||[]).length} visits</span>
@@ -6014,7 +6043,7 @@ function PatientList({ data, onDataChange, navigate }) {
         {csvPreview && csvPreview.length > 0 && (
           <div style={{ overflowX: 'auto', maxHeight: 220, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 7 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: '#F8FAFC' }}>
+              <thead><tr style={{ background: C.bgAlt }}>
                 {['HN','ชื่อ','อายุ','เพศ','โรค','โทร','สิทธิ์'].map(h => (
                   <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, color: C.textMuted, fontWeight: 600, fontSize: 11 }}>{h}</th>
                 ))}
@@ -6254,7 +6283,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                     </div>
                   </div>
                   {v.soap?.a && (
-                    <div style={{ background: '#F8FAFC', borderRadius: 7, padding: '10px 14px', fontSize: 13, color: C.text, borderLeft: `3px solid ${C.accent}` }}>
+                    <div style={{ background: C.bgAlt, borderRadius: 7, padding: '10px 14px', fontSize: 13, color: C.text, borderLeft: `3px solid ${C.accent}` }}>
                       <strong style={{ color: C.primary }}>A:</strong> {v.soap.a}
                     </div>
                   )}
@@ -6299,8 +6328,8 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: '100%' }}>
                 <thead>
-                  <tr style={{ background: '#F8FAFC' }}>
-                    <th style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: C.primary, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: '#F8FAFC', zIndex: 1, minWidth: 160 }}>💊 ยา</th>
+                  <tr style={{ background: C.bgAlt }}>
+                    <th style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: C.primary, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: C.bgAlt, zIndex: 1, minWidth: 160 }}>💊 ยา</th>
                     {sorted2.map(v => (
                       <th key={v.id} style={{ padding: '8px 10px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.textMuted, whiteSpace: 'nowrap', minWidth: 90 }}>{v.visitDate}</th>
                     ))}
@@ -6349,7 +6378,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
               </table>
             </div>
             <div style={{ padding: '10px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 16, fontSize: 11, color: C.textMuted }}>
-              <span><span style={{ color: '#1E40AF', fontWeight: 700 }}>●</span> ใช้ต่อเนื่อง</span>
+              <span><span style={{ color: C.primary, fontWeight: 700 }}>●</span> ใช้ต่อเนื่อง</span>
               <span><span style={{ color: '#92400E', fontWeight: 700 }}>★</span> เพิ่มใหม่</span>
               <span><span style={{ color: C.high, fontWeight: 700 }}>✕</span> หยุดยา</span>
               <span><span style={{ color: C.low }}>G</span>=Good <span style={{ color: C.medium }}>F</span>=Fair <span style={{ color: C.high }}>P</span>=Poor adherence</span>
@@ -6544,7 +6573,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                             <div key={di} style={{
                               display: 'flex', gap: 8, alignItems: 'flex-start',
                               padding: '6px 10px', borderRadius: 6, marginBottom: 4,
-                              background: d.severity === 'High' ? '#FEF2F2' : d.severity === 'Medium' ? '#FFFBEB' : '#F8FAFC',
+                              background: d.severity === 'High' ? '#FEF2F2' : d.severity === 'Medium' ? '#FFFBEB' : C.bgAlt,
                               border: `1px solid ${d.severity === 'High' ? '#FECACA' : d.severity === 'Medium' ? '#FDE68A' : C.border}`,
                             }}>
                               <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
@@ -6665,7 +6694,7 @@ function InhalerChecklistCard({ entry, index, onChange, onRemove }) {
 
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
-      <div style={{ background: '#F8FAFC', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ background: C.bgAlt, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200 }}>
           <Select value={entry.device} placeholder="เลือกประเภทอุปกรณ์"
             options={deviceOptions}
@@ -6746,8 +6775,8 @@ function AutoDRPPanel({ visit, patient, drp, onChange }) {
     );
   }
   const sevColor  = { High: '#DC2626', Medium: '#D97706', Low: '#0369A1' };
-  const sevBg     = { High: '#FEF2F2', Medium: '#FFFBEB', Low: '#EFF6FF' };
-  const sevBorder = { High: '#FECACA', Medium: '#FDE68A', Low: '#BFDBFE' };
+  const sevBg     = { High: '#FEF2F2', Medium: '#FFFBEB', Low: C.primaryBg };
+  const sevBorder = { High: '#FECACA', Medium: '#FDE68A', Low: C.primaryBorder };
   const sevTh     = { High: 'สูง', Medium: 'ปานกลาง', Low: 'ต่ำ' };
 
   const acceptAll = () => {
@@ -6940,7 +6969,7 @@ function DrugSearchBox({ value, onChange }) {
           )}
           {sections.map((item, idx) => {
             if (item.header) return (
-              <div key={idx} style={{ padding: '6px 12px 3px', fontSize: 10, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.5, background: '#F8FAFC', borderTop: idx > 0 ? `1px solid ${C.border}` : 'none', position: 'sticky', top: idx === 0 ? 0 : 'auto' }}>{item.header}</div>
+              <div key={idx} style={{ padding: '6px 12px 3px', fontSize: 10, fontWeight: 800, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.5, background: C.bgAlt, borderTop: idx > 0 ? `1px solid ${C.border}` : 'none', position: 'sticky', top: idx === 0 ? 0 : 'auto' }}>{item.header}</div>
             );
             const si = selectables.indexOf(item);
             const isActive = si === activeIdx;
@@ -6950,7 +6979,7 @@ function DrugSearchBox({ value, onChange }) {
               <div key={item.name} onMouseDown={() => selectDrug(item.name)} onMouseEnter={() => setActiveIdx(si)}
                 style={{
                   padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                  background: isSelected ? '#F0FDF4' : isActive ? '#EFF6FF' : 'transparent', transition: 'background 0.1s',
+                  background: isSelected ? '#F0FDF4' : isActive ? C.primaryBg : 'transparent', transition: 'background 0.1s',
                   borderLeft: isSelected ? `3px solid ${C.low}` : '3px solid transparent',
                 }}>
                 {isSelected && <span style={{ fontSize: 11, color: C.low, flexShrink: 0 }}>✓</span>}
@@ -6976,9 +7005,9 @@ function MedRow({ med, index, onChange, onRemove, changeStatus }) {
       <div style={{
         display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
         gap: 8, alignItems: 'center',
-        background: isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : '#F8FAFC',
+        background: isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : C.bgAlt,
         borderRadius: guide ? '9px 9px 0 0' : 9, padding: '8px 12px',
-        border: `1.5px solid ${isWarn ? '#FED7AA' : guide ? '#BFDBFE' : C.border}`,
+        border: `1.5px solid ${isWarn ? '#FED7AA' : guide ? C.primaryBorder : C.border}`,
         borderBottom: guide ? 'none' : undefined,
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
@@ -7007,12 +7036,12 @@ function MedRow({ med, index, onChange, onRemove, changeStatus }) {
         <div style={{
           padding: '5px 14px', fontSize: 11, lineHeight: 1.6,
           borderRadius: '0 0 9px 9px',
-          background: isWarn ? '#FFF7ED' : '#EFF6FF',
-          border: `1.5px solid ${isWarn ? '#FED7AA' : '#BFDBFE'}`,
+          background: isWarn ? '#FFF7ED' : C.primaryBg,
+          border: `1.5px solid ${isWarn ? '#FED7AA' : C.primaryBorder}`,
           borderTop: `1px dashed ${isWarn ? '#FDBA74' : '#93C5FD'}`,
           display: 'flex', flexWrap: 'wrap', gap: '2px 16px',
         }}>
-          <span style={{ color: '#1E40AF', fontWeight: 600 }}>💊 {guide.dose}</span>
+          <span style={{ color: C.primary, fontWeight: 600 }}>💊 {guide.dose}</span>
           {guide.max && <span style={{ color: C.textMuted }}>Max: {guide.max}</span>}
           {guide.tip && <span style={{ color: isWarn ? '#9A3412' : '#0369A1', fontWeight: isWarn ? 600 : 400 }}>{guide.tip}</span>}
         </div>
@@ -7090,11 +7119,11 @@ function AssessmentCollapsible({ title, subtitle, icon, color, hasData, summary,
         background: 'transparent', fontFamily: 'inherit',
         transition: 'background 0.15s',
       }}
-      onMouseEnter={e => e.currentTarget.style.background = hasData ? `${color}08` : '#F8FAFC'}
+      onMouseEnter={e => e.currentTarget.style.background = hasData ? `${color}08` : C.bgAlt}
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
         <div style={{
           width: 32, height: 32, borderRadius: 8,
-          background: hasData ? color : '#F1F5F9',
+          background: hasData ? color : C.bg,
           color: hasData ? '#fff' : C.textMuted,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16, flexShrink: 0,
@@ -7116,7 +7145,7 @@ function AssessmentCollapsible({ title, subtitle, icon, color, hasData, summary,
         )}
         <span style={{
           padding: '5px 12px', borderRadius: 6,
-          background: open ? color : (hasData ? `${color}15` : '#EFF6FF'),
+          background: open ? color : (hasData ? `${color}15` : C.primaryBg),
           color: open ? '#fff' : (hasData ? color : '#1E40AF'),
           fontSize: 11, fontWeight: 600,
           display: 'flex', alignItems: 'center', gap: 5,
@@ -7157,25 +7186,25 @@ function MiniVisitCard({ visit, isLatest, currentMedNames }) {
       <div style={{ padding: '10px 12px' }}>
         {/* Stats grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginBottom: 8 }}>
-          <div style={{ padding: '5px 7px', background: '#F8FAFC', borderRadius: 5 }}>
+          <div style={{ padding: '5px 7px', background: C.bgAlt, borderRadius: 5 }}>
             <div style={{ fontSize: 8, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase' }}>Adherence</div>
             <div style={{ marginTop: 2 }}><AdherenceBadge level={visit.adherence?.level || '—'} /></div>
           </div>
-          <div style={{ padding: '5px 7px', background: '#F8FAFC', borderRadius: 5 }}>
+          <div style={{ padding: '5px 7px', background: C.bgAlt, borderRadius: 5 }}>
             <div style={{ fontSize: 8, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase' }}>Exacerbation</div>
             <div style={{ fontSize: 12, fontWeight: 700, marginTop: 1, color: (visit.exacerbation?.countThisYear ?? 0) >= 2 ? C.high : C.text }}>
               {visit.exacerbation?.countThisYear ?? 0} ครั้ง
               {visit.exacerbation?.hospitalized && <span style={{ fontSize: 9, marginLeft: 3 }}>🏥</span>}
             </div>
           </div>
-          <div style={{ padding: '5px 7px', background: '#F8FAFC', borderRadius: 5 }}>
+          <div style={{ padding: '5px 7px', background: C.bgAlt, borderRadius: 5 }}>
             <div style={{ fontSize: 8, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase' }}>เทคนิค</div>
             <div style={{ marginTop: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
               {(visit.inhalerTechnique || []).map((t, i) => <TechniqueBadge key={i} score={t.overallScore} />)}
               {(!visit.inhalerTechnique || visit.inhalerTechnique.length === 0) && <span style={{ fontSize: 10, color: C.textMuted }}>—</span>}
             </div>
           </div>
-          <div style={{ padding: '5px 7px', background: '#F8FAFC', borderRadius: 5 }}>
+          <div style={{ padding: '5px 7px', background: C.bgAlt, borderRadius: 5 }}>
             <div style={{ fontSize: 8, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase' }}>Risk</div>
             <div style={{ marginTop: 2 }}><RiskBadge level={visit.riskLevel || 'Low'} /></div>
           </div>
@@ -7572,7 +7601,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         </div>
         <DiagBadge diagnosis={patient.diagnosis} />
         <RiskBadge level={f.riskLevel} />
-        <span style={{ padding: '4px 10px', borderRadius: 20, background: '#F1F5F9', fontSize: 11, color: C.textMuted, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ padding: '4px 10px', borderRadius: 20, background: C.bg, fontSize: 11, color: C.textMuted, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
           ⌘S บันทึก
         </span>
       </div>
@@ -7591,10 +7620,10 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         }}>
           <div style={{ fontSize: 22 }}>🔄</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1E40AF' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>
               พบ Visit ก่อนหน้าเมื่อ {daysAgo(lastVisit.visitDate)} วันก่อน ({lastVisit.visitDate})
             </div>
-            <div style={{ fontSize: 11, color: '#1E40AF', marginTop: 2, opacity: 0.85 }}>
+            <div style={{ fontSize: 11, color: C.primary, marginTop: 2, opacity: 0.85 }}>
               คัดลอก <strong>ยา ({lastVisit.medications?.length||0} ตัว)</strong> · <strong>เทคนิคยาพ่น</strong> · <strong>Trigger factors</strong> จากครั้งก่อน เพื่อให้แก้เฉพาะจุดที่เปลี่ยน
             </div>
           </div>
@@ -8312,8 +8341,8 @@ function RiskScreeningView({ data, navigate }) {
       </div>
 
       {/* Criteria box */}
-      <Card style={{ marginBottom: 24, background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#1E40AF', marginBottom: 8 }}>
+      <Card style={{ marginBottom: 24, background: C.primaryBg, border: '1px solid #BFDBFE' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.primary, marginBottom: 8 }}>
           เกณฑ์การคัดกรอง HIGH RISK (อย่างน้อย 1 เกณฑ์)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px 16px' }}>
@@ -8322,12 +8351,12 @@ function RiskScreeningView({ data, navigate }) {
             'Asthma ควบคุมไม่ได้ (Uncontrolled)',
             'COPD GOLD Grade 3–4 (Severe/Very Severe)',
           ].map((c, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#1E40AF', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <div key={i} style={{ fontSize: 12, color: C.primary, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
               <span style={{ color: C.high, flexShrink: 0 }}>●</span> {c}
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: '#1E40AF' }}>
+        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 700, color: C.primary }}>
           เกณฑ์ MEDIUM RISK (≥1 เกณฑ์ แต่ไม่มีเกณฑ์ High)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px 16px', marginTop: 4 }}>
@@ -8336,7 +8365,7 @@ function RiskScreeningView({ data, navigate }) {
             'เทคนิคการใช้ยาพ่นไม่ถูกต้อง',
             'มีโรคร่วม ≥3 โรค / ผู้สูงอายุ ≥65 ปี',
           ].map((c, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#1E40AF', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <div key={i} style={{ fontSize: 12, color: C.primary, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
               <span style={{ color: C.medium, flexShrink: 0 }}>●</span> {c}
             </div>
           ))}
@@ -8470,7 +8499,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
           {highRiskPts.map(p => {
             const checked = selected.includes(p.id);
             return (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? '#EFF6FF' : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? C.primaryBg : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
                 <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} style={{ accentColor: C.primary, width: 15, height: 15 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
@@ -8542,7 +8571,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
     return (
       <div>
         {pt && (
-          <div style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+          <div style={{ padding: '10px 14px', background: C.bgAlt, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
             <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
             <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate} · {pt.phone || 'ไม่มีเบอร์'}</span>
             {rec.pharmacistNote && <div style={{ marginTop: 4, color: C.textMuted, fontSize: 12 }}>วัตถุประสงค์: {rec.pharmacistNote}</div>}
@@ -8550,7 +8579,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
         )}
 
         {/* Call timer */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: timerRunning ? '#ECFDF5' : '#F8FAFC',
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: timerRunning ? '#ECFDF5' : C.bgAlt,
           border: `1px solid ${timerRunning ? '#A7F3D0' : C.border}`, borderRadius: 10, marginBottom: 16 }}>
           <span style={{ fontSize: 22 }}>{timerRunning ? '📞' : '⏱️'}</span>
           <div style={{ flex: 1 }}>
@@ -8579,7 +8608,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
               {drpContext.slice(0, 5).map((d, i) => (
                 <div key={i} style={{ fontSize: 11.5, color: '#78350F', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                   <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
-                    background: d.severity === 'High' ? '#FEE2E2' : d.severity === 'Medium' ? '#FEF3C7' : '#F1F5F9',
+                    background: d.severity === 'High' ? '#FEE2E2' : d.severity === 'Medium' ? '#FEF3C7' : C.bg,
                     color: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B' }}>{d.severity}</span>
                   <span>{d.problemTh} → <span style={{ color: '#92400E', fontWeight: 600 }}>{d.actionTh}</span></span>
                 </div>
@@ -8773,8 +8802,8 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
             return (
               <div key={day} style={{
                 minHeight: 64, padding: '4px 5px', borderRadius: 6,
-                background: isToday ? '#EFF6FF' : C.surface,
-                border: `1px solid ${isToday ? '#BFDBFE' : C.border}`,
+                background: isToday ? C.primaryBg : C.surface,
+                border: `1px solid ${isToday ? C.primaryBorder : C.border}`,
               }}>
                 <div style={{ fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? C.primary : isPast ? C.textMuted : C.text, marginBottom: 2 }}>{day}</div>
                 {dayRecs.map(r => {
@@ -8902,7 +8931,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
         <span style={{ color: C.text }}>{label}</span>
         <span style={{ fontWeight: 700, color }}>{value} ราย</span>
       </div>
-      <div style={{ background: '#F1F5F9', borderRadius: 20, height: 8, overflow: 'hidden' }}>
+      <div style={{ background: C.bg, borderRadius: 20, height: 8, overflow: 'hidden' }}>
         <div style={{
           width: `${max > 0 ? (value / max) * 100 : 0}%`, height: '100%',
           background: color, borderRadius: 20, transition: 'width 0.5s',
@@ -9010,7 +9039,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
                   ))}
                 </div>
                 <div style={{ background: C.bg, borderRadius: 8, padding: '6px 10px', overflow: 'hidden' }}>
-                  <div style={{ height: 6, borderRadius: 20, background: '#F1F5F9', overflow: 'hidden' }}>
+                  <div style={{ height: 6, borderRadius: 20, background: C.bg, overflow: 'hidden' }}>
                     <div style={{ width: `${drpRate}%`, height: '100%', background: C.low, borderRadius: 20, transition: 'width 0.6s' }} />
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Resolution Rate: {drpRate}%</div>
@@ -9023,7 +9052,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
                       <span style={{ color: C.text }}>{type}</span><span style={{ fontWeight: 700, color: C.high }}>{cnt}</span>
                     </div>
-                    <div style={{ background: '#F1F5F9', borderRadius: 20, height: 5, overflow: 'hidden' }}>
+                    <div style={{ background: C.bg, borderRadius: 20, height: 5, overflow: 'hidden' }}>
                       <div style={{ width: `${(cnt/maxDT)*100}%`, height: '100%', background: C.high, borderRadius: 20 }} />
                     </div>
                   </div>
@@ -9092,7 +9121,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead>
                   <tr>{['เดือน','บันทึก','Exacerbation','Adherence ต่ำ','DRP'].map(h => (
-                    <th key={h} style={{ padding: '5px 8px', background: '#F8FAFC', borderBottom: `1px solid ${C.border}`, textAlign: 'center', fontWeight: 600, color: C.textMuted }}>{h}</th>
+                    <th key={h} style={{ padding: '5px 8px', background: C.bgAlt, borderBottom: `1px solid ${C.border}`, textAlign: 'center', fontWeight: 600, color: C.textMuted }}>{h}</th>
                   ))}</tr>
                 </thead>
                 <tbody>
@@ -9317,7 +9346,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
           <span style={{
             fontSize: 10, fontWeight: 600, color: C.textMuted,
             padding: '3px 8px', borderRadius: 5, border: `1px solid ${C.border}`,
-            background: '#F8FAFC',
+            background: C.bgAlt,
           }}>ESC</span>
         </div>
 
@@ -9346,7 +9375,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 12, width: '100%',
                           padding: '10px 18px', border: 'none', cursor: 'pointer',
-                          background: isHover ? '#EFF6FF' : 'transparent',
+                          background: isHover ? C.primaryBg : 'transparent',
                           textAlign: 'left', fontFamily: 'Sarabun, sans-serif',
                           borderLeft: `3px solid ${isHover ? C.primary : 'transparent'}`,
                           transition: 'all 0.1s',
@@ -9359,8 +9388,8 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
                         <span style={{
                           fontSize: 10, color: isHover ? C.primary : C.textMuted, fontWeight: 600,
                           padding: '3px 8px', borderRadius: 5,
-                          border: `1px solid ${isHover ? '#BFDBFE' : C.border}`,
-                          background: isHover ? '#fff' : '#F8FAFC', flexShrink: 0,
+                          border: `1px solid ${isHover ? C.primaryBorder : C.border}`,
+                          background: isHover ? '#fff' : C.bgAlt, flexShrink: 0,
                         }}>↵ ไป</span>
                       </button>
                     );
@@ -9385,7 +9414,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 14, width: '100%',
                           padding: '12px 18px', border: 'none', cursor: 'pointer',
-                          background: isHover ? '#EFF6FF' : 'transparent',
+                          background: isHover ? C.primaryBg : 'transparent',
                           textAlign: 'left', fontFamily: 'Sarabun, sans-serif',
                           borderLeft: `3px solid ${isHover ? C.primary : 'transparent'}`,
                           transition: 'all 0.1s',
@@ -9427,8 +9456,8 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
                         <span style={{
                           fontSize: 10, color: isHover ? C.primary : C.textMuted,
                           fontWeight: 600, padding: '3px 8px', borderRadius: 5,
-                          border: `1px solid ${isHover ? '#BFDBFE' : C.border}`,
-                          background: isHover ? '#fff' : '#F8FAFC', flexShrink: 0,
+                          border: `1px solid ${isHover ? C.primaryBorder : C.border}`,
+                          background: isHover ? '#fff' : C.bgAlt, flexShrink: 0,
                         }}>↵ บันทึก</span>
                       </button>
                     );
@@ -9443,7 +9472,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '8px 18px', borderTop: `1px solid ${C.border}`,
-          background: '#F8FAFC', fontSize: 11, color: C.textMuted,
+          background: C.bgAlt, fontSize: 11, color: C.textMuted,
         }}>
           <div style={{ display: 'flex', gap: 14 }}>
             <span><kbd style={kbdStyle}>↑</kbd> <kbd style={kbdStyle}>↓</kbd> เลื่อน</span>
@@ -9561,7 +9590,7 @@ const WeeklyCalendar = ({ data }) => {
           return (
             <div key={dateStr} style={{
               padding: 10, borderRadius: 8,
-              background: isToday ? C.primaryBg : '#F8FAFC',
+              background: isToday ? C.primaryBg : C.bgAlt,
               border: `1px solid ${isToday ? C.primary : C.border}`,
               textAlign: 'center',
             }}>
@@ -9746,7 +9775,7 @@ const TechniqueMasteryCurve = ({ data }) => {
           {mastery.map((m, i) => (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
-              background: m.improvement >= 2 ? '#F0FDF4' : '#F8FAFC',
+              background: m.improvement >= 2 ? '#F0FDF4' : C.bgAlt,
               borderRadius: 8, border: `1px solid ${m.improvement >= 2 ? C.lowBorder : C.border}`,
             }}>
               <div style={{
@@ -10107,7 +10136,7 @@ const QualityKPIsDashboard = ({ data }) => {
           ].map(({ label, months }) => (
             <button key={label} onClick={() => quickSetRange(months)} style={{
               padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              border: `1px solid ${C.border}`, background: '#F8FAFC', color: C.text, fontFamily: 'inherit',
+              border: `1px solid ${C.border}`, background: C.bgAlt, color: C.text, fontFamily: 'inherit',
             }}>{label}</button>
           ))}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
@@ -10135,7 +10164,7 @@ const QualityKPIsDashboard = ({ data }) => {
         <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ background: '#F8FAFC' }}>
+              <tr style={{ background: C.bgAlt }}>
                 {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','ตัวเศษ/ส่วน','ผล'].map((h,i) => (
                   <th key={i} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
@@ -10225,7 +10254,7 @@ const InsightBar = ({ label, value, max, color, idx = 0, suffix = '' }) => {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
       <div style={{ width: 150, fontSize: 12, color: C.text, textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={label}>{label}</div>
-      <div style={{ flex: 1, height: 22, background: '#F1F5F9', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ flex: 1, height: 22, background: C.bg, borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
         <div className="rx-bar-grow" style={{
           height: '100%', width: `${Math.max(pct, 3)}%`, background: color, borderRadius: 6,
           animationDelay: `${idx * 60}ms`, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
@@ -10428,7 +10457,7 @@ const InsightsDashboard = ({ data }) => {
             <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>Top PCNE Codes</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {ins.drpCodeList.length ? ins.drpCodeList.map(d => (
-                <span key={d.label} style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 12, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
+                <span key={d.label} style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 12, background: C.primaryBg, color: C.primary, border: '1px solid #BFDBFE' }}>
                   {d.label} · {d.value}
                 </span>
               )) : <span style={{ fontSize: 12, color: C.textMuted }}>—</span>}
@@ -10488,7 +10517,7 @@ const InsightsDashboard = ({ data }) => {
                     <div style={{ width: 28, height: 28, borderRadius: '50%', background: catPalette[i % catPalette.length], color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{(p.name||'?').replace(/^(ภก\.|ภญ\.)/,'').trim().charAt(0) || '?'}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                      <div style={{ height: 6, background: '#F1F5F9', borderRadius: 3, marginTop: 4, overflow: 'hidden' }}>
+                      <div style={{ height: 6, background: C.bg, borderRadius: 3, marginTop: 4, overflow: 'hidden' }}>
                         <div className="rx-bar-grow" style={{ height: '100%', width: `${(p.visits/maxV)*100}%`, background: catPalette[i % catPalette.length], borderRadius: 3, animationDelay: `${i*60}ms` }} />
                       </div>
                     </div>
@@ -11225,7 +11254,7 @@ const RecommendationCard = ({ rec, onDismiss, onAction }) => {
         <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 3 }}>{rec.title}</div>
         <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 6 }}>{rec.message}</div>
         <div style={{
-          background: '#F8FAFC', padding: '8px 10px', borderRadius: 6,
+          background: C.bgAlt, padding: '8px 10px', borderRadius: 6,
           fontSize: 12, color: C.text, marginBottom: 6, borderLeft: `3px solid ${C.accent}`,
         }}>
           <strong>แนะนำ:</strong> {rec.action}
@@ -11276,7 +11305,7 @@ const SmartRecommendations = ({ data, patientId = null }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {!patientId && (
         <div style={{
-          background: '#EFF6FF', border: `1px solid ${C.primaryBorder}`,
+          background: C.primaryBg, border: `1px solid ${C.primaryBorder}`,
           borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ fontSize: 20 }}>💡</span>
@@ -11356,7 +11385,7 @@ const QRCheckIn = ({ data, onPatientFound }) => {
 
       {/* Example: Show QR for first patient */}
       {data.patients.length > 0 && (
-        <div style={{ marginTop: 16, padding: '12px', background: '#F8FAFC', borderRadius: 8, textAlign: 'center' }}>
+        <div style={{ marginTop: 16, padding: '12px', background: C.bgAlt, borderRadius: 8, textAlign: 'center' }}>
           <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>ตัวอย่าง QR Code ของผู้ป่วยคนแรก:</div>
           <img src={generateQRForPatient(data.patients[0])} alt="QR" style={{ width: 150, height: 150 }} />
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
@@ -11553,7 +11582,7 @@ const HISIntegration = () => {
 
         {result?.loading && <div style={{ fontSize: 13, color: C.textMuted }}>กำลังโหลด...</div>}
         {result && !result.loading && (
-          <div style={{ background: '#F8FAFC', padding: '12px', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }}>
+          <div style={{ background: C.bgAlt, padding: '12px', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }}>
             <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(result, null, 2)}</pre>
           </div>
         )}
@@ -11669,7 +11698,7 @@ const VoiceInputSOAP = ({ onTranscript }) => {
 
   return (
     <div style={{
-      padding: '12px 16px', background: isListening ? '#FEF3C7' : '#F8FAFC',
+      padding: '12px 16px', background: isListening ? '#FEF3C7' : C.bgAlt,
       border: `1px solid ${isListening ? '#F59E0B' : C.border}`,
       borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12,
     }}>
@@ -11774,7 +11803,7 @@ const OfflineQueueManager = () => {
           <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {queue.map(item => (
               <div key={item.id} style={{
-                padding: '10px 12px', background: '#F8FAFC', borderRadius: 7,
+                padding: '10px 12px', background: C.bgAlt, borderRadius: 7,
                 border: `1px solid ${C.border}`, fontSize: 12,
               }}>
                 <div style={{ fontWeight: 600, marginBottom: 3 }}>{item.type || 'Action'}</div>
@@ -12516,7 +12545,7 @@ const ResearchExportDashboard = ({ data }) => {
         <p style={{ margin: '0 0 12px', fontSize: 13, color: C.textMuted }}>
           ข้อมูลทั้งหมดถูก anonymize แล้ว — ไม่มี HN, ชื่อ, วันเกิด, หมายเลขโทรศัพท์
         </p>
-        <div style={{ background: '#F8FAFC', padding: '12px', borderRadius: 8, fontSize: 11, fontFamily: 'monospace', maxHeight: 200, overflowY: 'auto' }}>
+        <div style={{ background: C.bgAlt, padding: '12px', borderRadius: 8, fontSize: 11, fontFamily: 'monospace', maxHeight: 200, overflowY: 'auto' }}>
           <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(deID.patients.slice(0, 3), null, 2)}</pre>
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>
@@ -12698,7 +12727,7 @@ function PCNEPanel({ pcne, onChange }) {
         {options.map(opt => (
           <label key={opt.code} style={{
             display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '5px 10px',
-            borderRadius: 6, background: value === opt.code ? '#EFF6FF' : 'transparent',
+            borderRadius: 6, background: value === opt.code ? C.primaryBg : 'transparent',
             border: `1px solid ${value === opt.code ? '#93C5FD' : 'transparent'}`,
           }}>
             <input type="radio" checked={value === opt.code}
@@ -12712,7 +12741,7 @@ function PCNEPanel({ pcne, onChange }) {
                     <button key={sub} onClick={() => onChange({ ...p, [field]: sub })}
                       style={{
                         fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-                        background: value === sub ? C.primaryLight : '#F1F5F9',
+                        background: value === sub ? C.primaryLight : C.bg,
                         color: value === sub ? '#fff' : C.textMuted,
                         border: 'none', fontFamily: 'inherit',
                       }}>{sub}</button>
@@ -12793,7 +12822,7 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
             display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
             padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600,
             border: `1px solid ${type===v ? C.primaryLight : C.border}`,
-            background: type===v ? '#EFF6FF' : '#fff', color: type===v ? C.primaryLight : C.text,
+            background: type===v ? C.primaryBg : '#fff', color: type===v ? C.primaryLight : C.text,
           }}>
             <input type="radio" checked={type===v} onChange={() => setType(v)} style={{ accentColor: C.primaryLight }} />
             {l}
@@ -12809,7 +12838,7 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
       <div className="rx-scroll-x" style={{ overflowX: 'auto', marginBottom: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
-            <tr style={{ background: '#F8FAFC' }}>
+            <tr style={{ background: C.bgAlt }}>
               {['ยา','ขนาด','ความถี่','Route','มีในโรงพยาบาล','Discrepancy','เหตุผล',''].map(h => (
                 <th key={h} style={{ padding: '7px 8px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>{h}</th>
               ))}
@@ -13184,7 +13213,7 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
         {ITEMS.map((item, i) => (
           <label key={item.id} style={{
             display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 12px',
-            borderRadius: 7, background: checked[item.id] ? C.lowBg : '#F8FAFC',
+            borderRadius: 7, background: checked[item.id] ? C.lowBg : C.bgAlt,
             border: `1px solid ${checked[item.id] ? C.lowBorder : C.border}`,
           }}>
             <input type="checkbox" checked={checked[item.id] || false} onChange={() => toggle(item.id)}
@@ -13283,7 +13312,7 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
         </div>
 
         {/* 5 Whys */}
-        <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+        <div style={{ background: C.bgAlt, borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: C.primary, marginBottom: 10 }}>🔢 5 Whys Analysis</div>
           {[1,2,3,4,5].map(n => (
             <div key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
@@ -14005,7 +14034,7 @@ function Dashboard({ data, navigate }) {
           ].map(s => (
             <div key={s.label} style={{ background:'rgba(255,255,255,0.13)', borderRadius:14, padding:'12px 18px', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.2)', minWidth: 96 }}>
               <div style={{ fontSize:10, color:'rgba(255,255,255,0.85)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4, fontWeight:600 }}>{s.icon} {s.label}</div>
-              <div style={{ fontSize:28, fontWeight:800 }}>{s.n}</div>
+              <div style={{ fontSize:28, fontWeight:800 }}><CountUp value={s.n} /></div>
             </div>
           ))}
         </div>
@@ -14266,8 +14295,8 @@ function Dashboard({ data, navigate }) {
                 return (
                   <div key={t.id} className="rx-card-hover" style={{
                     display:'flex', alignItems:'center', gap:10, padding:'10px 12px',
-                    background: overdue ? C.highBg : '#EFF6FF',
-                    border:`1px solid ${overdue ? C.highBorder : '#BFDBFE'}`,
+                    background: overdue ? C.highBg : C.primaryBg,
+                    border:`1px solid ${overdue ? C.highBorder : C.primaryBorder}`,
                     borderRadius:12, cursor:'pointer',
                   }} onClick={() => navigate('telepharmacy')}>
                     <div style={{
@@ -14318,7 +14347,7 @@ function Dashboard({ data, navigate }) {
                   return (
                     <tr key={v.id} style={{ borderBottom: ri < recentV.length-1 ? `1px solid ${C.border}` : 'none', cursor:'pointer', transition:'background 0.12s' }}
                       onClick={() => navigate('history', v.patientId)}
-                      onMouseEnter={e => e.currentTarget.style.background='#F8FAFC'}
+                      onMouseEnter={e => e.currentTarget.style.background=C.bgAlt}
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                       <td style={{ padding:'12px 14px', fontFamily:'monospace', fontSize:11, color:C.textMuted }}>{v.visitDate}</td>
                       <td style={{ padding:'12px 14px' }}>
@@ -14833,7 +14862,7 @@ function App() {
         if (currentUser?.role !== 'admin') return (
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:320, gap:12 }}>
             <div style={{ fontSize:48 }}>🔒</div>
-            <div style={{ fontSize:16, fontWeight:700, color:'#1E40AF' }}>เฉพาะ Admin เท่านั้น</div>
+            <div style={{ fontSize:16, fontWeight:700, color: C.primary }}>เฉพาะ Admin เท่านั้น</div>
             <div style={{ fontSize:13, color:'#64748B' }}>หน้านี้สงวนไว้สำหรับผู้ดูแลระบบเท่านั้น</div>
           </div>
         );
@@ -14959,9 +14988,9 @@ function App() {
             {syncStatus !== 'offline' && !isMobile && (
               <span style={{
                 fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
-                background: syncStatus==='synced'?C.lowBg : syncStatus==='syncing'?'#EFF6FF':C.highBg,
+                background: syncStatus==='synced'?C.lowBg : syncStatus==='syncing'?C.primaryBg:C.highBg,
                 color:      syncStatus==='synced'?C.low   : syncStatus==='syncing'?'#0369A1':C.high,
-                border: `1px solid ${syncStatus==='synced'?C.lowBorder : syncStatus==='syncing'?'#BFDBFE':C.highBorder}`,
+                border: `1px solid ${syncStatus==='synced'?C.lowBorder : syncStatus==='syncing'?C.primaryBorder:C.highBorder}`,
               }}>
                 {syncStatus==='synced'?'☁ ซิงค์แล้ว':syncStatus==='syncing'?'🔄 กำลังซิงค์...':'⚠ ซิงค์ผิดพลาด'}
               </span>
@@ -15055,7 +15084,7 @@ function App() {
             ].map(([key, desc]) => (
               <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.border}` }}>
                 <span style={{ fontSize: 13, color: C.text }}>{desc}</span>
-                <kbd style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, background: '#F1F5F9', border: `1px solid ${C.border}`, fontFamily: 'monospace', color: C.primary }}>{key}</kbd>
+                <kbd style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6, background: C.bg, border: `1px solid ${C.border}`, fontFamily: 'monospace', color: C.primary }}>{key}</kbd>
               </div>
             ))}
             <div style={{ marginTop: 14, fontSize: 11, color: C.textMuted, textAlign: 'center' }}>กด ? หรือ Esc เพื่อปิด</div>
