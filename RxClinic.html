@@ -10355,8 +10355,8 @@ const computeInsights = (data) => {
   const pharmList = Object.entries(pharmMap).map(([k,v]) => ({ name: k, ...v })).sort((a,b) => b.visits - a.visits);
 
   // Follow-up compliance (telepharmacy)
-  const teleDone   = tele.filter(t => t.status === 'Completed' || t.status === 'Done').length;
-  const teleOverdue= tele.filter(t => t.status === 'Scheduled' && t.scheduledDate < today).length;
+  const teleDone   = tele.filter(t => t.status === 'Success').length;
+  const teleOverdue= tele.filter(t => t.status === 'Pending' && t.scheduledDate < today).length;
   const teleTotal  = tele.length;
   const followupRate = teleTotal ? Math.round((teleDone / teleTotal) * 100) : 0;
 
@@ -10691,7 +10691,7 @@ const calculateNotifications = (data) => {
 
   // 1. Overdue Telepharmacy
   (data.telepharmacy || []).forEach(t => {
-    if (t.status === 'Scheduled' && t.scheduledDate < today) {
+    if (t.status === 'Pending' && t.scheduledDate < today) {
       const patient = data.patients.find(p => p.id === t.patientId);
       notifications.push({
         id: `tele-${t.id}`,
@@ -10721,7 +10721,7 @@ const calculateNotifications = (data) => {
         message: `${p.hn} ${p.firstName} — Visit ล่าสุด ${lastVisit ? lastVisit.visitDate : 'ไม่มี'}`,
         patientId: p.id,
         actionLabel: 'ดูผู้ป่วย',
-        action: () => window.AppNavigate && window.AppNavigate('visit-history', p.id),
+        action: () => window.AppNavigate && window.AppNavigate('history', p.id),
       });
     }
   });
@@ -10741,7 +10741,7 @@ const calculateNotifications = (data) => {
         message: `${p.hn} ${p.firstName} — ฉีด Flu ล่าสุด ${vacc.flu || 'ไม่เคย'}`,
         patientId: p.id,
         actionLabel: 'ดูผู้ป่วย',
-        action: () => window.AppNavigate && window.AppNavigate('visit-history', p.id),
+        action: () => window.AppNavigate && window.AppNavigate('history', p.id),
       });
     }
     // PCV13/PPSV23
@@ -10755,7 +10755,7 @@ const calculateNotifications = (data) => {
         message: `${p.hn} ${p.firstName} (อายุ ${p.age} ปี) — ยังไม่ได้ฉีด PCV13`,
         patientId: p.id,
         actionLabel: 'ดูผู้ป่วย',
-        action: () => window.AppNavigate && window.AppNavigate('visit-history', p.id),
+        action: () => window.AppNavigate && window.AppNavigate('history', p.id),
       });
     }
   });
@@ -14401,6 +14401,7 @@ function App() {
   const [selectedPtId, setSelectedPtId] = useState(null);
   const [teleAddPtId,  setTeleAddPtId]  = useState(null);
   const [searchOpen,   setSearchOpen]   = useState(false);
+  const [notifOpen,    setNotifOpen]    = useState(false);
   const [editVisitId,  setEditVisitId]  = useState(null);
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
   const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
@@ -14699,6 +14700,9 @@ function App() {
     document.getElementById('main-scroll')?.scrollTo({ top: 0 });
   }, []);
 
+  // Expose navigate globally for components that can't receive it via props (e.g. NotificationCenter)
+  useEffect(() => { window.AppNavigate = (t, pid) => { navigate(t, pid); setNotifOpen(false); }; return () => { delete window.AppNavigate; }; }, [navigate]);
+
   const handleLogout = async () => {
     try { await firebase.auth().signOut(); } catch(e) {}
     setCurrentUser(null); setFbUser(null);
@@ -14965,6 +14969,29 @@ function App() {
               </button>
             )}
 
+            {/* Notification bell */}
+            {(() => {
+              const notifCount = window.calculateNotifications ? window.calculateNotifications(data).length : 0;
+              return (
+                <button onClick={() => setNotifOpen(true)} aria-label="การแจ้งเตือน" title="การแจ้งเตือน" style={{
+                  position: 'relative', width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
+                  background: C.surface, border: `1.5px solid ${C.border}`, color: C.primary, fontSize: 15,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+                }}>
+                  🔔
+                  {notifCount > 0 && (
+                    <span className="rx-badge-pop" style={{
+                      position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 4px',
+                      borderRadius: 9, background: C.high, color: '#fff', fontSize: 10, fontWeight: 800,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                      border: `2px solid ${C.bg}`, boxShadow: '0 1px 4px rgba(220,38,38,0.5)',
+                    }}>{notifCount > 9 ? '9+' : notifCount}</span>
+                  )}
+                </button>
+              );
+            })()}
+
             {/* Dark mode toggle */}
             <button onClick={() => { window.rxToggleTheme?.(); setThemeTick(t => t + 1); }} aria-label="สลับธีมมืด/สว่าง" title="สลับโหมดมืด/สว่าง" className="rx-icon-wiggle" style={{
               width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
@@ -15031,6 +15058,8 @@ function App() {
 
       <QuickSearch data={data} navigate={navigate}
         isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      <NotificationCenter data={data} open={notifOpen} onClose={() => setNotifOpen(false)} />
 
       <RxToastHost />
 
