@@ -1313,8 +1313,8 @@ function Btn({ onClick, children, variant = 'primary', size = 'md', disabled, ty
       color: '#fff', boxShadow: hov ? '0 4px 14px rgba(6,182,212,0.4)' : '0 2px 8px rgba(6,182,212,0.25)',
     },
     ghost: {
-      background: hov ? '#F1F5F9' : '#FFFFFF', color: C.text,
-      border: `1px solid ${hov ? '#CBD5E1' : C.border}`,
+      background: hov ? C.bgAlt : C.surface, color: C.text,
+      border: `1px solid ${hov ? C.textLight : C.border}`,
       boxShadow: hov ? '0 2px 6px rgba(15,23,42,0.08)' : 'none',
     },
     danger: {
@@ -5560,8 +5560,8 @@ function SmartAlertBanner({ data, navigate }) {
 
   return (
     <div className="rx-smart-alert" style={{
-      background: highCount > 0 ? 'linear-gradient(135deg,#FEF2F2,#FFF5F5)' : '#FFFBEB',
-      border: `1px solid ${highCount > 0 ? '#FECACA' : '#FDE68A'}`,
+      background: highCount > 0 ? C.highBg : C.mediumBg,
+      border: `1px solid ${highCount > 0 ? C.highBorder : C.mediumBorder}`,
       borderRadius: 12, marginBottom: 16, overflow: 'hidden',
     }}>
       <button onClick={() => setExpanded(e => !e)} style={{
@@ -5571,38 +5571,41 @@ function SmartAlertBanner({ data, navigate }) {
         <span className={highCount > 0 ? 'rx-alert-pulse' : ''} style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           width: 32, height: 32, borderRadius: '50%',
-          background: highCount > 0 ? '#DC2626' : '#D97706', fontSize: 15,
+          background: highCount > 0 ? C.high : C.medium, fontSize: 15,
         }}>🔔</span>
         <div style={{ flex: 1, textAlign: 'left' }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: highCount > 0 ? '#991B1B' : '#92400E' }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: highCount > 0 ? C.high : C.medium }}>
             Smart Alert — {alerts.length} รายการที่ต้องดำเนินการ
           </div>
-          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>
             {highCount > 0 ? `⚠ ${highCount} รายการ High Priority` : 'ดูรายละเอียด'}
           </div>
         </div>
-        <span style={{ fontSize: 12, color: '#9CA3AF', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+        <span style={{ fontSize: 12, color: C.textLight, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
       </button>
       {expanded && (
-        <div style={{ borderTop: `1px solid ${highCount > 0 ? '#FECACA' : '#FDE68A'}`, maxHeight: 300, overflowY: 'auto' }}>
+        <div style={{ borderTop: `1px solid ${highCount > 0 ? C.highBorder : C.mediumBorder}`, maxHeight: 300, overflowY: 'auto' }}>
           {alerts.map((al, i) => (
             <div key={i} className="rx-smart-alert-item" onClick={() => navigate('history', al.patientId)}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 16px',
-                borderBottom: i < alerts.length - 1 ? `1px solid ${highCount > 0 ? '#FEE2E2' : '#FEF3C7'}` : 'none',
+                borderBottom: i < alerts.length - 1 ? `1px solid ${highCount > 0 ? C.highBorder : C.mediumBorder}` : 'none',
                 cursor: 'pointer',
               }}>
               <span style={{ fontSize: 16, marginTop: 1 }}>{al.icon}</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 12, color: '#1F2937' }}>{al.title}
-                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 500, color: al.type === 'drp' ? '#DC2626' : '#D97706',
-                    background: al.type === 'drp' ? '#FEE2E2' : '#FEF3C7', borderRadius: 4, padding: '1px 5px' }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: C.text }}>{al.title}
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600,
+                    color: al.type === 'drp' ? C.high : C.medium,
+                    background: al.type === 'drp' ? C.highBg : C.mediumBg,
+                    border: `1px solid ${al.type === 'drp' ? C.highBorder : C.mediumBorder}`,
+                    borderRadius: 4, padding: '1px 6px' }}>
                     {al.type === 'drp' ? 'DRP' : 'Overdue'}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.4 }}>{al.detail}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, lineHeight: 1.4 }}>{al.detail}</div>
               </div>
-              <span style={{ fontSize: 10, color: '#2563EB', fontWeight: 600, whiteSpace: 'nowrap', marginTop: 2 }}>ดูข้อมูล →</span>
+              <span style={{ fontSize: 10, color: C.primaryLight, fontWeight: 600, whiteSpace: 'nowrap', marginTop: 2 }}>ดูข้อมูล →</span>
             </div>
           ))}
         </div>
@@ -5661,10 +5664,10 @@ function PatientTrendChart({ visits, diagnosis }) {
           return <circle cx={x} cy={y} r={3} fill="#3B82F6" />;
         })()}
       </svg>
-      <div style={{ fontSize: 10, color: '#6B7280', lineHeight: 1.8 }}>
-        {showCAT && hasCAT && <div style={{ color: '#D97706' }}>CAT {catPts.filter(Boolean).at(-1)}</div>}
-        {showACT && hasACT && <div style={{ color: '#3B82F6' }}>ACT {actPts.filter(Boolean).at(-1)}</div>}
-        <div style={{ color: '#9CA3AF', fontSize: 9 }}>{sorted.length} visits</div>
+      <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.8 }}>
+        {showCAT && hasCAT && <div style={{ color: C.medium }}>CAT {catPts.filter(Boolean).at(-1)}</div>}
+        {showACT && hasACT && <div style={{ color: C.primaryLight }}>ACT {actPts.filter(Boolean).at(-1)}</div>}
+        <div style={{ color: C.textLight, fontSize: 9 }}>{sorted.length} visits</div>
       </div>
     </div>
   );
@@ -5870,7 +5873,7 @@ function PatientList({ data, onDataChange, navigate }) {
       render: p => {
         const d = getLastVisit(p.id);
         const da = daysAgo(d);
-        if (!d) return <span style={{ fontSize: 11, color: '#0369A1', fontWeight: 600 }}>🆕 ผู้ป่วยใหม่</span>;
+        if (!d) return <span style={{ fontSize: 11, color: C.accent, fontWeight: 600 }}>🆕 ผู้ป่วยใหม่</span>;
         const color = da > 90 ? C.high : da > 30 ? C.medium : C.low;
         return (
           <div>
@@ -5881,13 +5884,19 @@ function PatientList({ data, onDataChange, navigate }) {
       },
     },
     {
-      key: 'actions', label: '', width: 180, align: 'right',
+      key: 'actions', label: '', width: 200, align: 'right',
       render: p => (
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', alignItems: 'center' }}>
           <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>+ บันทึก</Btn>
           <Btn size="sm" variant="ghost"  onClick={() => navigate('history', p.id)}>ประวัติ</Btn>
-          <Btn size="sm" variant="ghost"  onClick={() => setEditPt(p)}>แก้ไข</Btn>
-          <Btn size="sm" variant="danger" onClick={() => setDelId(p.id)}>ลบ</Btn>
+          <button title="แก้ไขข้อมูลผู้ป่วย" onClick={() => setEditPt(p)}
+            style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
+            onMouseEnter={e=>{e.currentTarget.style.background=C.bgAlt;e.currentTarget.style.color=C.primary;e.currentTarget.style.borderColor=C.primary;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>✏️</button>
+          <button title="ลบผู้ป่วย" onClick={() => setDelId(p.id)}
+            style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
+            onMouseEnter={e=>{e.currentTarget.style.background=C.highBg;e.currentTarget.style.color=C.high;e.currentTarget.style.borderColor=C.highBorder;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>🗑️</button>
         </div>
       ),
     },
@@ -5947,7 +5956,7 @@ function PatientList({ data, onDataChange, navigate }) {
               <button key={chip.v} onClick={() => setFilterRisk(chip.v)} style={{
                 padding: '5px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 fontFamily: 'Sarabun, sans-serif', transition: 'all 0.15s',
-                background: active ? chip.c : '#fff',
+                background: active ? chip.c : C.surface,
                 color: active ? '#fff' : chip.c,
                 border: `1.5px solid ${active ? chip.c : C.border}`,
               }}>{chip.label}</button>
@@ -5986,7 +5995,7 @@ function PatientList({ data, onDataChange, navigate }) {
         <p style={{ margin: '0 0 8px', fontSize: 13, color: C.text }}>
           วางข้อมูล CSV ด้านล่าง (คั่นด้วย comma)
         </p>
-        <div style={{ margin: '0 0 8px', padding: '8px 10px', background: '#F8FAFC', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', color: C.textMuted }}>
+        <div style={{ margin: '0 0 8px', padding: '8px 10px', background: C.bgAlt, borderRadius: 6, fontSize: 11, fontFamily: 'monospace', color: C.textMuted }}>
           หัวตาราง: HN,Prefix,FirstName,LastName,Age,Gender,Diagnosis,Phone,Insurance
         </div>
         <textarea value={csvText} onChange={e => setCsvText(e.target.value)}
@@ -7211,7 +7220,7 @@ function MiniVisitCard({ visit, isLatest, currentMedNames }) {
 
         {/* Plan */}
         {visit.soap?.p && (
-          <div style={{ padding: '5px 7px', borderRadius: 4, background: '#EFF6FF', borderLeft: `2px solid ${C.accent}` }}>
+          <div style={{ padding: '5px 7px', borderRadius: 4, background: C.bgAlt, borderLeft: `2px solid ${C.accent}` }}>
             <div style={{ fontSize: 8, fontWeight: 700, color: C.primary, textTransform: 'uppercase' }}>Plan</div>
             <div style={{ fontSize: 10, color: C.text, marginTop: 2, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{visit.soap.p}</div>
           </div>
@@ -7245,10 +7254,11 @@ function LastVisitsPanel({ visits, currentMeds }) {
 
 // ── SOAP Field with template picker ───────────────────
 function SOAPField({ label, fieldKey, value, onChange, placeholder, rows }) {
+  const accent = { s: '#6D28D9', o: C.accent, a: C.medium, p: C.low }[fieldKey] || C.primary;
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{label}</label>
+    <div style={{ marginBottom: 14, borderLeft: `3px solid ${value ? accent : C.border}`, paddingLeft: 10, borderRadius: '0 6px 6px 0', transition: 'border-color 0.2s' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+        <label style={{ fontSize: 12, fontWeight: 700, color: value ? accent : C.textMuted, transition: 'color 0.2s' }}>{label}</label>
         <TemplatePicker field={fieldKey}
           onInsert={(text) => onChange(value ? `${value}\n${text}` : text)} />
       </div>
@@ -7605,9 +7615,9 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
       {isEditing && (
         <div style={{
-          background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10,
+          background: C.mediumBg, border: `1px solid ${C.mediumBorder}`, borderRadius: 10,
           padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
-          fontSize: 12, color: '#92400E', fontWeight: 600,
+          fontSize: 12, color: C.medium, fontWeight: 600,
         }}>
           ✏️ คุณกำลังแก้ไข Visit ที่บันทึกไปแล้วเมื่อ {editingVisit.visitDate} — การบันทึกจะทับข้อมูลเดิม
         </div>
@@ -7637,7 +7647,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ② Exacerbation */}
-          <SecHd n="2" title="ประเมิน Exacerbation" color="#DC2626" />
+          <SecHd n="2" title="ประเมิน Exacerbation" color={C.high} />
           <Card>
             <div style={row3}>
               <FormField label="ครั้ง Exacerbation ใน 6 เดือนล่าสุด">
@@ -7692,7 +7702,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           {/* ③ Validated Assessments — Collapsible, on-demand */}
           {(['COPD', 'Both', 'Asthma'].includes(patient.diagnosis)) && (
             <>
-              <SecHd n="3" title="แบบประเมินมาตรฐาน (กดเพื่อทำเมื่อต้องการ)" color="#1848A0"
+              <SecHd n="3" title="แบบประเมินมาตรฐาน (กดเพื่อทำเมื่อต้องการ)" color={C.primaryDark}
                 right={<span style={{ fontSize: 11, color: C.textMuted, marginLeft: 8 }}>เปิดเฉพาะเคสที่ต้องประเมิน</span>} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(['COPD', 'Both'].includes(patient.diagnosis)) && (
@@ -7740,7 +7750,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           )}
 
           {/* Vitals & Spirometry */}
-          <SecHd n="V" title="สัญญาณชีพ & Spirometry" color="#0891B2" />
+          <SecHd n="V" title="สัญญาณชีพ & Spirometry" color={C.accentLight} />
           <Card>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
               <FormField label="SpO₂ (%)">
@@ -7767,7 +7777,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ④ Medications */}
-          <SecHd n="4" title="ยาที่ผู้ป่วยใช้อยู่ในปัจจุบัน" color="#0369A1"
+          <SecHd n="4" title="ยาที่ผู้ป่วยใช้อยู่ในปัจจุบัน" color={C.accent}
             right={lastVisit && (
               <span style={{ fontSize: 11, color: C.textMuted, marginLeft: 8 }}>
                 ครั้งก่อน {lastVisit.medications?.length || 0} ตัว · ขณะนี้ {f.medications.length} ตัว
@@ -7826,13 +7836,13 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   {beers.map((b, i) => (
                     <div key={i} style={{
                       display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 13px',
-                      borderRadius: 9, background: '#FFF7ED', border: '1.5px solid #FED7AA',
+                      borderRadius: 9, background: C.mediumBg, border: `1.5px solid ${C.mediumBorder}`,
                     }}>
                       <span style={{ fontSize: 16, flexShrink: 0 }}>👴</span>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#C2410C' }}>Beers Criteria: {b.drug}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.medium }}>Beers Criteria: {b.drug}</div>
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, lineHeight: 1.5 }}>{b.reason}</div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#C2410C', marginTop: 2 }}>→ {b.recommendation}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.medium, marginTop: 2 }}>→ {b.recommendation}</div>
                       </div>
                     </div>
                   ))}
@@ -7859,7 +7869,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ⑤ Inhaler Technique */}
-          <SecHd n="5" title="ประเมินเทคนิคการใช้ยาพ่น (Inhaler Technique)" color="#7C3AED" />
+          <SecHd n="5" title="ประเมินเทคนิคการใช้ยาพ่น (Inhaler Technique)" color={C.primary} />
           <Card>
             {f.inhalerTechnique.map((entry, i) => (
               <InhalerChecklistCard key={entry.id || i} entry={entry} index={i} onChange={updateTech} onRemove={removeTech} />
@@ -7868,7 +7878,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ⑥ Adherence */}
-          <SecHd n="6" title="ประเมินความร่วมมือในการใช้ยา (Medication Adherence)" color="#059669" />
+          <SecHd n="6" title="ประเมินความร่วมมือในการใช้ยา (Medication Adherence)" color={C.low} />
           <Card>
             <p style={{ margin: '0 0 12px', fontSize: 12, color: C.textMuted }}>
               ให้ผู้ป่วยตอบว่า "ใช่" หรือ "ไม่ใช่" — ข้อที่ตอบ "ใช่" หมายถึงมีปัญหา
@@ -7877,7 +7887,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ⑦ DRP + PCNE */}
-          <SecHd n="7" title="Drug-Related Problems (DRP) — PCNE v9.1" color="#DC2626" />
+          <SecHd n="7" title="Drug-Related Problems (DRP) — PCNE v9.1" color={C.high} />
           <Card>
             <DRPSection drp={f.drp} onChange={v => set('drp', v)} visit={f} patient={patient} />
             {f.drp?.noDRP === false && (
@@ -7903,7 +7913,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ⑧ SOAP */}
-          <SecHd n="8" title="บันทึก SOAP" color="#0F766E"
+          <SecHd n="8" title="บันทึก SOAP" color={C.low}
             right={<span style={{ fontSize: 11, color: C.textMuted, marginLeft: 8 }}>🏷️ คลิก Templates เพื่อใส่ snippet</span>} />
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -7937,7 +7947,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* ⑨ Counseling + Plan */}
-          <SecHd n="9" title="หัวข้อการให้คำปรึกษา และแผนติดตาม" color="#D97706" />
+          <SecHd n="9" title="หัวข้อการให้คำปรึกษา และแผนติดตาม" color={C.medium} />
           <Card>
             <FormField label="หัวข้อ Counseling">
               <CheckboxGroup options={AppStore.COUNSELING_TOPICS} selected={f.counselingTopics}
@@ -7962,7 +7972,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           </Card>
 
           {/* HA6: Informed Consent — รวมไว้ใน Counseling card เพื่อกรอกง่ายในจุดเดียว */}
-          <Card style={{ padding: '12px 18px', background: f.informedConsent ? '#F0FDF4' : '#FFFBEB', border: `1px solid ${f.informedConsent ? C.lowBorder : '#FDE68A'}` }}>
+          <Card style={{ padding: '12px 18px', background: f.informedConsent ? C.lowBg : C.mediumBg, border: `1px solid ${f.informedConsent ? C.lowBorder : C.mediumBorder}` }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
               <input type="checkbox" checked={f.informedConsent || false}
                 onChange={e => set('informedConsent', e.target.checked)}
