@@ -339,6 +339,29 @@
   @keyframes rxToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
   @keyframes rxConfettiFall { 0% { opacity: 0; transform: translateY(-10px) rotate(0deg); } 12% { opacity: 1; } 100% { opacity: 0.9; transform: translateY(102vh) rotate(540deg); } }
 
+  /* ── Save success checkmark ── */
+  @keyframes rxCheckPop {
+    0%   { opacity: 0; transform: scale(0.5) rotate(-20deg); }
+    55%  { opacity: 1; transform: scale(1.25) rotate(5deg); }
+    75%  { transform: scale(0.92) rotate(-2deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+  @keyframes rxSavePulse {
+    0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(22,163,74,0); }
+    100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+  }
+  .rx-save-success {
+    background: #16A34A !important;
+    border-color: #16A34A !important;
+    animation: rxSavePulse 0.65s ease-out both;
+    pointer-events: none;
+  }
+  .rx-save-check {
+    display: inline-block;
+    animation: rxCheckPop 0.42s cubic-bezier(0.16,1,0.3,1) both;
+  }
+
   /* ── Spinner ── */
   @keyframes rxSpin { to { transform: rotate(360deg); } }
   .rx-spin-icon { animation: rxSpin 0.8s linear infinite; }
@@ -7316,6 +7339,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   const [prefillState, setPrefillState] = vfState(isEditing ? 'used' : null);
   const [saving, setSaving] = vfState(false);
+  const [saveSuccess, setSaveSuccess] = vfState(false);
   const [showToast, setShowToast] = vfState(null);
   const [confirmDelete, setConfirmDelete] = vfState(false);
   const [showDraftPrompt, setShowDraftPrompt] = vfState(null);  // {draft, ts} or null
@@ -7551,7 +7575,8 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     onSave(newData);
     window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
     window.rxConfetti?.();
-    setTimeout(() => navigate('history', patientId), 100);
+    setSaveSuccess(true);
+    setTimeout(() => navigate('history', patientId), 750);
   };
 
   const handleDelete = () => {
@@ -8064,8 +8089,13 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <Btn variant="ghost" onClick={guardedLeave}>ยกเลิก</Btn>
-              <Btn variant="primary" size="lg" onClick={() => handleSave(false)} disabled={saving}>
-                {saving ? <><span className="rx-spinner" /> กำลังบันทึก...</> : (isEditing ? '💾 บันทึกการแก้ไข (⌘+S)' : '💾 บันทึกการบริบาล (⌘+S)')}
+              <Btn variant="primary" size="lg" onClick={() => handleSave(false)} disabled={saving || saveSuccess}
+                style={saveSuccess ? { background: '#16A34A', borderColor: '#16A34A', animation: 'rxSavePulse 0.65s ease-out both', pointerEvents: 'none' } : {}}>
+                {saveSuccess
+                  ? <><span className="rx-save-check">✓</span> บันทึกสำเร็จ!</>
+                  : saving
+                    ? <><span className="rx-spinner" /> กำลังบันทึก...</>
+                    : (isEditing ? '💾 บันทึกการแก้ไข (⌘+S)' : '💾 บันทึกการบริบาล (⌘+S)')}
               </Btn>
             </div>
           </div>
