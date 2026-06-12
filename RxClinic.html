@@ -1002,6 +1002,202 @@ const DRUG_DOSE_GUIDE = {
   'Calcium+Vit D3 500/200 mg': { dose: '1–2 เม็ด/day', max: '2000 mg Ca/day', tip: 'แยกรับประทานจาก Bisphosphonate และ Thyroid hormone อย่างน้อย 2 ชั่วโมง' },
 };
 
+// ── Drug-Drug Interaction Database ────────────────────
+// อ้างอิง: Lexicomp, Micromedex, MIMS Thailand, UpToDate
+// severity: 'major' (ควรหลีกเลี่ยง/ปรับขนาด) | 'moderate' (ต้องติดตาม) | 'minor' (ควรรู้)
+const DRUG_INTERACTIONS = [
+  // ══ Theophylline interactions ══
+  { drugs: ['theophylline'], with: ['ciprofloxacin','levofloxacin'],
+    severity: 'major',
+    effect: 'FQ ยับยั้ง CYP1A2 → ระดับ Theophylline ↑ 2-3 เท่า → คลื่นไส้ อาเจียน ชัก หัวใจเต้นผิดจังหวะ',
+    management: 'ลด Theophylline dose 30–50% และติดตามระดับยาในเลือด (therapeutic range: 5–15 mcg/mL)' },
+  { drugs: ['theophylline'], with: ['azithromycin'],
+    severity: 'moderate',
+    effect: 'Macrolide ยับยั้ง CYP3A4 → ระดับ Theophylline อาจสูงขึ้น → ระวัง toxicity',
+    management: 'ติดตามอาการ toxicity: คลื่นไส้ ใจสั่น ถ้าเป็นไปได้พิจารณายาปฏิชีวนะกลุ่มอื่น' },
+  { drugs: ['theophylline'], with: ['omeprazole','pantoprazole','esomeprazole'],
+    severity: 'minor',
+    effect: 'PPI บางตัวยับยั้ง CYP1A2 เล็กน้อย → ระดับ Theophylline อาจสูงขึ้นเล็กน้อย',
+    management: 'ติดตามอาการ toxicity ถ้าเพิ่งเริ่ม PPI ร่วม' },
+  // ══ Beta-blocker + Bronchodilator ══
+  { drugs: ['propranolol'],
+    with: ['salbutamol','budesonide/formoterol','fluticasone/salmeterol','umeclidinium/vilanterol','ipratropium/fenoterol'],
+    severity: 'major',
+    effect: 'Beta-blocker non-selective (Propranolol) บล็อก β2 → Bronchospasm รุนแรง และต้านฤทธิ์ SABA/LABA',
+    management: 'หลีกเลี่ยงการใช้ร่วมกัน ถ้าจำเป็นต้องใช้ beta-blocker เลือก Cardioselective BB (Atenolol/Metoprolol/Carvedilol) แทน' },
+  { drugs: ['atenolol','metoprolol','carvedilol'],
+    with: ['salbutamol','budesonide/formoterol','fluticasone/salmeterol','umeclidinium/vilanterol'],
+    severity: 'moderate',
+    effect: 'Cardioselective BB อาจลดฤทธิ์ Bronchodilator บางส่วน โดยเฉพาะขนาดสูง',
+    management: 'ใช้ขนาดต่ำที่สุดที่ได้ผล ติดตามสมรรถภาพปอด และอาการหอบ ควรใช้ร่วมกับ ICS และ LABA เป็น controller' },
+  // ══ Warfarin interactions ══
+  { drugs: ['warfarin'], with: ['azithromycin','ciprofloxacin','levofloxacin'],
+    severity: 'major',
+    effect: 'ยาปฏิชีวนะยับยั้ง gut flora สร้าง Vit K + inhibit CYP → INR ↑ สูง → เลือดออกรุนแรง',
+    management: 'ติดตาม INR ทุก 2–3 วัน ช่วงใช้ยาปฏิชีวนะ พิจารณาลด Warfarin dose ชั่วคราว' },
+  { drugs: ['warfarin'], with: ['aspirin','ibuprofen','diclofenac','celecoxib'],
+    severity: 'major',
+    effect: 'NSAIDs/Antiplatelet + Warfarin → เพิ่มความเสี่ยงเลือดออกทาง GI และเนื้อเยื่อสูงมาก',
+    management: 'หลีกเลี่ยงการใช้ร่วมกัน ถ้าจำเป็นใช้ Paracetamol แทน NSAIDs และติดตาม INR ใกล้ชิด' },
+  { drugs: ['warfarin'], with: ['omeprazole','pantoprazole','esomeprazole'],
+    severity: 'moderate',
+    effect: 'PPI (โดยเฉพาะ Omeprazole) ยับยั้ง CYP2C19 → ระดับ Warfarin อาจสูงขึ้น → INR เพิ่ม',
+    management: 'ติดตาม INR หลังเริ่มหรือหยุด PPI เลือก Pantoprazole แทน Omeprazole ถ้าจำเป็น' },
+  { drugs: ['warfarin'], with: ['simvastatin','atorvastatin','rosuvastatin'],
+    severity: 'moderate',
+    effect: 'Statin บางตัวยับยั้ง CYP2C9 → ระดับ Warfarin อาจสูงขึ้น → INR เพิ่ม',
+    management: 'ติดตาม INR หลังเริ่ม Statin ใหม่ โดยเฉพาะ Fluvastatin/Rosuvastatin' },
+  // ══ NSAID combinations ══
+  { drugs: ['ibuprofen','diclofenac','celecoxib'], with: ['enalapril','losartan','valsartan'],
+    severity: 'moderate',
+    effect: 'NSAIDs ลดฤทธิ์ ACE-I/ARB ลดความดัน + ลด renal perfusion → เสี่ยง acute kidney injury โดยเฉพาะในผู้สูงอายุ',
+    management: 'หลีกเลี่ยงในผู้ป่วย CKD/CHF ถ้าจำเป็นต้องใช้ ติดตาม serum Cr + K+ + ความดัน ใช้เวลาสั้นที่สุด' },
+  { drugs: ['ibuprofen','diclofenac'], with: ['aspirin'],
+    severity: 'moderate',
+    effect: 'NSAIDs แข่งจับกับ COX-1 → ลดฤทธิ์ cardioprotective ของ Aspirin + เพิ่มเลือดออก GI',
+    management: 'ถ้าจำเป็น ให้ Aspirin ก่อน NSAIDs อย่างน้อย 30 นาที พิจารณาเปลี่ยนเป็น Paracetamol' },
+  { drugs: ['ibuprofen','diclofenac','celecoxib'], with: ['furosemide','hydrochlorothiazide'],
+    severity: 'moderate',
+    effect: 'NSAIDs ลดฤทธิ์ขับปัสสาวะ → น้ำคั่ง ความดันขึ้น บวม อาจกำเริบ Heart failure',
+    management: 'หลีกเลี่ยงในผู้ป่วย CHF/CKD ถ้าจำเป็นติดตามน้ำหนัก/ความดัน/ไต' },
+  // ══ OCS/Steroid interactions ══
+  { drugs: ['prednisolone'], with: ['ibuprofen','diclofenac','celecoxib','aspirin'],
+    severity: 'moderate',
+    effect: 'Corticosteroid + NSAIDs → เพิ่มความเสี่ยง GI ulcer/bleeding อย่างมีนัยสำคัญ',
+    management: 'เพิ่ม PPI ป้องกัน (Omeprazole 20-40 mg/day) ตลอดระยะเวลาที่ใช้ร่วมกัน' },
+  { drugs: ['prednisolone'], with: ['glipizide','gliclazide','glibenclamide','metformin','sitagliptin','empagliflozin','dapagliflozin'],
+    severity: 'moderate',
+    effect: 'Corticosteroid → steroid-induced hyperglycemia → ลดฤทธิ์ยาลดน้ำตาลทุกกลุ่ม',
+    management: 'ติดตาม FBS/PPBS วันละ 2-4 ครั้ง ช่วงใช้ steroid อาจต้องเพิ่มขนาดยาลดน้ำตาลหรือ sliding scale insulin ชั่วคราว' },
+  // ══ Statin interactions ══
+  { drugs: ['simvastatin','atorvastatin'], with: ['azithromycin'],
+    severity: 'moderate',
+    effect: 'Macrolide ยับยั้ง CYP3A4 → ระดับ Statin ↑ → เพิ่มความเสี่ยง myopathy/rhabdomyolysis',
+    management: 'หยุด Statin ชั่วคราว 3-5 วันช่วงที่ใช้ Azithromycin หรือเปลี่ยนเป็น Rosuvastatin (ไม่ผ่าน CYP3A4)' },
+  { drugs: ['simvastatin','atorvastatin','rosuvastatin'], with: ['fenofibrate'],
+    severity: 'moderate',
+    effect: 'Statin + Fibrate → เพิ่มความเสี่ยง myopathy/rhabdomyolysis (พบบ่อยขึ้น 5-10 เท่า)',
+    management: 'ใช้ขนาดต่ำที่สุด ติดตาม CK/LFT ทุก 3 เดือน แนะนำให้ผู้ป่วยรายงานอาการปวดกล้ามเนื้อทันที' },
+  // ══ Digoxin interactions ══
+  { drugs: ['digoxin'], with: ['azithromycin'],
+    severity: 'major',
+    effect: 'Macrolide ทำลาย gut flora ที่เปลี่ยน Digoxin เป็นรูปที่ดูดซึมไม่ได้ + ยับยั้ง P-gp → ระดับ Digoxin ↑ → Digoxin toxicity',
+    management: 'ติดตาม Digoxin level + ECG อาการ toxicity: คลื่นไส้ ใจสั่น หัวใจช้า visual changes' },
+  // ══ ACE-I / ARB / K-sparing ══
+  { drugs: ['enalapril'], with: ['losartan','valsartan'],
+    severity: 'moderate',
+    effect: 'Double RAAS blockade → ความดันต่ำรุนแรง + Hyperkalemia + Acute kidney injury',
+    management: 'หลีกเลี่ยงการใช้ ACE-I + ARB ร่วมกันในกรณีทั่วไป (ยกเว้นผู้เชี่ยวชาญกำกับ)' },
+  { drugs: ['spironolactone'], with: ['enalapril','losartan','valsartan'],
+    severity: 'moderate',
+    effect: 'Spironolactone (K-sparing) + ACE-I/ARB → Hyperkalemia ≥ 6.0 mEq/L → หัวใจหยุดเต้น',
+    management: 'ติดตาม serum K+ และ sCr ทุก 1-2 สัปดาห์แรก แล้วทุก 3-6 เดือน เลี่ยงอาหาร K+ สูง' },
+  // ══ Allopurinol interactions ══
+  { drugs: ['allopurinol'], with: ['amoxicillin','amoxicillin-clavulanate'],
+    severity: 'moderate',
+    effect: 'Allopurinol + Aminopenicillin → เพิ่มความเสี่ยง skin rash (maculopapular) 3–10 เท่า',
+    management: 'แจ้งผู้ป่วยสังเกต rash ถ้าเกิดขึ้นหยุดยาทันทีและไปพบแพทย์ พิจารณาเปลี่ยน antibiotic' },
+  // ══ ICS + Azole ══
+  { drugs: ['budesonide','fluticasone','budesonide/formoterol','fluticasone/salmeterol'],
+    with: ['ketoconazole','itraconazole'],
+    severity: 'moderate',
+    effect: 'Azole antifungal ยับยั้ง CYP3A4 → ระดับ ICS ↑ → adrenal suppression, Cushing syndrome',
+    management: 'ใช้ ICS ขนาดต่ำที่สุด ระวังอาการ adrenal suppression: อ่อนเพลีย น้ำหนักขึ้น หน้าบวม' },
+];
+
+// ── Drug Info Card ─────────────────────────────────────
+// ข้อมูลย่อสำหรับแสดงตอนเลือกยาใน dropdown
+const DRUG_INFO = {
+  // Inhalers
+  'Salbutamol MDI 100 mcg/dose': {
+    class: 'Short-acting β2-agonist (SABA)', indication: 'Rescue therapy — COPD & Asthma กำเริบ',
+    mechanism: 'กระตุ้น β2-receptor → คลาย smooth muscle → ขยายหลอดลมภายใน 5-15 นาที',
+    keyPoints: ['⚡ ออกฤทธิ์เร็ว ใช้เมื่อมีอาการเท่านั้น', '⚠ ถ้าใช้ >2 ครั้ง/สัปดาห์ = ควบคุมไม่ได้', '🚫 ไม่ใช่ controller ห้ามใช้แทน ICS'],
+    se: 'ใจสั่น มือสั่น ปวดหัว hypokalemia (ขนาดสูง)',
+  },
+  'Budesonide (Pulmicort) MDI 200 mcg/dose': {
+    class: 'Inhaled Corticosteroid (ICS)', indication: 'Controller — Asthma (first-line), COPD (+exacerbation)',
+    mechanism: 'ยับยั้ง inflammatory cytokines → ลด airway inflammation และ hyperresponsiveness',
+    keyPoints: ['✅ ต้องใช้สม่ำเสมอทุกวัน แม้อาการดี', '🦷 บ้วนปากทุกครั้งหลังพ่น', '⚠ ไม่มีฤทธิ์ขยายหลอดลมเฉียบพลัน'],
+    se: 'Oral candidiasis, dysphonia (แก้โดยบ้วนปาก + spacer)',
+  },
+  'Budesonide/Formoterol (Symbicort) DPI 160/4.5 mcg': {
+    class: 'ICS/LABA combination', indication: 'Controller — Asthma step 3-4, COPD GOLD B/E',
+    mechanism: 'ICS ลด inflammation + LABA (Formoterol) ขยายหลอดลมนาน 12 ชม.',
+    keyPoints: ['✅ ใช้ได้ทั้งแบบ Fixed-dose และ MART (Asthma)', '🦷 บ้วนปากทุกครั้ง', '⚡ Formoterol ออกฤทธิ์เร็ว ใช้เป็น rescue ใน MART ได้'],
+    se: 'Oral candidiasis, ใจสั่น (น้อยกว่า SABA)',
+  },
+  'Fluticasone/Salmeterol (Seretide) MDI 25/250 mcg': {
+    class: 'ICS/LABA combination', indication: 'Controller — Asthma step 3-4, COPD GOLD B/E',
+    mechanism: 'ICS ลด inflammation + LABA (Salmeterol) ขยายหลอดลมนาน 12 ชม.',
+    keyPoints: ['✅ BID ใช้เวลาเดิมทุกวัน', '🦷 บ้วนปากทุกครั้ง', '🚫 ไม่ใช้เป็น rescue (Salmeterol ออกฤทธิ์ช้า)'],
+    se: 'Oral candidiasis, ปวดหัว ใจสั่น',
+  },
+  'Umeclidinium/Vilanterol (Anoro) Ellipta 55/22 mcg': {
+    class: 'LAMA/LABA combination', indication: 'Maintenance — COPD GOLD B/E (เป็น dual bronchodilator)',
+    mechanism: 'LAMA (Umeclidinium) บล็อก M3 receptor + LABA (Vilanterol) กระตุ้น β2 → ขยายหลอดลม 24 ชม.',
+    keyPoints: ['✅ OD ตอนเช้า เวลาเดิมทุกวัน', '💧 ไม่ต้องบ้วนปาก', '⚠ ระวัง urinary retention ในชายสูงอายุ'],
+    se: 'ปากแห้ง ปัสสาวะลำบาก (anticholinergic) ตาพร่ามัว',
+  },
+  'Ipratropium/Fenoterol (Berodual) MDI 20/50 mcg': {
+    class: 'SAMA/SABA combination', indication: 'Rescue — COPD exacerbation, Asthma กำเริบรุนแรง',
+    mechanism: 'SAMA (Ipratropium) + SABA (Fenoterol) → dual bronchodilation ออกฤทธิ์เร็ว',
+    keyPoints: ['⚡ ออกฤทธิ์ภายใน 15-30 นาที', '⚠ ระวังตาสัมผัสละออง → acute glaucoma', '⚠ ระวัง urinary retention ชายสูงอายุ'],
+    se: 'ปากแห้ง ใจสั่น ตาพร่า ปัสสาวะลำบาก',
+  },
+  'Theophylline SR 200 mg': {
+    class: 'Methylxanthine (bronchodilator)', indication: 'Add-on therapy COPD/Asthma — ใช้เมื่อยาพ่นไม่เพียงพอ',
+    mechanism: 'ยับยั้ง Phosphodiesterase → ลด cAMP/cGMP breakdown → คลายหลอดลม + anti-inflammatory (ขนาดต่ำ)',
+    keyPoints: ['⚠ Therapeutic index แคบมาก (5–15 mcg/mL)', '⚠ มี interactions มากกับ FQ, Macrolide, Cimetidine', '🩸 ติดตาม drug level ทุก 6-12 เดือน'],
+    se: 'คลื่นไส้ ปวดหัว ใจสั่น ชัก (toxicity)',
+  },
+  'Prednisolone 5 mg': {
+    class: 'Oral Corticosteroid (OCS)', indication: 'Exacerbation burst therapy / Severe asthma / COPD ระยะกำเริบ',
+    mechanism: 'ยับยั้ง NF-κB → ลด inflammatory mediators → ลด airway inflammation อย่างรวดเร็ว',
+    keyPoints: ['⏱ ใช้ระยะสั้น 5-7 วัน ถ้าเป็นไปได้', '🩺 ตรวจน้ำตาล/ความดัน ช่วงใช้ยา', '🦴 ถ้าใช้นาน >3 เดือน เพิ่ม Calcium+VitD + Bisphosphonate'],
+    se: 'น้ำตาลสูง ความดันสูง อ้วน กระดูกบาง ภูมิต้านทานลด',
+  },
+  // Key oral drugs
+  'Warfarin 3 mg': {
+    class: 'Vitamin K Antagonist (Anticoagulant)', indication: 'AF, DVT/PE, mechanical heart valve',
+    mechanism: 'ยับยั้ง Vit K epoxide reductase → ลด synthesis Factor II, VII, IX, X',
+    keyPoints: ['🩸 ติดตาม INR ทุก 1-4 สัปดาห์ (target 2.0-3.0)', '⚠ Interactions มากมาย กับยา อาหาร และสมุนไพร', '🥦 อาหาร Vit K สูง (ผักใบเขียว) ลด INR'],
+    se: 'เลือดออกง่าย (GI, intracranial), รอยช้ำ, เลือดกำเดา',
+  },
+  'Digoxin 0.25 mg': {
+    class: 'Cardiac Glycoside', indication: 'Heart failure (systolic), AF rate control',
+    mechanism: 'ยับยั้ง Na/K-ATPase → positive inotrope + negative chronotrope',
+    keyPoints: ['⚠ Therapeutic index แคบ (0.5–2.0 ng/mL)', '🩺 ติดตาม ECG + K+ สม่ำเสมอ', '⚠ Toxicity: คลื่นไส้ visual changes bradycardia'],
+    se: 'Digoxin toxicity, Bradycardia, AV block, Hypokalemia เพิ่ม toxicity',
+  },
+  'Metformin 500 mg': {
+    class: 'Biguanide (ลดน้ำตาล)', indication: 'DM type 2 first-line',
+    mechanism: 'ยับยั้ง Complex I mitochondria → ลด hepatic gluconeogenesis + เพิ่ม insulin sensitivity',
+    keyPoints: ['✅ First-line DM2 ไม่ทำให้น้ำหนักขึ้น', '🚫 หยุดถ้า eGFR < 30 (ระวัง lactic acidosis)', '💊 รับประทานพร้อมอาหารลด GI side effects'],
+    se: 'คลื่นไส้ ท้องเสีย (ลดโดยค่อยๆ เพิ่มขนาด)',
+  },
+};
+
+// ── checkDDI: ตรวจ Interaction จาก medications array ──
+function checkDDI(medications) {
+  if (!medications || medications.length < 2) return [];
+  const names = medications.map(m => (m.name || '').toLowerCase()).filter(Boolean);
+  const found = [];
+  DRUG_INTERACTIONS.forEach(rule => {
+    const drug1 = rule.drugs.find(d => names.some(n => n.includes(d.toLowerCase())));
+    if (!drug1) return;
+    const drug2 = rule.with.find(d => names.some(n => n.includes(d.toLowerCase())));
+    if (!drug2) return;
+    const med1Name = medications.find(m => (m.name || '').toLowerCase().includes(drug1.toLowerCase()))?.name || drug1;
+    const med2Name = medications.find(m => (m.name || '').toLowerCase().includes(drug2.toLowerCase()))?.name || drug2;
+    found.push({ ...rule, drug1Name: med1Name, drug2Name: med2Name });
+  });
+  return found;
+}
+window.checkDDI = checkDDI;
+window.DRUG_INTERACTIONS = DRUG_INTERACTIONS;
+window.DRUG_INFO = DRUG_INFO;
+
 const TRIGGER_OPTIONS = [
   'หมอกควัน/ฝุ่น PM2.5', 'ควันบุหรี่/ไฟ', 'อากาศเย็น/ชื้น',
   'การออกกำลังกาย', 'ไรฝุ่น/ขนสัตว์เลี้ยง', 'สารเคมี/กลิ่นฉุน',
@@ -7152,6 +7348,7 @@ function DrugSearchBox({ value, onChange }) {
   const [query, setQuery] = vfState('');
   const [open, setOpen]   = vfState(false);
   const [activeIdx, setActiveIdx] = vfState(-1);
+  const [hoverInfo, setHoverInfo] = vfState(null); // drug name being hovered
   const inputRef    = vfRef(null);
   const containerRef = vfRef(null);
 
@@ -7246,16 +7443,41 @@ function DrugSearchBox({ value, onChange }) {
             const isActive = si === activeIdx;
             const isSelected = item.name === value;
             const cc = getCatColor(item.category);
+            const info = window.DRUG_INFO?.[item.name];
+            const isHovered = hoverInfo === item.name;
             return (
-              <div key={item.name} onMouseDown={() => selectDrug(item.name)} onMouseEnter={() => setActiveIdx(si)}
+              <div key={item.name}
+                onMouseDown={() => selectDrug(item.name)}
+                onMouseEnter={() => { setActiveIdx(si); setHoverInfo(item.name); }}
+                onMouseLeave={() => setHoverInfo(null)}
                 style={{
-                  padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                  background: isSelected ? '#F0FDF4' : isActive ? C.primaryBg : 'transparent', transition: 'background 0.1s',
+                  cursor: 'pointer',
+                  background: isSelected ? '#F0FDF4' : isActive ? C.primaryBg : 'transparent',
+                  transition: 'background 0.1s',
                   borderLeft: isSelected ? `3px solid ${C.low}` : '3px solid transparent',
                 }}>
-                {isSelected && <span style={{ fontSize: 11, color: C.low, flexShrink: 0 }}>✓</span>}
-                <span style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: `${cc}18`, color: cc, flexShrink: 0, whiteSpace: 'nowrap' }}>{item.category}</span>
+                <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isSelected && <span style={{ fontSize: 11, color: C.low, flexShrink: 0 }}>✓</span>}
+                  <span style={{ flex: 1, fontSize: 13, color: C.text, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: `${cc}18`, color: cc, flexShrink: 0, whiteSpace: 'nowrap' }}>{item.category}</span>
+                </div>
+                {info && isHovered && (
+                  <div style={{
+                    margin: '0 10px 8px', padding: '10px 12px', borderRadius: 8,
+                    background: 'linear-gradient(135deg,#EFF6FF,#F0FDF4)', border: '1px solid #BFDBFE',
+                    animation: 'rxRiseSm 0.18s ease both',
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#1E40AF', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{info.class}</div>
+                    <div style={{ fontSize: 11, color: '#1E3A8A', marginBottom: 5 }}>📌 {info.indication}</div>
+                    <div style={{ fontSize: 11, color: '#374151', marginBottom: 6, lineHeight: 1.5 }}>⚙️ {info.mechanism}</div>
+                    {info.keyPoints && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {info.keyPoints.map((p, i) => <div key={i} style={{ fontSize: 11, color: '#374151', lineHeight: 1.4 }}>{p}</div>)}
+                      </div>
+                    )}
+                    {info.se && <div style={{ fontSize: 10, color: '#6B7280', marginTop: 5, borderTop: '1px solid #DBEAFE', paddingTop: 5 }}>⚡ ผลข้างเคียง: {info.se}</div>}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -7265,26 +7487,38 @@ function DrugSearchBox({ value, onChange }) {
   );
 }
 
-function MedRow({ med, index, onChange, onRemove, changeStatus }) {
+function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) {
   const guide = med.name && window.DRUG_DOSE_GUIDE ? window.DRUG_DOSE_GUIDE[med.name] : null;
   const isWarn = guide?.tip && (guide.tip.startsWith('⚠') || guide.tip.startsWith('⛔'));
   const medInfo = AppStore.COMMON_MEDICATIONS.find(m => m.name === med.name);
   const isOral  = medInfo?.type === 'oral';
+  const myDDI   = (interactions || []).filter(ix =>
+    (ix.drug1Name === med.name || ix.drug2Name === med.name)
+  );
+  const hasMajor = myDDI.some(ix => ix.severity === 'major');
+  const [showInfo, setShowInfo] = vfState(false);
+  const drugInfo = med.name ? window.DRUG_INFO?.[med.name] : null;
+
+  const rowBorder = hasMajor ? '#FCA5A5' : myDDI.length > 0 ? '#FDE68A' : isWarn ? '#FED7AA' : guide ? C.primaryBorder : C.border;
+  const rowBg     = hasMajor ? '#FFF1F2' : myDDI.length > 0 ? '#FFFBEB' : isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : C.bgAlt;
 
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 8, animation: 'rxRiseSm 0.3s ease both' }}>
       <div style={{
         display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
         gap: 8, alignItems: 'center',
-        background: isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : C.bgAlt,
-        borderRadius: guide ? '9px 9px 0 0' : 9, padding: '8px 12px',
-        border: `1.5px solid ${isWarn ? '#FED7AA' : guide ? C.primaryBorder : C.border}`,
-        borderBottom: guide ? 'none' : undefined,
+        background: rowBg,
+        borderRadius: (guide || myDDI.length > 0) ? '9px 9px 0 0' : 9, padding: '8px 12px',
+        border: `1.5px solid ${rowBorder}`,
+        borderBottom: (guide || myDDI.length > 0) ? 'none' : undefined,
+        transition: 'border-color 0.25s, background 0.25s',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
           {changeStatus === 'new'  && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#FEF3C7', color: '#92400E', whiteSpace: 'nowrap' }}>NEW</span>}
           {changeStatus === 'same' && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 12, background: '#E0F2FE', color: '#0369A1', whiteSpace: 'nowrap' }}>เดิม</span>}
-          {!changeStatus && <span style={{ width: 4 }} />}
+          {!changeStatus && hasMajor && <span style={{ fontSize: 12 }}>🚨</span>}
+          {!changeStatus && !hasMajor && myDDI.length > 0 && <span style={{ fontSize: 12 }}>⚠️</span>}
+          {!changeStatus && !myDDI.length && <span style={{ width: 4 }} />}
         </div>
         <DrugSearchBox value={med.name} onChange={v => {
           const g = window.DRUG_DOSE_GUIDE?.[v];
@@ -7301,14 +7535,38 @@ function MedRow({ med, index, onChange, onRemove, changeStatus }) {
           ]}
           onChange={v => onChange(index, { ...med, adherence: v })}
           style={{ width: 110, flexShrink: 0 }} />
-        <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px', flexShrink: 0 }}>✕</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+          {drugInfo && (
+            <button onClick={() => setShowInfo(s => !s)} title="ข้อมูลยา"
+              style={{ background: showInfo ? C.primaryBg : 'none', border: `1px solid ${showInfo ? C.primaryBorder : 'transparent'}`, cursor: 'pointer', color: C.primary, fontSize: 13, padding: '1px 4px', borderRadius: 6, lineHeight: 1 }}>ℹ️</button>
+          )}
+          <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px', lineHeight: 1 }}>✕</button>
+        </div>
       </div>
+
+      {/* Drug info panel */}
+      {showInfo && drugInfo && (
+        <div style={{
+          padding: '10px 14px', fontSize: 11, lineHeight: 1.65,
+          background: 'linear-gradient(135deg,#EFF6FF,#F0FDF4)',
+          border: `1.5px solid #BFDBFE`, borderTop: `1px dashed #93C5FD`,
+          animation: 'rxRiseSm 0.2s ease both',
+        }}>
+          <div style={{ fontWeight: 800, color: '#1E40AF', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{drugInfo.class}</div>
+          <div style={{ color: '#1E3A8A', marginBottom: 4 }}>📌 {drugInfo.indication}</div>
+          <div style={{ color: '#374151', marginBottom: 6 }}>⚙️ {drugInfo.mechanism}</div>
+          {drugInfo.keyPoints?.map((p, i) => <div key={i} style={{ color: '#374151' }}>{p}</div>)}
+          {drugInfo.se && <div style={{ color: '#6B7280', marginTop: 5, paddingTop: 5, borderTop: '1px solid #DBEAFE' }}>⚡ {drugInfo.se}</div>}
+        </div>
+      )}
+
+      {/* Dose guide panel */}
       {guide && (
         <div style={{
           padding: '5px 14px', fontSize: 11, lineHeight: 1.6,
-          borderRadius: '0 0 9px 9px',
+          borderRadius: myDDI.length > 0 ? 0 : '0 0 9px 9px',
           background: isWarn ? '#FFF7ED' : C.primaryBg,
-          border: `1.5px solid ${isWarn ? '#FED7AA' : C.primaryBorder}`,
+          border: `1.5px solid ${rowBorder}`,
           borderTop: `1px dashed ${isWarn ? '#FDBA74' : '#93C5FD'}`,
           display: 'flex', flexWrap: 'wrap', gap: '2px 16px',
         }}>
@@ -7317,6 +7575,33 @@ function MedRow({ med, index, onChange, onRemove, changeStatus }) {
           {guide.tip && <span style={{ color: isWarn ? '#9A3412' : '#0369A1', fontWeight: isWarn ? 600 : 400 }}>{guide.tip}</span>}
         </div>
       )}
+
+      {/* DDI warning panels */}
+      {myDDI.map((ix, i) => {
+        const isMaj = ix.severity === 'major';
+        return (
+          <div key={i} style={{
+            padding: '8px 14px', fontSize: 11, lineHeight: 1.6,
+            borderRadius: i === myDDI.length - 1 ? '0 0 9px 9px' : 0,
+            background: isMaj ? '#FFF1F2' : '#FFFBEB',
+            border: `1.5px solid ${isMaj ? '#FCA5A5' : '#FDE68A'}`,
+            borderTop: `1px dashed ${isMaj ? '#FCA5A5' : '#FDE68A'}`,
+            animation: 'rxRiseSm 0.25s ease both',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 13 }}>{isMaj ? '🚨' : '⚠️'}</span>
+              <span style={{ fontWeight: 800, color: isMaj ? '#B91C1C' : '#92400E', fontSize: 11 }}>
+                {isMaj ? 'MAJOR' : 'MODERATE'} Interaction:
+              </span>
+              <span style={{ fontWeight: 700, color: isMaj ? '#DC2626' : '#D97706' }}>
+                {ix.drug1Name} ⟷ {ix.drug2Name}
+              </span>
+            </div>
+            <div style={{ color: isMaj ? '#991B1B' : '#78350F', marginBottom: 3 }}>🔴 {ix.effect}</div>
+            <div style={{ color: isMaj ? '#1E3A8A' : '#1E40AF', fontWeight: 600 }}>✅ {ix.management}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -7644,6 +7929,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     const risk = AppStore.calculateRisk(patient, f);
     setF(prev => ({ ...prev, riskLevel: risk.level, riskFlags: risk.flags }));
   }, [f.exacerbation, f.adherence, f.inhalerTechnique, patient]);
+
+  // ── DDI check (real-time) ──
+  const ddiResults = vfMemo(() => window.checkDDI ? window.checkDDI(f.medications) : [], [f.medications]);
+  const ddiMajor   = ddiResults.filter(ix => ix.severity === 'major');
+  const ddiModerate = ddiResults.filter(ix => ix.severity === 'moderate');
 
   // ── ป้องกันข้อมูลหายเมื่อยังไม่บันทึก ──
   const justSavedRef = useRef(false);
@@ -8086,6 +8376,39 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               </span>
             )} />
           <Card>
+            {/* DDI Summary Banner */}
+            {ddiResults.length > 0 && (
+              <div style={{
+                marginBottom: 12, padding: '10px 14px', borderRadius: 10,
+                background: ddiMajor.length > 0 ? '#FFF1F2' : '#FFFBEB',
+                border: `2px solid ${ddiMajor.length > 0 ? '#FCA5A5' : '#FDE68A'}`,
+                animation: 'rxRiseSm 0.3s ease both',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 15 }}>{ddiMajor.length > 0 ? '🚨' : '⚠️'}</span>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: ddiMajor.length > 0 ? '#B91C1C' : '#92400E' }}>
+                    พบ Drug Interaction {ddiResults.length} คู่
+                    {ddiMajor.length > 0 && ` (MAJOR ${ddiMajor.length} คู่)`}
+                    {ddiModerate.length > 0 && ` (Moderate ${ddiModerate.length} คู่)`}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {ddiResults.map((ix, i) => (
+                    <div key={i} style={{ fontSize: 11, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                      <span style={{
+                        padding: '1px 7px', borderRadius: 10, fontWeight: 800, fontSize: 10, flexShrink: 0, whiteSpace: 'nowrap',
+                        background: ix.severity === 'major' ? '#FEE2E2' : '#FEF3C7',
+                        color: ix.severity === 'major' ? '#991B1B' : '#92400E',
+                        border: `1px solid ${ix.severity === 'major' ? '#FCA5A5' : '#FDE68A'}`,
+                      }}>{ix.severity === 'major' ? 'MAJOR' : 'MODERATE'}</span>
+                      <span style={{ color: '#374151', lineHeight: 1.4 }}>
+                        <strong>{ix.drug1Name}</strong> ⟷ <strong>{ix.drug2Name}</strong> — {ix.effect.split('→')[1]?.trim() || ix.effect.split('→')[0]?.split(' ').slice(-4).join(' ')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {f.medications.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 <div className="rx-med-head" style={{
@@ -8102,7 +8425,8 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   return (
                     <MedRow key={med.id || i} med={med} index={i}
                       onChange={updateMed} onRemove={removeMed}
-                      changeStatus={lastVisit ? status : undefined} />
+                      changeStatus={lastVisit ? status : undefined}
+                      interactions={ddiResults} />
                   );
                 })}
               </div>
