@@ -1028,7 +1028,8 @@ const DRUG_DOSE_GUIDE = {
 // ── Drug-Drug Interaction Database ────────────────────
 // อ้างอิง: Lexicomp, Micromedex, MIMS Thailand, UpToDate
 // severity: 'major' (ควรหลีกเลี่ยง/ปรับขนาด) | 'moderate' (ต้องติดตาม) | 'minor' (ควรรู้)
-const DRUG_INTERACTIONS = [
+// NOTE: ใช้ชื่อ DDI_RULES เพื่อไม่ชนกับ DRUG_INTERACTIONS เดิม (ที่ AppStore ใช้)
+const DDI_RULES = [
   // ══ Theophylline interactions ══
   { drugs: ['theophylline'], with: ['ciprofloxacin','levofloxacin'],
     severity: 'major',
@@ -1206,7 +1207,7 @@ function checkDDI(medications) {
   if (!medications || medications.length < 2) return [];
   const names = medications.map(m => (m.name || '').toLowerCase()).filter(Boolean);
   const found = [];
-  DRUG_INTERACTIONS.forEach(rule => {
+  DDI_RULES.forEach(rule => {
     const drug1 = rule.drugs.find(d => names.some(n => n.includes(d.toLowerCase())));
     if (!drug1) return;
     const drug2 = rule.with.find(d => names.some(n => n.includes(d.toLowerCase())));
@@ -1218,7 +1219,7 @@ function checkDDI(medications) {
   return found;
 }
 window.checkDDI = checkDDI;
-window.DRUG_INTERACTIONS = DRUG_INTERACTIONS;
+window.DRUG_INTERACTIONS = DDI_RULES;
 window.DRUG_INFO = DRUG_INFO;
 
 const TRIGGER_OPTIONS = [
