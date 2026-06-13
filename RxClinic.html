@@ -8019,13 +8019,18 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     !!f.chiefComplaint || f.medications.length > 0 || f.inhalerTechnique.length > 0 ||
     (f.adherence?.score > 0) || !!f.soap?.s || !!f.soap?.a || !!f.soap?.p || (f.drp?.items || []).length > 0
   );
+  // Refs keep the latest closures so the window listeners can bind once
+  // (instead of re-adding/removing on every keystroke re-render).
+  const hasUnsavedRef = useRef(hasUnsaved);
+  hasUnsavedRef.current = hasUnsaved;
+  const handleSaveRef = useRef(null);
   vfEffect(() => {
     const handler = (e) => {
-      if (hasUnsaved()) { e.preventDefault(); e.returnValue = ''; return ''; }
+      if (hasUnsavedRef.current()) { e.preventDefault(); e.returnValue = ''; return ''; }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  });
+  }, []);
   const guardedLeave = () => {
     if (hasUnsaved() && !window.confirm('คุณยังไม่ได้บันทึกข้อมูล Visit นี้ — ต้องการออกจากหน้านี้หรือไม่? (ร่างถูกบันทึกไว้ให้อัตโนมัติ)')) return;
     navigate('history', patientId);
@@ -8034,11 +8039,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   // Ctrl+S
   vfEffect(() => {
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSave(false); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSaveRef.current?.(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  });
+  }, []);
 
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setEx = (k, v) => setF(prev => ({ ...prev, exacerbation: { ...prev.exacerbation, [k]: v } }));
@@ -8192,6 +8197,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     setSaveSuccess(true);
     setTimeout(() => navigate('history', patientId), 750);
   };
+  handleSaveRef.current = handleSave;  // keep Ctrl+S handler pointed at the latest closure
 
   const handleDelete = () => {
     if (!isEditing) return;
@@ -14083,7 +14089,7 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
     severeADR: (ha.adr || []).filter(r => r.severity === 'severe' || r.severity === 'fatal').length,
   }), [ha]);
 
-  const pt = selected || data.patients[0];
+  const pt = selected || data.patients?.[0];
   const ptVisits = pt ? (data.visits || []).filter(v => v.patientId === pt.id).sort((a, b) => b.visitDate.localeCompare(a.visitDate)) : [];
 
   return (
