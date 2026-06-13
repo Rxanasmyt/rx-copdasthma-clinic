@@ -7866,8 +7866,13 @@ function SOAPField({ label, fieldKey, value, onChange, placeholder, rows }) {
   const [recording, setRecording] = vfState(false);
   const [interim, setInterim]     = vfState('');
   const recRef = vfRef(null);
+  const valueRef = vfRef(value);   // always-fresh base value (survives typing while recording)
+  valueRef.current = value;
 
   const SpeechAPI = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  // Stop & release recognition if the field unmounts mid-recording
+  vfEffect(() => () => { try { recRef.current?.stop(); } catch (e) {} recRef.current = null; }, []);
 
   function toggleMic() {
     if (!SpeechAPI) return;
@@ -7879,15 +7884,18 @@ function SOAPField({ label, fieldKey, value, onChange, placeholder, rows }) {
     rec.lang = 'th-TH';
     rec.continuous = true;
     rec.interimResults = true;
-    let finalText = '';
     rec.onresult = (e) => {
+      let finalChunk = '';
       let interimBuf = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) { finalText += t; }
+        if (e.results[i].isFinal) { finalChunk += t; }
         else { interimBuf += t; }
       }
-      if (finalText) onChange(value ? `${value} ${finalText}` : finalText);
+      if (finalChunk) {
+        const base = valueRef.current;
+        onChange(base ? `${base} ${finalChunk}`.trim() : finalChunk.trim());
+      }
       setInterim(interimBuf);
     };
     rec.onerror = () => { setRecording(false); setInterim(''); recRef.current = null; };
@@ -7895,7 +7903,6 @@ function SOAPField({ label, fieldKey, value, onChange, placeholder, rows }) {
     recRef.current = rec;
     rec.start();
     setRecording(true);
-    finalText = '';
   }
 
   return (
