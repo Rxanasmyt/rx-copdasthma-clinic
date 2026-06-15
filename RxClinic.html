@@ -6798,6 +6798,76 @@ function PatientList({ data, onDataChange, navigate }) {
 }
 
 // ── VisitHistory (per patient) ────────────────────────
+// ── 🤖 Per-patient AI analysis card ──
+function PatientAICard({ patient, visits }) {
+  const a = React.useMemo(() => window.RxAI ? window.RxAI.analyzePatient(patient, visits) : null, [patient, visits]);
+  if (!a || a.score == null) return null;
+  const scoreColor = (s) => s >= 80 ? C.low : s >= 60 ? '#16A34A' : s >= 40 ? C.medium : C.high;
+  const sc = scoreColor(a.score);
+  const sevColor = { high: C.high, medium: C.medium, low: C.low };
+  const trendIcon = (t, goodDir) => {
+    if (!t || t.n < 2 || t.dir === 'flat') return { icon:'→', color:C.textMuted, status:'คงที่' };
+    const good = t.dir === goodDir;
+    return { icon: t.dir === 'up' ? '↗' : '↘', color: good ? C.low : C.high, status: good ? 'ดีขึ้น' : 'แย่ลง' };
+  };
+  const dx = patient.diagnosis;
+  const trendChips = [
+    (dx==='Asthma'||dx==='Both') && { key:'act', label:'ACT', ...trendIcon(a.trends.act, 'up') },
+    (dx==='COPD'||dx==='Both') && { key:'cat', label:'CAT', ...trendIcon(a.trends.cat, 'down') },
+    { key:'adh', label:'ความร่วมมือ', ...trendIcon(a.trends.adherence, 'up') },
+    { key:'tech', label:'เทคนิคพ่นยา', ...trendIcon(a.trends.technique, 'up') },
+  ].filter(Boolean);
+
+  return (
+    <Card style={{ marginBottom: 20, borderLeft: `4px solid ${sc}` }}>
+      <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+        <div style={{ width:62, height:62, borderRadius:14, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:`${sc}14`, color:sc }}>
+          <span style={{ fontSize:24, fontWeight:800, lineHeight:1 }}>{a.score}</span>
+          <span style={{ fontSize:8, fontWeight:600 }}>/100</span>
+        </div>
+        <div style={{ flex:1, minWidth:200 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+            <span style={{ fontSize:15 }}>🤖</span>
+            <span style={{ fontSize:14, fontWeight:800, color:C.primary }}>AI Clinical Analysis</span>
+            <span style={{ fontSize:10.5, fontWeight:700, color:sc, background:`${sc}18`, padding:'2px 9px', borderRadius:20 }}>{a.scoreLevel}</span>
+          </div>
+          <div style={{ fontSize:12.5, color:C.text, lineHeight:1.5 }}>{a.summary}</div>
+        </div>
+        <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
+          {trendChips.map(c => (
+            <div key={c.key} style={{ textAlign:'center', background:C.bgAlt, borderRadius:9, padding:'6px 10px', minWidth:62 }}>
+              <div style={{ fontSize:9.5, color:C.textMuted, fontWeight:600, marginBottom:2 }}>{c.label}</div>
+              <div style={{ fontSize:16, fontWeight:800, color:c.color, lineHeight:1 }}>{c.icon}</div>
+              <div style={{ fontSize:8.5, color:c.color, fontWeight:700, marginTop:1 }}>{c.status}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {a.recommendations.length > 0 && (
+        <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.primary, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
+            💡 คำแนะนำจาก AI (เรียงตามความสำคัญ)
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {a.recommendations.map((r, i) => (
+              <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'8px 12px', borderRadius:9,
+                background: r.sev==='high' ? C.highBg : r.sev==='medium' ? C.mediumBg : C.bgAlt,
+                borderLeft:`3px solid ${sevColor[r.sev]||C.border}` }}>
+                <span style={{ fontSize:11, fontWeight:800, color:sevColor[r.sev], flexShrink:0, marginTop:1 }}>{i+1}</span>
+                <div>
+                  <div style={{ fontSize:12.5, color:C.text, fontWeight:600, lineHeight:1.45 }}>{r.text}</div>
+                  {r.why && r.why !== r.text && <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>เหตุผล: {r.why}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function VisitHistory({ data, patientId, navigate, onEditVisit }) {
   const patient = data.patients.find(p => p.id === patientId);
   const visits  = data.visits.filter(v => v.patientId === patientId)
@@ -6898,6 +6968,9 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           <VaccinationStatus patient={patient} compact />
         </div>
       </Card>
+
+      {/* 🤖 AI per-patient analysis */}
+      <PatientAICard patient={patient} visits={data.visits} />
 
       {/* Trends */}
       {visits.length >= 2 && <TrendsSection visits={visits} />}
