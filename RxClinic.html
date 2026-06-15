@@ -3998,6 +3998,227 @@ function autoPCNE(visit, patient) {
   return { problem, cause, intervention, outcome: 'O0', resolved: false, _autoFrom: top.problemTh };
 }
 
+// ════════════════════════════════════════════════════════════════
+// RxAI — On-device Clinical Intelligence Engine (no external API)
+// ประมวลผลบนเครื่อง ปลอดภัยตาม PDPA · ทำงาน offline ได้เต็มรูปแบบ
+// ════════════════════════════════════════════════════════════════
+const RxAI = (() => {
+  const techVal = { Good: 2, Fair: 1, Poor: 0 };
+  const adhLevelVal = { Good: 2, Fair: 1, Poor: 0 };
+  const num = (x) => { const n = Number(x); return isFinite(n) ? n : null; };
+
+  // ── slope ของ series (least-squares) → บอกแนวโน้มดีขึ้น/แย่ลง ──
+  const trendOf = (series) => {
+    const pts = series.filter(v => v != null);
+    if (pts.length < 2) return { dir: 'flat', slope: 0, n: pts.length, first: pts[0] ?? null, last: pts[pts.length-1] ?? null };
+    const n = pts.length;
+    const xs = pts.map((_, i) => i);
+    const mx = xs.reduce((a,b)=>a+b,0)/n, my = pts.reduce((a,b)=>a+b,0)/n;
+    let num2 = 0, den = 0;
+    xs.forEach((x,i) => { num2 += (x-mx)*(pts[i]-my); den += (x-mx)*(x-mx); });
+    const slope = den ? num2/den : 0;
+    const dir = Math.abs(slope) < 0.15 ? 'flat' : slope > 0 ? 'up' : 'down';
+    return { dir, slope: +slope.toFixed(3), n, first: pts[0], last: pts[pts.length-1] };
+  };
+
+  const visitsOf = (patientId, allVisits) =>
+    (allVisits || []).filter(v => v.patientId === patientId)
+      .sort((a,b) => (a.visitDate||'').localeCompare(b.visitDate||''));   // oldest → newest
+
+  const daysBetween = (aStr, bStr) => {
+    const a = new Date(aStr).getTime(), b = new Date(bStr).getTime();
+    if (isNaN(a) || isNaN(b)) return null;
+    return Math.floor((b - a) / 86400000);
+  };
+
+  // ── วิเคราะห์ผู้ป่วยรายคน → alerts, trends, คะแนน, คำแนะนำ, สรุปภาษาไทย ──
+  function analyzePatient(patient, allVisits) {
+    const blank = { score: null, scoreLevel: 'n/a', alerts: [], trends: {}, recommendations: [], drps: [], ddi: [], summary: 'ยังไม่มีข้อมูล visit', visitCount: 0 };
+    if (!patient) return blank;
+    const visits = visitsOf(patient.id, allVisits);
+    if (!visits.length) return { ...blank, summary: `${patient.prefix||''}${patient.firstName||''} ยังไม่มีบันทึกการบริบาล — แนะนำเริ่ม baseline assessment` };
+
+    const latest = visits[visits.length - 1];
+    const prev   = visits[visits.length - 2] || null;
+    const dx = patient.diagnosis;
+    const todayStr = new Date().toISOString().slice(0,10);
+
+    // ── Series for trends ──
+    const adhSeries  = visits.map(v => adhLevelVal[v.adherence?.level] ?? null);
+    const techSeries = visits.map(v => {
+      const ts = (v.inhalerTechnique || []).map(t => techVal[t.overallScore] ?? null).filter(x => x != null);
+      return ts.length ? ts.reduce((a,b)=>a+b,0)/ts.length : null;
+    });
+    const catSeries  = visits.map(v => v.assessments?.cat?.allAnswered ? num(v.assessments.cat.score) : null);
+    const actSeries  = visits.map(v => v.assessments?.act?.allAnswered ? num(v.assessments.act.score) : null);
+    const exSeries   = visits.map(v => num(v.exacerbation?.countThisYear));
+
+    const trends = {
+      adherence: trendOf(adhSeries),
+      technique: trendOf(techSeries),
+      cat: trendOf(catSeries),   // CAT ↓ = ดีขึ้น
+      act: trendOf(actSeries),   // ACT ↑ = ดีขึ้น
+      exacerbation: trendOf(exSeries),
+    };
+
+    // ── Clinical Decision Support alerts ──
+    const alerts = [];
+    const push = (sev, icon, title, detail, action) => alerts.push({ sev, icon, title, detail, action });
+
+    // DRP + DDI (ใช้ engine เดิม)
+    const drps = (typeof detectDRP === 'function' ? detectDRP(latest, patient) : []);
+    const ddi  = (typeof window.checkDDI === 'function' ? window.checkDDI(latest.medications || []) : []);
+    drps.filter(d => d.severity === 'High').forEach(d =>
+      push('high', '⚠️', `DRP: ${d.categoryTh}`, d.problemTh, d.actionTh));
+    ddi.filter(d => d.severity === 'major').forEach(d =>
+      push('high', '💊', `ปฏิกิริยายารุนแรง: ${d.drug1Name} + ${d.drug2Name}`, d.effect, d.management));
+
+    // Renal dose
+    const renal = (typeof getRenalCategory === 'function' && patient.eGFR != null)
+      ? getRenalCategory(patient.eGFR) : null;
+    if (renal && (renal.stage === 'G4' || renal.stage === 'G5')) {
+      push('high', '🫘', `การทำงานไตลดลงมาก (${renal.stage}, eGFR ${patient.eGFR})`,
+        'ตรวจสอบขนาดยาที่ขับทางไต', 'ทบทวน dose ยาทุกตัวที่ต้องปรับตาม eGFR');
+    }
+
+    // GINA: SABA-only / uncontrolled asthma
+    const actScore = catSeries && actSeries[actSeries.length-1];
+    if ((dx === 'Asthma' || dx === 'Both') && actScore != null && actScore < 16) {
+      push('high', '🌬️', 'Asthma ควบคุมไม่ได้ (ACT < 16)',
+        `ACT ล่าสุด ${actScore}/25`, 'ทบทวน adherence + เทคนิค ก่อน step-up ตาม GINA');
+    } else if ((dx === 'Asthma' || dx === 'Both') && actScore != null && actScore < 20) {
+      push('medium', '🌬️', 'Asthma ควบคุมได้บางส่วน (ACT 16–19)',
+        `ACT ล่าสุด ${actScore}/25`, 'พิจารณา optimize controller');
+    }
+
+    // Adherence
+    if (latest.adherence?.level === 'Poor') {
+      push('high', '📉', 'ความร่วมมือใช้ยาต่ำ (Poor)',
+        'เสี่ยงควบคุมโรคไม่ได้และกำเริบ', 'ค้นหาอุปสรรค + motivational interviewing');
+    } else if (latest.adherence?.level === 'Fair') {
+      push('medium', '📉', 'ความร่วมมือใช้ยาปานกลาง (Fair)', '', 'เสริมความเข้าใจ + เครื่องช่วยเตือน');
+    }
+    if (trends.adherence.dir === 'down' && trends.adherence.n >= 2) {
+      push('medium', '↘️', 'แนวโน้มความร่วมมือใช้ยาแย่ลง', 'จากหลาย visit ต่อเนื่อง', 'ติดตามใกล้ชิดขึ้น');
+    }
+
+    // Technique
+    const poorTech = (latest.inhalerTechnique || []).filter(t => t.overallScore === 'Poor');
+    if (poorTech.length) {
+      push('medium', '🫁', `เทคนิคพ่นยาไม่ถูกต้อง (${poorTech.length} อุปกรณ์)`,
+        poorTech.map(t => t.device).filter(Boolean).join(', '), 'สาธิตซ้ำ + teach-back');
+    }
+
+    // Smoking
+    if (patient.smokingStatus === 'Current') {
+      push('medium', '🚬', 'ยังสูบบุหรี่อยู่', 'ปัจจัยเร่งการดำเนินโรคที่สำคัญที่สุด', 'แนะนำเลิกบุหรี่ + ส่งคลินิกอดบุหรี่');
+    }
+
+    // Follow-up overdue
+    const daysSinceLast = daysBetween(latest.visitDate, todayStr);
+    const overdueThreshold = patient.riskLevel === 'High' ? 30 : patient.riskLevel === 'Medium' ? 90 : 180;
+    if (daysSinceLast != null && daysSinceLast > overdueThreshold) {
+      push(patient.riskLevel === 'High' ? 'high' : 'medium', '📅',
+        `ขาดการติดตาม ${daysSinceLast} วัน`, `เกินกำหนดสำหรับผู้ป่วยความเสี่ยง${patient.riskLevel}`,
+        'ติดต่อนัดหมาย/โทรติดตาม');
+    }
+
+    // ── Care & Control Score (100 = ดีเยี่ยม) ──
+    let score = 100;
+    if (patient.riskLevel === 'High') score -= 25; else if (patient.riskLevel === 'Medium') score -= 10;
+    drps.forEach(d => { score -= d.severity === 'High' ? 10 : d.severity === 'Medium' ? 5 : 2; });
+    ddi.forEach(d => { score -= d.severity === 'major' ? 10 : d.severity === 'moderate' ? 4 : 1; });
+    if (latest.adherence?.level === 'Poor') score -= 15; else if (latest.adherence?.level === 'Fair') score -= 7;
+    if (poorTech.length) score -= 10;
+    if (actScore != null && actScore < 16) score -= 12; else if (actScore != null && actScore < 20) score -= 6;
+    if (patient.smokingStatus === 'Current') score -= 5;
+    if (daysSinceLast != null && daysSinceLast > overdueThreshold) score -= 8;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const scoreLevel = score >= 80 ? 'ดีเยี่ยม' : score >= 60 ? 'ดี' : score >= 40 ? 'ต้องติดตาม' : 'ต้องดูแลเร่งด่วน';
+
+    // ── Prioritized recommendations (จาก alerts เรียงตามความรุนแรง) ──
+    const sevRank = { high: 0, medium: 1, low: 2 };
+    const recommendations = [...alerts].sort((a,b) => sevRank[a.sev] - sevRank[b.sev])
+      .slice(0, 5).map(a => ({ sev: a.sev, text: a.action || a.title, why: a.title }));
+
+    // ── Natural-language summary (ภาษาไทย, generate จากข้อมูล) ──
+    const bits = [];
+    const dxLabel = { COPD:'COPD', Asthma:'หืด', Both:'COPD+หืด' }[dx] || dx || 'โรคทางเดินหายใจ';
+    bits.push(`ผู้ป่วย ${dxLabel} ความเสี่ยง${patient.riskLevel||'Low'}`);
+    if (trends.act.n >= 2) bits.push(trends.act.dir === 'up' ? 'การควบคุมหืดดีขึ้น' : trends.act.dir === 'down' ? 'การควบคุมหืดแย่ลง' : 'การควบคุมหืดคงที่');
+    if (trends.cat.n >= 2 && (dx==='COPD'||dx==='Both')) bits.push(trends.cat.dir === 'down' ? 'อาการ COPD ดีขึ้น' : trends.cat.dir === 'up' ? 'อาการ COPD แย่ลง' : 'อาการ COPD คงที่');
+    if (trends.adherence.n >= 2) bits.push(trends.adherence.dir === 'up' ? 'ความร่วมมือใช้ยาดีขึ้น' : trends.adherence.dir === 'down' ? 'ความร่วมมือใช้ยาลดลง' : null);
+    const highCount = alerts.filter(a => a.sev === 'high').length;
+    if (highCount) bits.push(`มีประเด็นเร่งด่วน ${highCount} เรื่อง`);
+    else if (alerts.length) bits.push(`มีจุดที่ควรติดตาม ${alerts.length} เรื่อง`);
+    else bits.push('ไม่พบประเด็นที่ต้องแก้ไขเร่งด่วน');
+    const summary = bits.filter(Boolean).join(' · ');
+
+    return { score, scoreLevel, alerts, trends, recommendations, drps, ddi, summary,
+      visitCount: visits.length, latestDate: latest.visitDate, daysSinceLast };
+  }
+
+  // ── ภาพรวมทั้งคลินิก → insight อัตโนมัติ + ผู้ป่วยที่ควรให้ความสำคัญ ──
+  function clinicInsights(data) {
+    const patients = (data?.patients) || [];
+    const visits   = (data?.visits) || [];
+    const out = { insights: [], priorityPatients: [], kpis: {} };
+    if (!patients.length) return out;
+
+    const analyses = patients.map(p => ({ patient: p, a: analyzePatient(p, visits) }))
+      .filter(x => x.a.visitCount > 0);
+
+    // Priority list = คะแนนต่ำสุดก่อน (ต้องดูแลมากสุด)
+    out.priorityPatients = [...analyses]
+      .sort((x,y) => (x.a.score ?? 101) - (y.a.score ?? 101))
+      .slice(0, 8)
+      .map(x => ({ patient: x.patient, score: x.a.score, scoreLevel: x.a.scoreLevel,
+        topAlert: x.a.alerts.find(al => al.sev === 'high') || x.a.alerts[0] || null,
+        summary: x.a.summary }));
+
+    // KPIs (ครอบคลุมการบริบาลทางเภสัชกรรม)
+    const withVisit = analyses.length;
+    const latestVisitOf = (pid) => visits.filter(v => v.patientId === pid).sort((a,b)=>b.visitDate.localeCompare(a.visitDate))[0];
+    let adhGood=0, techGood=0, drpOpen=0, actControlled=0, actDenom=0, smokers=0, highRiskOverdue=0;
+    const todayStr = new Date().toISOString().slice(0,10);
+    analyses.forEach(({patient, a}) => {
+      const lv = latestVisitOf(patient.id);
+      if (lv?.adherence?.level === 'Good') adhGood++;
+      const techs = (lv?.inhalerTechnique || []);
+      if (techs.length && techs.every(t => t.overallScore !== 'Poor')) techGood++;
+      if ((typeof detectDRP==='function' ? detectDRP(lv, patient) : []).length) drpOpen++;
+      const act = lv?.assessments?.act;
+      if (act?.allAnswered) { actDenom++; if (act.score >= 20) actControlled++; }
+      if (patient.smokingStatus === 'Current') smokers++;
+      if (patient.riskLevel === 'High' && a.daysSinceLast != null && a.daysSinceLast > 30) highRiskOverdue++;
+    });
+    const pct = (n,d) => d ? Math.round(n/d*100) : 0;
+    out.kpis = {
+      adherenceGoodPct: pct(adhGood, withVisit),
+      techniqueGoodPct: pct(techGood, withVisit),
+      drpOpenCount: drpOpen,
+      asthmaControlledPct: pct(actControlled, actDenom),
+      smokerCount: smokers,
+      highRiskOverdue,
+      avgCareScore: withVisit ? Math.round(analyses.reduce((s,x)=>s+(x.a.score||0),0)/withVisit) : 0,
+    };
+
+    // Auto insights (ประโยคสรุปอัตโนมัติ)
+    const ins = out.insights;
+    if (highRiskOverdue) ins.push({ sev:'high', icon:'🚨', text:`มีผู้ป่วยเสี่ยงสูง ${highRiskOverdue} รายขาดการติดตามเกินกำหนด — ควรติดต่อด่วน` });
+    if (out.kpis.drpOpenCount) ins.push({ sev:'medium', icon:'💊', text:`พบ DRP ที่ยังไม่แก้ไขใน ${out.kpis.drpOpenCount} ราย` });
+    if (actDenom && out.kpis.asthmaControlledPct < 60) ins.push({ sev:'medium', icon:'🌬️', text:`อัตราคุมหืดได้เพียง ${out.kpis.asthmaControlledPct}% (เป้า ≥60%)` });
+    if (withVisit && out.kpis.adherenceGoodPct < 70) ins.push({ sev:'medium', icon:'📉', text:`ความร่วมมือใช้ยาระดับดีเพียง ${out.kpis.adherenceGoodPct}% — พิจารณาแคมเปญ adherence` });
+    if (smokers) ins.push({ sev:'low', icon:'🚬', text:`ผู้ป่วยที่ยังสูบบุหรี่ ${smokers} ราย — โอกาสส่งคลินิกอดบุหรี่` });
+    if (!ins.length) ins.push({ sev:'low', icon:'✅', text:'ภาพรวมคลินิกอยู่ในเกณฑ์ดี ไม่มีสัญญาณเตือนเร่งด่วน' });
+
+    return out;
+  }
+
+  return { analyzePatient, clinicInsights, trendOf };
+})();
+window.RxAI = RxAI;
+
 Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
   checkInteractions, getRenalCategory, detectDRP,
@@ -14590,6 +14811,99 @@ function VisitTrendBars({ visits }) {
 }
 
 // ── Dashboard ─────────────────────────────────────────
+// ── 🤖 AI Insights Panel (on-device clinical intelligence) ──
+function AIInsightsPanel({ data, navigate }) {
+  const ai = useMemo(() => window.RxAI ? window.RxAI.clinicInsights(data) : null, [data]);
+  if (!ai) return null;
+  const { insights, priorityPatients, kpis } = ai;
+  const sevColor = { high: C.high, medium: C.medium, low: C.low };
+  const scoreColor = (s) => s >= 80 ? C.low : s >= 60 ? '#16A34A' : s >= 40 ? C.medium : C.high;
+
+  const kpiCards = [
+    { label: 'คะแนนบริบาลเฉลี่ย', value: kpis.avgCareScore, suffix: '/100', color: scoreColor(kpis.avgCareScore), icon: '🎯' },
+    { label: 'ความร่วมมือใช้ยาดี', value: kpis.adherenceGoodPct, suffix: '%', color: kpis.adherenceGoodPct >= 70 ? C.low : C.medium, icon: '💊' },
+    { label: 'เทคนิคพ่นยาถูกต้อง', value: kpis.techniqueGoodPct, suffix: '%', color: kpis.techniqueGoodPct >= 70 ? C.low : C.medium, icon: '🫁' },
+    { label: 'คุมหืดได้ (ACT≥20)', value: kpis.asthmaControlledPct, suffix: '%', color: kpis.asthmaControlledPct >= 60 ? C.low : C.medium, icon: '🌬️' },
+    { label: 'DRP รอแก้ไข', value: kpis.drpOpenCount, suffix: ' ราย', color: kpis.drpOpenCount ? C.high : C.low, icon: '⚠️' },
+    { label: 'เสี่ยงสูงค้างติดตาม', value: kpis.highRiskOverdue, suffix: ' ราย', color: kpis.highRiskOverdue ? C.high : C.low, icon: '🚨' },
+  ];
+
+  return (
+    <div className="rx-reveal" style={{
+      background: 'linear-gradient(135deg, rgba(109,40,217,0.07), rgba(37,99,235,0.05))',
+      border: '1.5px solid rgba(109,40,217,0.22)', borderRadius: 18, marginBottom: 20, overflow: 'hidden',
+    }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 20px', background:'linear-gradient(135deg,#6D28D9,#4338CA)', color:'#fff' }}>
+        <span style={{ fontSize:20 }}>🤖</span>
+        <div>
+          <div style={{ fontSize:15, fontWeight:800, letterSpacing:'-0.2px' }}>AI Insights</div>
+          <div style={{ fontSize:10.5, opacity:0.85 }}>วิเคราะห์บนเครื่อง · ปลอดภัยตาม PDPA · อัปเดตอัตโนมัติ</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 20px' }}>
+        {/* KPI strip */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10, marginBottom:16 }}>
+          {kpiCards.map((k, i) => (
+            <div key={i} className="rx-hover-1" style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:'11px 13px' }}>
+              <div style={{ fontSize:10.5, color:C.textMuted, fontWeight:600, marginBottom:5 }}>{k.icon} {k.label}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:k.color, lineHeight:1 }}>
+                {k.value}<span style={{ fontSize:12, fontWeight:600, color:C.textMuted }}>{k.suffix}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Auto insight sentences */}
+        <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom: priorityPatients.length ? 16 : 0 }}>
+          {insights.map((ins, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 13px', borderRadius:10,
+              background: ins.sev==='high' ? C.highBg : ins.sev==='medium' ? C.mediumBg : C.bgAlt,
+              borderLeft:`3px solid ${sevColor[ins.sev]||C.border}` }}>
+              <span style={{ fontSize:14, flexShrink:0 }}>{ins.icon}</span>
+              <span style={{ fontSize:12.5, color:C.text, lineHeight:1.5 }}>{ins.text}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Priority patients */}
+        {priorityPatients.length > 0 && (
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:C.primary, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
+              👥 ผู้ป่วยที่ควรให้ความสำคัญ (AI จัดอันดับ)
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {priorityPatients.slice(0, 5).map(({ patient, score, scoreLevel, topAlert, summary }) => (
+                <button key={patient.id} onClick={() => navigate('history', patient.id)}
+                  className="rx-hover-1" style={{ display:'flex', alignItems:'center', gap:12, width:'100%', textAlign:'left',
+                    background:C.surface, border:`1px solid ${C.border}`, borderRadius:11, padding:'10px 13px', cursor:'pointer', fontFamily:'inherit' }}>
+                  <div style={{ width:40, height:40, borderRadius:10, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                    background:`${scoreColor(score)}1A`, color:scoreColor(score) }}>
+                    <span style={{ fontSize:15, fontWeight:800, lineHeight:1 }}>{score}</span>
+                    <span style={{ fontSize:7.5, fontWeight:600 }}>คะแนน</span>
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:C.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                        {patient.prefix}{patient.firstName} {patient.lastName}
+                      </span>
+                      <span style={{ fontSize:9.5, fontWeight:700, color:scoreColor(score), background:`${scoreColor(score)}18`, padding:'1px 7px', borderRadius:20, flexShrink:0 }}>{scoreLevel}</span>
+                    </div>
+                    <div style={{ fontSize:11, color:C.textMuted, marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                      {topAlert ? `${topAlert.icon} ${topAlert.title}` : summary}
+                    </div>
+                  </div>
+                  <span style={{ fontSize:13, color:C.textMuted, flexShrink:0 }}>›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ data, navigate }) {
   const pts = data.patients;
   const vis = data.visits;
@@ -14737,6 +15051,9 @@ function Dashboard({ data, navigate }) {
           ))}
         </div>
       </div>
+
+      {/* ── 🤖 AI Insights ── */}
+      <AIInsightsPanel data={data} navigate={navigate} />
 
       {/* ── Today's Clinic ── */}
       {scheduledToday.length > 0 && (
