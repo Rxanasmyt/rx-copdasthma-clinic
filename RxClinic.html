@@ -1551,9 +1551,9 @@ const AppStore = {
 
   getDefault() {
     return {
-      patients: SAMPLE_PATIENTS,
-      visits: SAMPLE_VISITS,
-      telepharmacy: SAMPLE_TELEPHARMACY,
+      patients: [...SAMPLE_PATIENTS],
+      visits: [...SAMPLE_VISITS],
+      telepharmacy: [...SAMPLE_TELEPHARMACY],
       haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
       _savedAt: 0,      // ข้อมูลตัวอย่าง — เก่าที่สุดเสมอ เพื่อให้ข้อมูลจริงจาก Firebase ชนะตอน merge
       _isSample: true,  // ธงบอกว่าเป็นข้อมูลตัวอย่าง ยังไม่เคยถูกผู้ใช้แก้ไข
@@ -3443,7 +3443,7 @@ function SmokingBadge({ status, packYears, compact }) {
 function VaccinationStatus({ patient, compact }) {
   const vac = patient?.vaccinations || {};
   const today = new Date();
-  const daysSince = (d) => d ? Math.floor((today - new Date(d)) / 86400000) : null;
+  const daysSince = (d) => { if (!d) return null; const t = new Date(d).getTime(); return isNaN(t) ? null : Math.floor((today - t) / 86400000); };
 
   const items = AppStore.VACCINATION_TYPES.map(t => {
     const date = vac[t.id];
@@ -5878,9 +5878,9 @@ function PatientForm({ patient, onSave, onClose }) {
     onSave({
       ...f,
       age: parseInt(f.age),
-      eGFR: f.eGFR === '' ? null : parseFloat(f.eGFR),
-      weight: f.weight === '' ? null : parseFloat(f.weight),
-      packYears: f.packYears === '' ? null : parseFloat(f.packYears),
+      eGFR: f.eGFR === '' || isNaN(parseFloat(f.eGFR)) ? null : parseFloat(f.eGFR),
+      weight: f.weight === '' || isNaN(parseFloat(f.weight)) ? null : parseFloat(f.weight),
+      packYears: f.packYears === '' || isNaN(parseFloat(f.packYears)) ? null : parseFloat(f.packYears),
       goldGrade:     ['COPD', 'Both'].includes(f.diagnosis) ? f.goldGrade   : null,
       asthmaControl: ['Asthma', 'Both'].includes(f.diagnosis) ? f.asthmaControl : null,
     });
