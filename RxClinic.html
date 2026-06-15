@@ -8314,6 +8314,9 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const ddiMajor   = ddiResults.filter(ix => ix.severity === 'major');
   const ddiModerate = ddiResults.filter(ix => ix.severity === 'moderate');
 
+  // ── 🤖 Live DRP / clinical-gap detection while filling the form ──
+  const liveDRP = vfMemo(() => (window.detectDRP && patient) ? window.detectDRP(f, patient) : [], [f, patient]);
+
   // ── ป้องกันข้อมูลหายเมื่อยังไม่บันทึก ──
   const justSavedRef = useRef(false);
   const hasUnsaved = () => !justSavedRef.current && (
@@ -8922,6 +8925,39 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               </div>
             )}
           </Card>
+
+          {/* 🤖 Live AI clinical-gap detection */}
+          {liveDRP.length > 0 && (
+            <div className="rx-fade" style={{
+              background: 'linear-gradient(135deg, rgba(109,40,217,0.06), rgba(37,99,235,0.04))',
+              border: '1.5px solid rgba(109,40,217,0.25)', borderRadius: 14, padding: '14px 16px', marginBottom: 16,
+            }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <span style={{ fontSize:16 }}>🤖</span>
+                <span style={{ fontSize:13, fontWeight:800, color:'#6D28D9' }}>AI ตรวจพบประเด็นทางคลินิก ({liveDRP.length})</span>
+                <span style={{ fontSize:10.5, color:C.textMuted }}>· ตรวจสดขณะกรอก — แก้ไขก่อนบันทึกได้</span>
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                {liveDRP.map((d, i) => {
+                  const col = d.severity === 'High' ? C.high : d.severity === 'Medium' ? C.medium : C.low;
+                  const bg  = d.severity === 'High' ? C.highBg : d.severity === 'Medium' ? C.mediumBg : C.bgAlt;
+                  return (
+                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 12px', borderRadius:9, background:bg, borderLeft:`3px solid ${col}` }}>
+                      <span style={{ fontSize:14, flexShrink:0 }}>{d.severity === 'High' ? '🔴' : d.severity === 'Medium' ? '🟠' : '🟡'}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:col }}>{d.categoryTh}</div>
+                        <div style={{ fontSize:12, color:C.text, marginTop:2, lineHeight:1.45 }}>{d.problemTh}</div>
+                        <div style={{ fontSize:11.5, color:C.textMuted, marginTop:2, lineHeight:1.45 }}>💡 {d.actionTh}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize:10.5, color:C.textMuted, marginTop:9, fontStyle:'italic' }}>
+                * ประเด็นเหล่านี้จะถูกนำไปช่วยสร้าง SOAP/DRP อัตโนมัติด้านล่าง
+              </div>
+            </div>
+          )}
 
           {/* ⑧ SOAP */}
           <SecHd n="8" title="บันทึก SOAP" color={C.low}
