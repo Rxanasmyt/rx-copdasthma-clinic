@@ -1207,11 +1207,15 @@ function checkDDI(medications) {
   if (!medications || medications.length < 2) return [];
   const names = medications.map(m => (m.name || '').toLowerCase()).filter(Boolean);
   const found = [];
+  const seen = new Set();
   DDI_RULES.forEach(rule => {
     const drug1 = rule.drugs.find(d => names.some(n => n.includes(d.toLowerCase())));
     if (!drug1) return;
     const drug2 = rule.with.find(d => names.some(n => n.includes(d.toLowerCase())));
     if (!drug2) return;
+    const pairKey = [drug1.toLowerCase(), drug2.toLowerCase()].sort().join('|');
+    if (seen.has(pairKey)) return;
+    seen.add(pairKey);
     const med1Name = medications.find(m => (m.name || '').toLowerCase().includes(drug1.toLowerCase()))?.name || drug1;
     const med2Name = medications.find(m => (m.name || '').toLowerCase().includes(drug2.toLowerCase()))?.name || drug2;
     found.push({ ...rule, drug1Name: med1Name, drug2Name: med2Name });
@@ -5050,8 +5054,8 @@ function openPrintWindow(html, title) {
 function printPatientReport(patient, visits, tele) {
   if (!patient) return;
   const rc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[patient.riskLevel] || '#059669';
-  const ptV = visits.filter(v => v.patientId === patient.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
-  const ptT = tele.filter(t => t.patientId === patient.id).sort((a,b) => b.scheduledDate.localeCompare(a.scheduledDate));
+  const ptV = (visits||[]).filter(v => v.patientId === patient.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+  const ptT = (tele||[]).filter(t => t.patientId === patient.id).sort((a,b) => b.scheduledDate.localeCompare(a.scheduledDate));
 
   const visitCards = ptV.map(v => {
     const vRc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[v.riskLevel] || '#059669';
@@ -6210,7 +6214,7 @@ function PatientList({ data, onDataChange, navigate }) {
     if (lines.length < 2) return { error: 'ไฟล์ CSV ต้องมีหัวตารางอย่างน้อย 1 แถวข้อมูล' };
     const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
     const rows = lines.slice(1).map(line => {
-      const vals = line.split(',').map(v => v.trim().replace(/"/g, ''));
+      const vals = (line.match(/(?:"[^"]*"|[^,])+/g) || []).map(v => v.trim().replace(/^"|"$/g, ''));
       const obj = {};
       headers.forEach((h, j) => { obj[h] = vals[j] || ''; });
       return {
@@ -8057,12 +8061,12 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const a = f.assessments || { cat: {}, mmrc: {}, act: {} };
 
   const addMed = () => setF(prev => ({ ...prev, medications: [...prev.medications, { id: AppStore.generateId(), name: '', dose: '', adherence: '' }] }));
-  const updateMed = (i, val) => { const next = [...f.medications]; next[i] = val; set('medications', next); };
-  const removeMed = (i) => set('medications', f.medications.filter((_, idx) => idx !== i));
+  const updateMed = (i, val) => setF(prev => ({ ...prev, medications: prev.medications.map((m, idx) => idx === i ? val : m) }));
+  const removeMed = (i) => setF(prev => ({ ...prev, medications: prev.medications.filter((_, idx) => idx !== i) }));
 
   const addTech = () => setF(prev => ({ ...prev, inhalerTechnique: [...prev.inhalerTechnique, { id: AppStore.generateId(), device: '', stepsCorrect: [], overallScore: 'Poor', errors: [] }] }));
-  const updateTech = (i, val) => { const next = [...f.inhalerTechnique]; next[i] = val; set('inhalerTechnique', next); };
-  const removeTech = (i) => set('inhalerTechnique', f.inhalerTechnique.filter((_, idx) => idx !== i));
+  const updateTech = (i, val) => setF(prev => ({ ...prev, inhalerTechnique: prev.inhalerTechnique.map((t, idx) => idx === i ? val : t) }));
+  const removeTech = (i) => setF(prev => ({ ...prev, inhalerTechnique: prev.inhalerTechnique.filter((_, idx) => idx !== i) }));
 
   const applyPrefill = () => {
     if (!lastVisit) return;
@@ -13052,7 +13056,8 @@ const calculateStats = (data) => {
   stats.drpPrevalence = visits.length > 0 ? ((visitsWithDRP.length / visits.length) * 100).toFixed(1) + '%' : '—';
 
   // Technique
-  const techScores = visits.flatMap(v => (v.inhalerTechnique || []).map(t => t.overallScore));
+  const techScoreMap = { 'Good': 2, 'Fair': 1, 'Poor': 0 };
+  const techScores = visits.flatMap(v => (v.inhalerTechnique || []).map(t => techScoreMap[t.overallScore] ?? 0));
   if (techScores.length > 0) {
     stats.meanTechniqueScore = (techScores.reduce((a, b) => a + b, 0) / techScores.length).toFixed(2);
   }
