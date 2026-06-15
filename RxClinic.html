@@ -1308,8 +1308,9 @@ const interpretCAT = (score) => {
 
 // ACT interpretation
 const interpretACT = (score) => {
-  if (score >= 25) return { level: 'Total',        label: 'ควบคุมได้สมบูรณ์', color: '#059669' };
-  if (score >= 20) return { level: 'Well',         label: 'ควบคุมได้ดี',     color: '#059669' };
+  if (score >= 25) return { level: 'Total',  label: 'ควบคุมได้สมบูรณ์', color: '#059669' };
+  if (score >= 20) return { level: 'Well',   label: 'ควบคุมได้ดี',      color: '#059669' };
+  if (score >= 16) return { level: 'Partly', label: 'ควบคุมได้บางส่วน',  color: '#D97706' };
   return              { level: 'Uncontrolled', label: 'ควบคุมไม่ได้',   color: '#DC2626' };
 };
 
@@ -2988,7 +2989,7 @@ function ACTAssessment({ value, onChange }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: interp.color }}>{allAnswered ? interp.label : 'ตอบทุกข้อเพื่อดูผล'}</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-            ≥25 ควบคุมสมบูรณ์ · 20–24 ควบคุมได้ดี · &lt;20 ควบคุมไม่ได้
+            ≥25 ควบคุมสมบูรณ์ · 20–24 ควบคุมได้ดี · 16–19 ควบคุมได้บางส่วน · &lt;16 ควบคุมไม่ได้
           </div>
         </div>
       </div>
@@ -7971,7 +7972,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     assessments: {
       cat:  { answers: [null,null,null,null,null,null,null,null], score: 0, allAnswered: false },
       mmrc: { grade: null },
-      act:  { answers: [null,null,null,null], score: 0, allAnswered: false },
+      act:  { answers: [null,null,null,null,null], score: 0, allAnswered: false },
     },
     soap: { s: '', o: '', a: '', p: '' },
     drp: { noDRP: true, items: [], note: '' },
