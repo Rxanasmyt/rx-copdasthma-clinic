@@ -2425,7 +2425,7 @@ function TemplatePicker({ field, onInsert }) {
     const onClickOutside = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
-  });
+  }, []);
 
   const items = templates.filter(t => t.field === field);
   const fieldLabel = { cc: 'Chief Complaint', s: 'S', o: 'O', a: 'A', p: 'P' }[field];
@@ -5227,6 +5227,7 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
+    reader.onerror = () => setRestoreErr('ไม่สามารถอ่านไฟล์ได้ — กรุณาลองใหม่อีกครั้ง');
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result);
