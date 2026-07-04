@@ -4082,7 +4082,7 @@ const RxAI = (() => {
     }
 
     // GINA: SABA-only / uncontrolled asthma
-    const actScore = catSeries && actSeries[actSeries.length-1];
+    const actScore = actSeries.length ? actSeries[actSeries.length-1] : null;
     if ((dx === 'Asthma' || dx === 'Both') && actScore != null && actScore < 16) {
       push('high', '🌬️', 'Asthma ควบคุมไม่ได้ (ACT < 16)',
         `ACT ล่าสุด ${actScore}/25`, 'ทบทวน adherence + เทคนิค ก่อน step-up ตาม GINA');
@@ -16262,7 +16262,7 @@ function App() {
           <span style={{ fontSize: 18 }}>🔴</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.high }}>
-              ผู้ป่วย High Risk ค้างนาน {overdueHighRisk.length} ราย (>30 วันไม่ได้เยี่ยม)
+              ผู้ป่วย High Risk ค้างนาน {overdueHighRisk.length} ราย (&gt;30 วันไม่ได้เยี่ยม)
             </div>
             <div style={{ fontSize: 11, color: C.high, opacity: 0.8 }}>แตะเพื่อดูรายการคัดกรองความเสี่ยง</div>
           </div>
