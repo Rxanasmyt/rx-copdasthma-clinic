@@ -4082,7 +4082,7 @@ const RxAI = (() => {
     }
 
     // GINA: SABA-only / uncontrolled asthma
-    const actScore = actSeries.length ? actSeries[actSeries.length-1] : null;
+    const actScore = actSeries.filter(x => x != null).slice(-1)[0] ?? null;
     if ((dx === 'Asthma' || dx === 'Both') && actScore != null && actScore < 16) {
       push('high', '🌬️', 'Asthma ควบคุมไม่ได้ (ACT < 16)',
         `ACT ล่าสุด ${actScore}/25`, 'ทบทวน adherence + เทคนิค ก่อน step-up ตาม GINA');
@@ -4178,14 +4178,14 @@ const RxAI = (() => {
 
     // KPIs (ครอบคลุมการบริบาลทางเภสัชกรรม)
     const withVisit = analyses.length;
-    const latestVisitOf = (pid) => visits.filter(v => v.patientId === pid).sort((a,b)=>b.visitDate.localeCompare(a.visitDate))[0];
-    let adhGood=0, techGood=0, drpOpen=0, actControlled=0, actDenom=0, smokers=0, highRiskOverdue=0;
+    const latestVisitOf = (pid) => visits.filter(v => v.patientId === pid).sort((a,b)=>(b.visitDate||'').localeCompare(a.visitDate||''))[0];
+    let adhGood=0, adhDenom=0, techGood=0, techDenom=0, drpOpen=0, actControlled=0, actDenom=0, smokers=0, highRiskOverdue=0;
     const todayStr = new Date().toISOString().slice(0,10);
     analyses.forEach(({patient, a}) => {
       const lv = latestVisitOf(patient.id);
-      if (lv?.adherence?.level === 'Good') adhGood++;
+      if (lv?.adherence?.level) { adhDenom++; if (lv.adherence.level === 'Good') adhGood++; }
       const techs = (lv?.inhalerTechnique || []);
-      if (techs.length && techs.every(t => t.overallScore !== 'Poor')) techGood++;
+      if (techs.length) { techDenom++; if (techs.every(t => t.overallScore !== 'Poor')) techGood++; }
       if ((typeof detectDRP==='function' ? detectDRP(lv, patient) : []).length) drpOpen++;
       const act = lv?.assessments?.act;
       if (act?.allAnswered) { actDenom++; if (act.score >= 20) actControlled++; }
@@ -4194,8 +4194,8 @@ const RxAI = (() => {
     });
     const pct = (n,d) => d ? Math.round(n/d*100) : 0;
     out.kpis = {
-      adherenceGoodPct: pct(adhGood, withVisit),
-      techniqueGoodPct: pct(techGood, withVisit),
+      adherenceGoodPct: pct(adhGood, adhDenom),
+      techniqueGoodPct: pct(techGood, techDenom),
       drpOpenCount: drpOpen,
       asthmaControlledPct: pct(actControlled, actDenom),
       smokerCount: smokers,
@@ -6851,7 +6851,7 @@ function PatientAICard({ patient, visits }) {
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
             {a.recommendations.map((r, i) => (
-              <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'8px 12px', borderRadius:9,
+              <div key={`${r.why||''}-${i}`} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'8px 12px', borderRadius:9,
                 background: r.sev==='high' ? C.highBg : r.sev==='medium' ? C.mediumBg : C.bgAlt,
                 borderLeft:`3px solid ${sevColor[r.sev]||C.border}` }}>
                 <span style={{ fontSize:11, fontWeight:800, color:sevColor[r.sev], flexShrink:0, marginTop:1 }}>{i+1}</span>
@@ -8942,7 +8942,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   const col = d.severity === 'High' ? C.high : d.severity === 'Medium' ? C.medium : C.low;
                   const bg  = d.severity === 'High' ? C.highBg : d.severity === 'Medium' ? C.mediumBg : C.bgAlt;
                   return (
-                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 12px', borderRadius:9, background:bg, borderLeft:`3px solid ${col}` }}>
+                    <div key={`${d.code||''}-${d.problemTh||''}-${i}`} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 12px', borderRadius:9, background:bg, borderLeft:`3px solid ${col}` }}>
                       <span style={{ fontSize:14, flexShrink:0 }}>{d.severity === 'High' ? '🔴' : d.severity === 'Medium' ? '🟠' : '🟡'}</span>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:12, fontWeight:700, color:col }}>{d.categoryTh}</div>
@@ -14966,7 +14966,7 @@ function AIInsightsPanel({ data, navigate }) {
         {/* Auto insight sentences */}
         <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom: priorityPatients.length ? 16 : 0 }}>
           {insights.map((ins, i) => (
-            <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 13px', borderRadius:10,
+            <div key={`${ins.text||''}-${i}`} style={{ display:'flex', alignItems:'flex-start', gap:9, padding:'9px 13px', borderRadius:10,
               background: ins.sev==='high' ? C.highBg : ins.sev==='medium' ? C.mediumBg : C.bgAlt,
               borderLeft:`3px solid ${sevColor[ins.sev]||C.border}` }}>
               <span style={{ fontSize:14, flexShrink:0 }}>{ins.icon}</span>
