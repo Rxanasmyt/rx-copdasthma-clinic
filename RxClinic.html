@@ -208,7 +208,13 @@
     from { opacity: 0; transform: translateY(12px) scale(0.995); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
   }
-  .rx-view { animation: rxViewIn 0.34s cubic-bezier(0.16,1,0.3,1) both; }
+  /* fill-mode intentionally NOT 'forwards'/'both': persisting the animation's
+     final transform (even translateY(0)) creates a CSS containing block for
+     any position:fixed descendant (e.g. Modal), trapping it inside this
+     scrollable view instead of the viewport — cutting off the top of every
+     modal opened on a freshly-navigated page. The underlying (non-animated)
+     styles already equal the "to" keyframe, so dropping fill-mode is safe. */
+  .rx-view { animation: rxViewIn 0.34s cubic-bezier(0.16,1,0.3,1); }
 
   /* ── Collapsible sidebar ── */
   .rx-sidebar-collapsed { width: 64px !important; }
@@ -427,7 +433,10 @@
   @keyframes rxModalBg { from { opacity: 0; } to { opacity: 1; } }
   @keyframes rxModalIn { from { opacity: 0; transform: translateY(18px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
   .rx-modal-bg { animation: rxModalBg 0.22s ease both; }
-  .rx-modal-card { animation: rxModalIn 0.34s cubic-bezier(0.16,1,0.3,1) both; }
+  /* no 'both'/'forwards' — a persisted transform here would trap any
+     position:fixed element nested inside a modal's content (e.g. a
+     confirm-dialog opened from within this modal) as its containing block */
+  .rx-modal-card { animation: rxModalIn 0.34s cubic-bezier(0.16,1,0.3,1); }
 
   /* Icon hover effects */
   .rx-icon-wiggle:hover { animation: rxWiggle 0.4s ease; }
