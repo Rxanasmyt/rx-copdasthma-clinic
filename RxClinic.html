@@ -4219,6 +4219,92 @@ const RxAI = (() => {
 })();
 window.RxAI = RxAI;
 
+// ════════════════════════════════════════════════════════════════
+// RxOCR — On-device image-to-text patient intake (Tesseract.js)
+// ประมวลผลบนเครื่องทั้งหมด ภาพไม่ถูกส่งออกจากเครื่องเลย (PDPA-safe)
+// ════════════════════════════════════════════════════════════════
+const RxOCR = (() => {
+  const CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+  let loadPromise = null;
+
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (loadPromise) return loadPromise;
+    loadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = CDN;
+      s.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('Tesseract failed to load'));
+      s.onerror = () => reject(new Error('ไม่สามารถโหลด OCR engine ได้ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต (จำเป็นแค่ครั้งแรก)'));
+      document.head.appendChild(s);
+    });
+    return loadPromise;
+  }
+
+  // ── แกะข้อมูลจากข้อความ OCR ที่ได้จากหน้าจอ HOSxP ──
+  function parseHosxpText(text) {
+    const joined = (text || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean).join(' ');
+    const fields = {};
+    const filled = [];
+    const setF = (k, v) => { if (v != null && v !== '') { fields[k] = v; filled.push(k); } };
+
+    // HN — ตัวเลข 4-10 หลัก หลังคำว่า HN
+    let m = joined.match(/HN[^0-9]{0,5}(\d{4,10})/i);
+    setF('hn', m ? m[1] : null);
+
+    // ชื่อ — คำนำหน้า+ชื่อ+นามสกุล ต่อจากคำว่า "ชื่อ" จนกว่าจะเจอ label ถัดไป
+    m = joined.match(/ชื่อ\s*([ก-๙]+(?:\s+[ก-๙.]+){0,3})(?=\s*(?:อายุ|ที่อยู่|มือถือ|เพศ|โทรศัพท์|CID|$))/);
+    if (m) {
+      const nameStr = m[1].trim();
+      const PREFIXES = ['เด็กชาย', 'เด็กหญิง', 'นางสาว', 'นาง', 'นาย', 'ด.ช.', 'ด.ญ.'];
+      const prefix = PREFIXES.find(p => nameStr.startsWith(p));
+      const rest = prefix ? nameStr.slice(prefix.length).trim() : nameStr;
+      const parts = rest.split(/\s+/).filter(Boolean);
+      setF('prefix', prefix || null);
+      setF('firstName', parts[0] || null);
+      setF('lastName', parts.slice(1).join(' ') || null);
+    }
+
+    // อายุ — ตัวเลขก่อนคำว่า "ปี"
+    m = joined.match(/อายุ\D{0,3}(\d{1,3})\s*ปี/);
+    setF('age', m ? m[1] : null);
+
+    // เพศ — อนุมานจากคำนำหน้าถ้ามี
+    if (fields.prefix) {
+      if (['นาย', 'เด็กชาย', 'ด.ช.'].includes(fields.prefix)) setF('gender', 'M');
+      else if (['นาง', 'นางสาว', 'เด็กหญิง', 'ด.ญ.'].includes(fields.prefix)) setF('gender', 'F');
+    }
+
+    // เบอร์โทร — มือถือก่อน ถ้าไม่มีใช้โทรศัพท์
+    m = joined.match(/มือถือ\D{0,3}(\d{9,10})/) || joined.match(/โทรศัพท์\D{0,3}(\d{9,10})/);
+    setF('phone', m ? m[1] : null);
+
+    // น้ำหนัก (kg)
+    m = joined.match(/น้ำหนัก\D{0,3}(\d{1,3}(?:\.\d{1,2})?)/);
+    setF('weight', m ? m[1] : null);
+
+    // สิทธิการรักษา — จับคำสำคัญคร่าวๆ
+    if (/บัตรทอง|UC\b/i.test(joined)) setF('insurance', 'UC (บัตรทอง)');
+    else if (/ประกันสังคม|สปส/.test(joined)) setF('insurance', 'ประกันสังคม');
+    else if (/ข้าราชการ|เบิกได้|CSMBS/i.test(joined)) setF('insurance', 'ข้าราชการ');
+
+    return { fields, filled, rawText: text };
+  }
+
+  // ── รัน OCR บนไฟล์ภาพ (imageFile: File/Blob) พร้อม progress callback ──
+  async function extractFromImage(imageFile, onProgress) {
+    const Tesseract = await loadTesseract();
+    const { data } = await Tesseract.recognize(imageFile, 'tha+eng', {
+      logger: (info) => {
+        if (onProgress && info.status === 'recognizing text') onProgress(Math.round((info.progress || 0) * 100));
+      },
+    });
+    return parseHosxpText(data.text || '');
+  }
+
+  return { loadTesseract, parseHosxpText, extractFromImage };
+})();
+window.RxOCR = RxOCR;
+
 Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
   checkInteractions, getRenalCategory, detectDRP,
@@ -6067,6 +6153,65 @@ Object.assign(window, {
 
 const { useState: pvState, useEffect: pvEffect } = React;
 
+// ── 🤖 HOSxP OCR intake — อ่านข้อมูลผู้ป่วยจากภาพหน้าจอ (on-device, ไม่ส่งข้อมูลออกจากเครื่อง) ──
+function HosxpOcrPanel({ onExtract }) {
+  const [status, setStatus]     = pvState('idle'); // idle | loading | done | error
+  const [progress, setProgress] = pvState(0);
+  const [errMsg, setErrMsg]     = pvState('');
+  const [lastCount, setLastCount] = pvState(0);
+  const fileRef = React.useRef(null);
+
+  const runOCR = async (file) => {
+    if (!file) return;
+    setStatus('loading'); setProgress(0); setErrMsg('');
+    try {
+      const result = await window.RxOCR.extractFromImage(file, (pct) => setProgress(pct));
+      const n = result.filled.length;
+      setLastCount(n);
+      setStatus('done');
+      if (n > 0) onExtract(result.fields, result.filled);
+    } catch (e) {
+      setStatus('error');
+      setErrMsg(e?.message || 'อ่านภาพไม่สำเร็จ ลองใหม่อีกครั้ง');
+    }
+  };
+
+  return (
+    <div style={{
+      border: '1.5px dashed rgba(109,40,217,0.35)', borderRadius: 14, padding: '14px 16px', marginBottom: 18,
+      background: 'linear-gradient(135deg, rgba(109,40,217,0.05), rgba(37,99,235,0.03))',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 20 }}>🤖</span>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#6D28D9' }}>แนบภาพจาก HOSxP ให้ AI กรอกข้อมูลอัตโนมัติ</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+            ประมวลผลบนเครื่องทั้งหมด — ภาพไม่ถูกส่งออกจากเครื่อง · กรุณาตรวจสอบข้อมูลก่อนบันทึกเสมอ
+          </div>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+          onChange={(e) => { const f = e.target.files?.[0]; runOCR(f); e.target.value = ''; }} />
+        <Btn size="sm" variant="accent" disabled={status === 'loading'} onClick={() => fileRef.current?.click()}>
+          {status === 'loading' ? `⏳ กำลังอ่าน... ${progress}%` : '📷 เลือก/ถ่ายภาพ'}
+        </Btn>
+      </div>
+      {status === 'done' && lastCount > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: C.low }}>
+          ✓ อ่านข้อมูลได้ {lastCount} ช่อง — กรุณาตรวจสอบความถูกต้องในฟอร์มด้านล่างก่อนบันทึก (ช่องที่มีป้าย 🤖)
+        </div>
+      )}
+      {status === 'done' && lastCount === 0 && (
+        <div style={{ marginTop: 10, fontSize: 12, color: C.medium }}>
+          ⚠️ ไม่พบข้อมูลที่จดจำได้จากภาพนี้ — กรุณากรอกข้อมูลด้วยตนเอง
+        </div>
+      )}
+      {status === 'error' && (
+        <div style={{ marginTop: 10, fontSize: 12, color: C.high }}>⚠️ {errMsg}</div>
+      )}
+    </div>
+  );
+}
+
 // ── PatientForm (Add / Edit) ──────────────────────────
 function PatientForm({ patient, onSave, onClose }) {
   const blank = {
@@ -6082,8 +6227,19 @@ function PatientForm({ patient, onSave, onClose }) {
   };
   const [f, setF] = pvState(patient ? { ...patient } : blank);
   const [err, setErr] = pvState({});
+  const [ocrFilled, setOcrFilled] = pvState({}); // { fieldKey: true } — ช่องที่ AI กรอกให้ ยังไม่ได้ตรวจสอบ
 
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const set = (k, v) => { setF(prev => ({ ...prev, [k]: v })); setOcrFilled(prev => (prev[k] ? { ...prev, [k]: false } : prev)); };
+
+  const handleOcrExtract = (fields, filledKeys) => {
+    setF(prev => ({ ...prev, ...fields }));
+    setOcrFilled(prev => {
+      const next = { ...prev };
+      filledKeys.forEach(k => { next[k] = true; });
+      return next;
+    });
+  };
+  const ocrHint = (k) => ocrFilled[k] ? '🤖 อ่านจากภาพ — กรุณาตรวจสอบความถูกต้อง' : undefined;
 
   const validate = () => {
     const e = {};
@@ -6117,33 +6273,36 @@ function PatientForm({ patient, onSave, onClose }) {
 
   return (
     <div>
+      {/* 🤖 OCR intake — เฉพาะตอนเพิ่มผู้ป่วยใหม่ */}
+      {!patient && <HosxpOcrPanel onExtract={handleOcrExtract} />}
+
       {/* Basic Info */}
       <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ข้อมูลพื้นฐาน</p>
       <div style={row2}>
-        <FormField label="HN" required error={err.hn}>
+        <FormField label="HN" required error={err.hn} hint={ocrHint('hn')}>
           <Input value={f.hn} onChange={v => set('hn', v)} placeholder="67-XXXXXX" error={err.hn} />
         </FormField>
-        <FormField label="คำนำหน้า">
+        <FormField label="คำนำหน้า" hint={ocrHint('prefix')}>
           <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']} />
         </FormField>
       </div>
       <div style={row2}>
-        <FormField label="ชื่อ" required error={err.firstName}>
+        <FormField label="ชื่อ" required error={err.firstName} hint={ocrHint('firstName')}>
           <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ" />
         </FormField>
-        <FormField label="นามสกุล" required error={err.lastName}>
+        <FormField label="นามสกุล" required error={err.lastName} hint={ocrHint('lastName')}>
           <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล" />
         </FormField>
       </div>
       <div style={row3}>
-        <FormField label="อายุ (ปี)" required error={err.age}>
+        <FormField label="อายุ (ปี)" required error={err.age} hint={ocrHint('age')}>
           <Input value={f.age} onChange={v => set('age', v)} type="number" placeholder="0" />
         </FormField>
-        <FormField label="เพศ">
+        <FormField label="เพศ" hint={ocrHint('gender')}>
           <Select value={f.gender} onChange={v => set('gender', v)}
             options={[{ value: 'M', label: 'ชาย' }, { value: 'F', label: 'หญิง' }]} />
         </FormField>
-        <FormField label="สิทธิการรักษา">
+        <FormField label="สิทธิการรักษา" hint={ocrHint('insurance')}>
           <Select value={f.insurance} onChange={v => set('insurance', v)} options={AppStore.INSURANCE_OPTIONS} />
         </FormField>
       </div>
@@ -6193,7 +6352,7 @@ function PatientForm({ patient, onSave, onClose }) {
       <hr style={{ margin: '8px 0 16px', border: 'none', borderTop: `1px solid ${C.border}` }} />
       <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ช่องทางติดต่อ</p>
       <div style={row2}>
-        <FormField label="เบอร์โทรศัพท์" required error={err.phone}>
+        <FormField label="เบอร์โทรศัพท์" required error={err.phone} hint={ocrHint('phone')}>
           <Input value={f.phone} onChange={v => set('phone', v)} placeholder="0XX-XXX-XXXX" />
         </FormField>
         <FormField label="วันเกิด (DOB)" hint="ใช้เป็น 2nd identifier ตาม HA PSG1">
@@ -6217,7 +6376,7 @@ function PatientForm({ patient, onSave, onClose }) {
         <FormField label="eGFR (mL/min/1.73m²)" hint="ถ้ามีค่า lab ล่าสุด">
           <Input value={f.eGFR} onChange={v => set('eGFR', v)} type="number" placeholder="เช่น 75" />
         </FormField>
-        <FormField label="น้ำหนัก (kg)">
+        <FormField label="น้ำหนัก (kg)" hint={ocrHint('weight')}>
           <Input value={f.weight} onChange={v => set('weight', v)} type="number" placeholder="เช่น 65" />
         </FormField>
       </div>
