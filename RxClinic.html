@@ -4299,10 +4299,10 @@ const RxOCR = (() => {
     return { fields, filled, rawText: text };
   }
 
-  // ── รัน OCR บนไฟล์ภาพ (imageFile: File/Blob) พร้อม progress callback ──
-  async function extractFromImage(imageFile, onProgress) {
+  // ── รัน OCR บนภาพ (imageSource: File/Blob/Canvas/Image) พร้อม progress callback ──
+  async function extractFromImage(imageSource, onProgress) {
     const Tesseract = await loadTesseract();
-    const { data } = await Tesseract.recognize(imageFile, 'tha+eng', {
+    const { data } = await Tesseract.recognize(imageSource, 'tha+eng', {
       logger: (info) => {
         if (onProgress && info.status === 'recognizing text') onProgress(Math.round((info.progress || 0) * 100));
       },
@@ -4310,7 +4310,39 @@ const RxOCR = (() => {
     return parseHosxpText(data.text || '');
   }
 
-  return { loadTesseract, parseHosxpText, extractFromImage };
+  const isScreenCaptureSupported = () =>
+    typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+
+  // ── จับภาพ 1 เฟรมจากหน้าจอ/หน้าต่างที่ผู้ใช้เลือก — ไม่บันทึกไฟล์ลงเครื่อง ──
+  // คืนค่า { canvas, dataUrl } เก็บอยู่ใน memory เท่านั้น ป้อนเข้า Tesseract ได้ทันที
+  async function captureScreenFrame() {
+    if (!isScreenCaptureSupported()) {
+      throw new Error('เบราว์เซอร์นี้ไม่รองรับการเลือกแชร์หน้าจอ — กรุณาใช้วิธีแนบภาพแทน');
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'never' }, audio: false });
+    try {
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = () => { video.play().then(resolve).catch(reject); };
+        video.onerror = () => reject(new Error('อ่านสตรีมหน้าจอไม่สำเร็จ'));
+      });
+      // รอเฟรมแรกให้พร้อมจริงๆ ก่อนจับภาพ
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/png');
+      return { canvas, dataUrl };
+    } finally {
+      // ปิดสตรีมทันที — ไม่ค้างสิทธิ์แชร์หน้าจอไว้ และไม่มีข้อมูลใดถูกเก็บนอกเหนือ canvas ใน memory
+      stream.getTracks().forEach(t => t.stop());
+    }
+  }
+
+  return { loadTesseract, parseHosxpText, extractFromImage, captureScreenFrame, isScreenCaptureSupported };
 })();
 window.RxOCR = RxOCR;
 
@@ -6164,17 +6196,20 @@ const { useState: pvState, useEffect: pvEffect } = React;
 
 // ── 🤖 HOSxP OCR intake — อ่านข้อมูลผู้ป่วยจากภาพหน้าจอ (on-device, ไม่ส่งข้อมูลออกจากเครื่อง) ──
 function HosxpOcrPanel({ onExtract }) {
-  const [status, setStatus]     = pvState('idle'); // idle | loading | done | error
+  const [status, setStatus]     = pvState('idle'); // idle | capturing | previewing | loading | done | error
   const [progress, setProgress] = pvState(0);
   const [errMsg, setErrMsg]     = pvState('');
   const [lastCount, setLastCount] = pvState(0);
+  const [previewUrl, setPreviewUrl] = pvState(null); // เก็บใน memory เท่านั้น เคลียร์ทันทีหลังใช้งาน
+  const pendingCanvasRef = React.useRef(null);
   const fileRef = React.useRef(null);
+  const screenSupported = window.RxOCR?.isScreenCaptureSupported?.();
 
-  const runOCR = async (file) => {
-    if (!file) return;
+  const runOCR = async (source) => {
+    if (!source) return;
     setStatus('loading'); setProgress(0); setErrMsg('');
     try {
-      const result = await window.RxOCR.extractFromImage(file, (pct) => setProgress(pct));
+      const result = await window.RxOCR.extractFromImage(source, (pct) => setProgress(pct));
       const n = result.filled.length;
       setLastCount(n);
       setStatus('done');
@@ -6185,6 +6220,33 @@ function HosxpOcrPanel({ onExtract }) {
     }
   };
 
+  const startScreenCapture = async () => {
+    setStatus('capturing'); setErrMsg('');
+    try {
+      const { canvas, dataUrl } = await window.RxOCR.captureScreenFrame();
+      pendingCanvasRef.current = canvas;
+      setPreviewUrl(dataUrl);
+      setStatus('previewing');
+    } catch (e) {
+      pendingCanvasRef.current = null;
+      setStatus(e?.name === 'NotAllowedError' ? 'idle' : 'error');
+      if (e?.name !== 'NotAllowedError') setErrMsg(e?.message || 'เลือกแชร์หน้าจอไม่สำเร็จ');
+    }
+  };
+  const confirmPreview = () => {
+    const canvas = pendingCanvasRef.current;
+    pendingCanvasRef.current = null;
+    setPreviewUrl(null);
+    runOCR(canvas);
+  };
+  const cancelPreview = () => {
+    pendingCanvasRef.current = null;
+    setPreviewUrl(null);
+    setStatus('idle');
+  };
+
+  const busy = status === 'loading' || status === 'capturing';
+
   return (
     <div style={{
       border: '1.5px dashed rgba(109,40,217,0.35)', borderRadius: 14, padding: '14px 16px', marginBottom: 18,
@@ -6193,17 +6255,38 @@ function HosxpOcrPanel({ onExtract }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 20 }}>🤖</span>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#6D28D9' }}>แนบภาพจาก HOSxP ให้ AI กรอกข้อมูลอัตโนมัติ</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#6D28D9' }}>ให้ AI กรอกข้อมูลอัตโนมัติจาก HOSxP</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-            ประมวลผลบนเครื่องทั้งหมด — ภาพไม่ถูกส่งออกจากเครื่อง · กรุณาตรวจสอบข้อมูลก่อนบันทึกเสมอ
+            ประมวลผลบนเครื่องทั้งหมด — ภาพไม่ถูกบันทึกหรือส่งออกจากเครื่อง · กรุณาตรวจสอบข้อมูลก่อนบันทึกเสมอ
           </div>
         </div>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; runOCR(f); e.target.value = ''; }} />
-        <Btn size="sm" variant="accent" disabled={status === 'loading'} onClick={() => fileRef.current?.click()}>
-          {status === 'loading' ? `⏳ กำลังอ่าน... ${progress}%` : '📷 เลือก/ถ่ายภาพ'}
+        {screenSupported && (
+          <Btn size="sm" variant="primary" disabled={busy || status === 'previewing'} onClick={startScreenCapture}>
+            {status === 'capturing' ? '⏳ กำลังเปิด...' : '🖥️ เลือกหน้าจอ'}
+          </Btn>
+        )}
+        <Btn size="sm" variant="accent" disabled={busy || status === 'previewing'} onClick={() => fileRef.current?.click()}>
+          {status === 'loading' ? `⏳ กำลังอ่าน... ${progress}%` : '📷 แนบไฟล์ภาพ'}
         </Btn>
       </div>
+
+      {status === 'previewing' && previewUrl && (
+        <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <img src={previewUrl} alt="ภาพที่จับได้จากหน้าจอ" style={{
+            maxWidth: 220, maxHeight: 130, borderRadius: 8, border: `1.5px solid ${C.border}`, objectFit: 'contain', background: '#fff',
+          }} />
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>ภาพนี้ใช่หน้าจอที่ต้องการหรือไม่?</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn size="sm" variant="primary" onClick={confirmPreview}>✓ ใช้ภาพนี้</Btn>
+              <Btn size="sm" variant="ghost" onClick={cancelPreview}>ยกเลิก / เลือกใหม่</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
       {status === 'done' && lastCount > 0 && (
         <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: C.low }}>
           ✓ อ่านข้อมูลได้ {lastCount} ช่อง — กรุณาตรวจสอบความถูกต้องในฟอร์มด้านล่างก่อนบันทึก (ช่องที่มีป้าย 🤖)
