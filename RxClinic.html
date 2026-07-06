@@ -4342,7 +4342,40 @@ const RxOCR = (() => {
     }
   }
 
-  return { loadTesseract, parseHosxpText, extractFromImage, captureScreenFrame, isScreenCaptureSupported };
+  // ── โหลดไฟล์ภาพที่ผู้ใช้แนบ เป็น canvas ในหน่วยความจำ (เพื่อครอปได้แบบเดียวกับภาพหน้าจอ) ──
+  function loadImageToCanvas(fileOrBlob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(fileOrBlob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve({ canvas, dataUrl: canvas.toDataURL('image/png') });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('ไม่สามารถอ่านไฟล์ภาพนี้ได้')); };
+      img.src = url;
+    });
+  }
+
+  // ── ครอปพื้นที่ที่เลือกออกจาก canvas ต้นฉบับ เป็น canvas ใหม่ในหน่วยความจำ ──
+  function cropCanvas(sourceCanvas, rect) {
+    const cropped = document.createElement('canvas');
+    cropped.width = Math.max(1, Math.round(rect.w));
+    cropped.height = Math.max(1, Math.round(rect.h));
+    cropped.getContext('2d').drawImage(
+      sourceCanvas, Math.round(rect.x), Math.round(rect.y), Math.round(rect.w), Math.round(rect.h),
+      0, 0, cropped.width, cropped.height
+    );
+    return cropped;
+  }
+
+  return {
+    loadTesseract, parseHosxpText, extractFromImage, captureScreenFrame,
+    isScreenCaptureSupported, loadImageToCanvas, cropCanvas,
+  };
 })();
 window.RxOCR = RxOCR;
 
@@ -6194,9 +6227,83 @@ Object.assign(window, {
 
 const { useState: pvState, useEffect: pvEffect } = React;
 
+// ── 🖱️ Screenshot Cropper — ลากเลือกเฉพาะส่วนที่ต้องการอ่าน เพื่อความแม่นยำของ OCR ──
+function ScreenshotCropper({ dataUrl, onConfirm, onCancel }) {
+  const imgRef = React.useRef(null);
+  const draggingRef = React.useRef(false);
+  const [natSize, setNatSize] = pvState(null); // { w, h } ขนาดจริงของภาพ
+  const [box, setBox] = pvState(null);         // { x, y, w, h } พิกัดบนจอ (แสดงผล)
+
+  const handleLoad = () => {
+    const img = imgRef.current;
+    if (img) setNatSize({ w: img.naturalWidth, h: img.naturalHeight });
+  };
+
+  const relPos = (e) => {
+    const rect = imgRef.current.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(e.clientX - rect.left, 0), rect.width),
+      y: Math.min(Math.max(e.clientY - rect.top, 0), rect.height),
+    };
+  };
+
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    const p = relPos(e);
+    draggingRef.current = true;
+    setBox({ startX: p.x, startY: p.y, x: p.x, y: p.y, w: 0, h: 0 });
+  };
+  const onPointerMove = (e) => {
+    if (!draggingRef.current) return;
+    const p = relPos(e);
+    setBox(prev => prev && ({
+      ...prev,
+      x: Math.min(prev.startX, p.x), y: Math.min(prev.startY, p.y),
+      w: Math.abs(p.x - prev.startX), h: Math.abs(p.y - prev.startY),
+    }));
+  };
+  const onPointerUp = () => { draggingRef.current = false; };
+
+  const hasSelection = box && box.w >= 12 && box.h >= 12;
+
+  const confirmCrop = () => {
+    if (!hasSelection || !natSize) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const scaleX = natSize.w / rect.width, scaleY = natSize.h / rect.height;
+    onConfirm({ x: box.x * scaleX, y: box.y * scaleY, w: box.w * scaleX, h: box.h * scaleY });
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>
+        🖱️ ลากเลือกเฉพาะส่วนที่ต้องการอ่าน (เช่น กรอบ HN / ชื่อ-สกุล / อายุ) — ยิ่งเจาะจง ยิ่งแม่นยำขึ้นมาก
+      </div>
+      <div
+        style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', cursor: 'crosshair', userSelect: 'none', touchAction: 'none' }}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
+      >
+        <img ref={imgRef} src={dataUrl} onLoad={handleLoad} alt="ภาพที่จะอ่านข้อมูล" draggable={false} style={{
+          maxWidth: '100%', maxHeight: 360, display: 'block', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff',
+        }} />
+        {box && (
+          <div style={{
+            position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h,
+            border: '2px solid #2563EB', background: 'rgba(37,99,235,0.15)', pointerEvents: 'none', borderRadius: 2,
+          }} />
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <Btn size="sm" variant="primary" disabled={!hasSelection} onClick={confirmCrop}>✂️ ตัดเฉพาะส่วนนี้ & อ่านข้อมูล</Btn>
+        <Btn size="sm" variant="accent" onClick={() => onConfirm(null)}>ใช้ภาพเต็ม</Btn>
+        <Btn size="sm" variant="ghost" onClick={onCancel}>ยกเลิก</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── 🤖 HOSxP OCR intake — อ่านข้อมูลผู้ป่วยจากภาพหน้าจอ (on-device, ไม่ส่งข้อมูลออกจากเครื่อง) ──
 function HosxpOcrPanel({ onExtract }) {
-  const [status, setStatus]     = pvState('idle'); // idle | capturing | previewing | loading | done | error
+  const [status, setStatus]     = pvState('idle'); // idle | capturing | preparing | cropping | loading | done | error
   const [progress, setProgress] = pvState(0);
   const [errMsg, setErrMsg]     = pvState('');
   const [lastCount, setLastCount] = pvState(0);
@@ -6226,26 +6333,43 @@ function HosxpOcrPanel({ onExtract }) {
       const { canvas, dataUrl } = await window.RxOCR.captureScreenFrame();
       pendingCanvasRef.current = canvas;
       setPreviewUrl(dataUrl);
-      setStatus('previewing');
+      setStatus('cropping');
     } catch (e) {
       pendingCanvasRef.current = null;
       setStatus(e?.name === 'NotAllowedError' ? 'idle' : 'error');
       if (e?.name !== 'NotAllowedError') setErrMsg(e?.message || 'เลือกแชร์หน้าจอไม่สำเร็จ');
     }
   };
-  const confirmPreview = () => {
-    const canvas = pendingCanvasRef.current;
+
+  const handleFilePick = async (file) => {
+    if (!file) return;
+    setStatus('preparing'); setErrMsg('');
+    try {
+      const { canvas, dataUrl } = await window.RxOCR.loadImageToCanvas(file);
+      pendingCanvasRef.current = canvas;
+      setPreviewUrl(dataUrl);
+      setStatus('cropping');
+    } catch (e) {
+      pendingCanvasRef.current = null;
+      setStatus('error');
+      setErrMsg(e?.message || 'ไม่สามารถอ่านไฟล์ภาพนี้ได้');
+    }
+  };
+
+  const handleCropConfirm = (rect) => {
+    const sourceCanvas = pendingCanvasRef.current;
     pendingCanvasRef.current = null;
     setPreviewUrl(null);
-    runOCR(canvas);
+    if (!sourceCanvas) return;
+    runOCR(rect ? window.RxOCR.cropCanvas(sourceCanvas, rect) : sourceCanvas);
   };
-  const cancelPreview = () => {
+  const cancelCrop = () => {
     pendingCanvasRef.current = null;
     setPreviewUrl(null);
     setStatus('idle');
   };
 
-  const busy = status === 'loading' || status === 'capturing';
+  const busy = status === 'loading' || status === 'capturing' || status === 'preparing';
 
   return (
     <div style={{
@@ -6261,30 +6385,19 @@ function HosxpOcrPanel({ onExtract }) {
           </div>
         </div>
         <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0]; runOCR(f); e.target.value = ''; }} />
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; handleFilePick(f); }} />
         {screenSupported && (
-          <Btn size="sm" variant="primary" disabled={busy || status === 'previewing'} onClick={startScreenCapture}>
+          <Btn size="sm" variant="primary" disabled={busy || status === 'cropping'} onClick={startScreenCapture}>
             {status === 'capturing' ? '⏳ กำลังเปิด...' : '🖥️ เลือกหน้าจอ'}
           </Btn>
         )}
-        <Btn size="sm" variant="accent" disabled={busy || status === 'previewing'} onClick={() => fileRef.current?.click()}>
-          {status === 'loading' ? `⏳ กำลังอ่าน... ${progress}%` : '📷 แนบไฟล์ภาพ'}
+        <Btn size="sm" variant="accent" disabled={busy || status === 'cropping'} onClick={() => fileRef.current?.click()}>
+          {status === 'loading' ? `⏳ กำลังอ่าน... ${progress}%` : status === 'preparing' ? '⏳ กำลังเตรียมภาพ...' : '📷 แนบไฟล์ภาพ'}
         </Btn>
       </div>
 
-      {status === 'previewing' && previewUrl && (
-        <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <img src={previewUrl} alt="ภาพที่จับได้จากหน้าจอ" style={{
-            maxWidth: 220, maxHeight: 130, borderRadius: 8, border: `1.5px solid ${C.border}`, objectFit: 'contain', background: '#fff',
-          }} />
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>ภาพนี้ใช่หน้าจอที่ต้องการหรือไม่?</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Btn size="sm" variant="primary" onClick={confirmPreview}>✓ ใช้ภาพนี้</Btn>
-              <Btn size="sm" variant="ghost" onClick={cancelPreview}>ยกเลิก / เลือกใหม่</Btn>
-            </div>
-          </div>
-        </div>
+      {status === 'cropping' && previewUrl && (
+        <ScreenshotCropper dataUrl={previewUrl} onConfirm={handleCropConfirm} onCancel={cancelCrop} />
       )}
 
       {status === 'done' && lastCount > 0 && (
