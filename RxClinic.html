@@ -8328,7 +8328,7 @@ function DrugSearchBox({ value, onChange }) {
                   <div style={{
                     margin: '0 10px 8px', padding: '10px 12px', borderRadius: 8,
                     background: 'linear-gradient(135deg,#EFF6FF,#F0FDF4)', border: '1px solid #BFDBFE',
-                    animation: 'rxRiseSm 0.18s ease both',
+                    animation: 'rxRiseSm 0.18s ease',
                   }}>
                     <div style={{ fontSize: 10, fontWeight: 800, color: '#1E40AF', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{info.class}</div>
                     <div style={{ fontSize: 11, color: '#1E3A8A', marginBottom: 5 }}>📌 {info.indication}</div>
@@ -8378,7 +8378,7 @@ function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) 
   const rowBg     = hasMajor ? '#FFF1F2' : myDDI.length > 0 ? '#FFFBEB' : isWarn ? '#FFF7ED' : isOral ? '#F0F9FF' : C.bgAlt;
 
   return (
-    <div style={{ marginBottom: 8, animation: 'rxRiseSm 0.3s ease both' }}>
+    <div style={{ marginBottom: 8, animation: 'rxRiseSm 0.3s ease' }}>
       <div style={{
         display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
         gap: 8, alignItems: 'center',
@@ -8425,7 +8425,7 @@ function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) 
           padding: '10px 14px', fontSize: 11, lineHeight: 1.65,
           background: 'linear-gradient(135deg,#EFF6FF,#F0FDF4)',
           border: `1.5px solid #BFDBFE`, borderTop: `1px dashed #93C5FD`,
-          animation: 'rxRiseSm 0.2s ease both',
+          animation: 'rxRiseSm 0.2s ease',
         }}>
           <div style={{ fontWeight: 800, color: '#1E40AF', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{drugInfo.class}</div>
           <div style={{ color: '#1E3A8A', marginBottom: 4 }}>📌 {drugInfo.indication}</div>
@@ -8461,7 +8461,7 @@ function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) 
             background: isMaj ? '#FFF1F2' : '#FFFBEB',
             border: `1.5px solid ${isMaj ? '#FCA5A5' : '#FDE68A'}`,
             borderTop: `1px dashed ${isMaj ? '#FCA5A5' : '#FDE68A'}`,
-            animation: 'rxRiseSm 0.25s ease both',
+            animation: 'rxRiseSm 0.25s ease',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <span style={{ fontSize: 13 }}>{isMaj ? '🚨' : '⚠️'}</span>
@@ -9454,7 +9454,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 marginBottom: 12, padding: '10px 14px', borderRadius: 10,
                 background: ddiMajor.length > 0 ? '#FFF1F2' : '#FFFBEB',
                 border: `2px solid ${ddiMajor.length > 0 ? '#FCA5A5' : '#FDE68A'}`,
-                animation: 'rxRiseSm 0.3s ease both',
+                animation: 'rxRiseSm 0.3s ease',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 15 }}>{ddiMajor.length > 0 ? '🚨' : '⚠️'}</span>
