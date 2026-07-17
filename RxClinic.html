@@ -8826,6 +8826,21 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   };
   const removeExacEvent = (id) => setExacEvents(prev => prev.filter(e => e.id !== id));
 
+  // เมื่อมีประวัติกำเริบแบบมีวันที่แล้ว ให้ "ครั้งใน 6 เดือนล่าสุด" และ "ครั้งล่าสุดที่กำเริบ" คำนวณอัตโนมัติ
+  // (นับย้อนหลัง 6 เดือนจากวันที่ visit นี้) — ไม่ทับช่องเดิมถ้ายังไม่มีประวัติ ยังกรอกมือได้ตามปกติ
+  vfEffect(() => {
+    if (exacEvents.length === 0) return;
+    const anchor = f.visitDate || today;
+    const sixMoAgo = new Date(anchor);
+    sixMoAgo.setMonth(sixMoAgo.getMonth() - 6);
+    const sixMoAgoStr = sixMoAgo.toISOString().slice(0, 10);
+    const countIn6mo = exacEvents.filter(e => e.date >= sixMoAgoStr && e.date <= anchor).length;
+    const latestDate = [...exacEvents].sort((a, b) => b.date.localeCompare(a.date))[0]?.date || '';
+    setF(prev => (prev.exacerbation.countThisYear === countIn6mo && prev.exacerbation.lastDate === latestDate)
+      ? prev
+      : { ...prev, exacerbation: { ...prev.exacerbation, countThisYear: countIn6mo, lastDate: latestDate } });
+  }, [exacEvents, f.visitDate]);
+
   // Check for existing draft on mount
   vfEffect(() => {
     const editId = isEditing ? editingVisit.id : null;
@@ -9173,16 +9188,16 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               placeholder="อาการหลักที่ผู้ป่วยมา / ข้อกังวล..." rows={2} />
           </Card>
 
-          {/* ② Exacerbation */}
+          {/* ② Exacerbation — สรุป (auto จากประวัติด้านล่างถ้ามี) + ประวัติวันที่กำเริบ อยู่กล่องเดียวกัน */}
           <SecHd n="2" title="ประเมิน Exacerbation" color={C.high} />
           <Card>
             <div style={row3}>
-              <FormField label="ครั้ง Exacerbation ใน 6 เดือนล่าสุด">
-                <Input type="number" value={f.exacerbation.countThisYear}
+              <FormField label="ครั้ง Exacerbation ใน 6 เดือนล่าสุด" hint={exacEvents.length > 0 ? '✓ คำนวณอัตโนมัติจากประวัติด้านล่าง' : null}>
+                <Input type="number" value={f.exacerbation.countThisYear} disabled={exacEvents.length > 0}
                   onChange={v => setEx('countThisYear', parseInt(v) || 0)} />
               </FormField>
-              <FormField label="ครั้งล่าสุดที่ Exacerbate">
-                <Input type="date" value={f.exacerbation.lastDate}
+              <FormField label="ครั้งล่าสุดที่ Exacerbate" hint={exacEvents.length > 0 ? '✓ คำนวณอัตโนมัติจากประวัติด้านล่าง' : null}>
+                <Input type="date" value={f.exacerbation.lastDate} disabled={exacEvents.length > 0}
                   onChange={v => setEx('lastDate', v)} />
               </FormField>
               <FormField label="ระดับความรุนแรง">
@@ -9224,10 +9239,9 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   ]} />
               </FormField>
             </div>
-          </Card>
 
-          {/* ②b ประวัติกำเริบแบบมีวันที่จริง — สำหรับนับตัวชี้วัดตามช่วงเวลาอย่างแม่นยำ (ไม่ทับข้อมูลเดิม) */}
-          <Card style={{ marginTop: -6 }}>
+            <hr style={{ margin: '18px 0 14px', border: 'none', borderTop: `1px dashed ${C.border}` }} />
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.high }}>📅 ประวัติวันที่กำเริบ (ไม่บังคับ แต่ช่วยให้ตัวชี้วัดแม่นยำขึ้น)</span>
               <span style={{ fontSize: 11, color: C.textMuted }}>— รายการเดิมจะแสดงไว้เสมอ เพิ่มเฉพาะครั้งใหม่ ไม่ต้องพิมพ์ซ้ำ</span>
