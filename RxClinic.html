@@ -420,7 +420,12 @@
   .rx-btn:hover::after { left: 130%; }
 
   /* Card entrance + lift (theme-aware shadow) */
-  .rx-anim-card { animation: rxScaleIn 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+  /* no 'both' — every <Card> in the app uses this class, so a persisted transform here
+     (even a no-op scale(1)) turns EVERY card into a stacking context/containing block,
+     trapping any position:absolute dropdown/overlay inside it below LATER sibling cards
+     in the DOM instead of letting z-index float it above them (same bug class as the
+     earlier .rx-view / .rx-modal-card fixes — see those commits for the full explanation) */
+  .rx-anim-card { animation: rxScaleIn 0.4s cubic-bezier(0.16,1,0.3,1); }
   .rx-card-hover { transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s; }
   .rx-card-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 36px rgba(15,23,42,0.14) !important; }
   [data-theme="dark"] .rx-card-hover:hover { box-shadow: 0 14px 36px rgba(0,0,0,0.5) !important; }
@@ -8232,7 +8237,11 @@ function DrugSearchBox({ value, onChange }) {
     if (!open) { if (e.key === 'ArrowDown' || e.key === 'Enter') { setOpen(true); } return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, selectables.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); selectDrug(selectables[activeIdx].name); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0) selectDrug(selectables[activeIdx].name);
+      else if (q) selectDrug(query.trim()); // ไม่มีในลิสต์ — ใช้ชื่อที่พิมพ์เองแทน
+    }
     else if (e.key === 'Escape') { setOpen(false); setQuery(''); }
   };
 
@@ -8335,6 +8344,18 @@ function DrugSearchBox({ value, onChange }) {
               </div>
             );
           })}
+          {q && (
+            <div onMouseDown={() => selectDrug(query.trim())}
+              onMouseEnter={e => e.currentTarget.style.background = C.primaryBg}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              style={{
+                cursor: 'pointer', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8,
+                borderTop: `1px solid ${C.border}`, transition: 'background 0.1s',
+              }}>
+              <span style={{ fontSize: 13, flexShrink: 0 }}>➕</span>
+              <span style={{ fontSize: 12.5, color: C.primary }}>ใช้ "<b>{query.trim()}</b>" (ไม่มีในลิสต์ยา — พิมพ์ชื่อเอง)</span>
+            </div>
+          )}
         </div>
       )}
     </div>
