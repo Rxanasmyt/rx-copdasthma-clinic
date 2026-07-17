@@ -1988,9 +1988,9 @@ function FormField({ label, required, children, error, hint }) {
 }
 
 // ── Input ─────────────────────────────────────────────
-function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled }) {
+function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled, onPaste }) {
   return (
-    <input type={type} value={value || ''} onChange={e => onChange(e.target.value)}
+    <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} onPaste={onPaste}
       placeholder={placeholder} disabled={disabled} className="rx-field"
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
@@ -4249,6 +4249,23 @@ const RxOCR = (() => {
     return loadPromise;
   }
 
+  const THAI_PREFIXES = ['เด็กชาย', 'เด็กหญิง', 'นางสาว', 'นาง', 'นาย', 'ด.ช.', 'ด.ญ.'];
+
+  // ── แยกคำนำหน้า/ชื่อ/นามสกุล จากสตริงชื่อเต็ม เช่น "นางป้อเสาะ ลี๊สะเอะ" ──
+  // ใช้ทั้งตอน parse ข้อความจาก OCR และตอนวาง (paste) ชื่อเต็มลงในฟอร์มโดยตรง
+  function splitThaiName(nameStr) {
+    const trimmed = (nameStr || '').trim().replace(/\s+/g, ' ');
+    if (!trimmed) return { prefix: null, firstName: null, lastName: null };
+    const prefix = THAI_PREFIXES.find(p => trimmed.startsWith(p));
+    const rest = prefix ? trimmed.slice(prefix.length).trim() : trimmed;
+    const parts = rest.split(/\s+/).filter(Boolean);
+    return {
+      prefix: prefix || null,
+      firstName: parts[0] || null,
+      lastName: parts.slice(1).join(' ') || null,
+    };
+  }
+
   // ── แกะข้อมูลจากข้อความ OCR ที่ได้จากหน้าจอ HOSxP ──
   function parseHosxpText(text) {
     const joined = (text || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean).join(' ');
@@ -4263,14 +4280,10 @@ const RxOCR = (() => {
     // ชื่อ — คำนำหน้า+ชื่อ+นามสกุล ต่อจากคำว่า "ชื่อ" จนกว่าจะเจอ label ถัดไป
     m = joined.match(/ชื่อ\s*([ก-๙]+(?:\s+[ก-๙.]+){0,3})(?=\s*(?:อายุ|ที่อยู่|มือถือ|เพศ|โทรศัพท์|CID|$))/);
     if (m) {
-      const nameStr = m[1].trim();
-      const PREFIXES = ['เด็กชาย', 'เด็กหญิง', 'นางสาว', 'นาง', 'นาย', 'ด.ช.', 'ด.ญ.'];
-      const prefix = PREFIXES.find(p => nameStr.startsWith(p));
-      const rest = prefix ? nameStr.slice(prefix.length).trim() : nameStr;
-      const parts = rest.split(/\s+/).filter(Boolean);
-      setF('prefix', prefix || null);
-      setF('firstName', parts[0] || null);
-      setF('lastName', parts.slice(1).join(' ') || null);
+      const parsed = splitThaiName(m[1]);
+      setF('prefix', parsed.prefix);
+      setF('firstName', parsed.firstName);
+      setF('lastName', parsed.lastName);
     }
 
     // อายุ — ตัวเลขก่อนคำว่า "ปี"
@@ -4374,7 +4387,7 @@ const RxOCR = (() => {
 
   return {
     loadTesseract, parseHosxpText, extractFromImage, captureScreenFrame,
-    isScreenCaptureSupported, loadImageToCanvas, cropCanvas,
+    isScreenCaptureSupported, loadImageToCanvas, cropCanvas, splitThaiName,
   };
 })();
 window.RxOCR = RxOCR;
@@ -6446,6 +6459,18 @@ function PatientForm({ patient, onSave, onClose }) {
   };
   const ocrHint = (k) => ocrFilled[k] ? '🤖 อ่านจากภาพ — กรุณาตรวจสอบความถูกต้อง' : undefined;
 
+  // วางชื่อเต็ม (เช่น "นางป้อเสาะ ลี๊สะเอะ") ลงในช่องชื่อ/นามสกุล — แยกคำนำหน้า/ชื่อ/นามสกุลให้อัตโนมัติ
+  const handleNamePaste = (e) => {
+    const text = e.clipboardData?.getData('text');
+    if (!text) return;
+    const parsed = window.RxOCR?.splitThaiName?.(text);
+    // แยกอัตโนมัติเฉพาะกรณีวางมาเป็นชื่อเต็ม (มีทั้งชื่อและนามสกุล) — ถ้าวางคำเดียวปล่อยให้ paste ปกติ
+    if (!parsed || !parsed.firstName || !parsed.lastName) return;
+    e.preventDefault();
+    setF(prev => ({ ...prev, prefix: parsed.prefix || prev.prefix, firstName: parsed.firstName, lastName: parsed.lastName }));
+    setOcrFilled(prev => ({ ...prev, prefix: false, firstName: false, lastName: false }));
+  };
+
   const validate = () => {
     const e = {};
     if (!f.hn.trim())        e.hn        = 'กรุณากรอก HN';
@@ -6499,9 +6524,9 @@ function PatientForm({ patient, onSave, onClose }) {
         }}>
           <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']}
             style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
-          <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ"
+          <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ" onPaste={handleNamePaste}
             style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
-          <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล"
+          <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล" onPaste={handleNamePaste}
             style={{ border: 'none', borderRadius: 0, boxShadow: 'none' }} />
         </div>
       </FormField>
