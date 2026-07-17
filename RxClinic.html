@@ -1759,7 +1759,7 @@ function TechniqueBadge({ score }) {
 }
 
 // ── Modal ─────────────────────────────────────────────
-function Modal({ open, onClose, title, children, width = 640, cardClassName = '' }) {
+function Modal({ open, onClose, title, children, footer, width = 640, cardClassName = '' }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     if (open) document.addEventListener('keydown', handler);
@@ -1792,6 +1792,14 @@ function Modal({ open, onClose, title, children, width = 640, cardClassName = ''
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
           {children}
         </div>
+        {footer && (
+          <div style={{
+            padding: '14px 24px', borderTop: `1px solid ${C.border}`, flexShrink: 0,
+            background: C.surface, borderBottomLeftRadius: 18, borderBottomRightRadius: 18,
+          }}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -6587,6 +6595,15 @@ function PatientForm({ patient, onSave, onClose }) {
   const row3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 };
 
   return (
+    <Modal open={true} onClose={onClose} title={patient ? 'แก้ไขข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วยใหม่'} width={860}
+      footer={
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+          <Btn variant="primary" onClick={handleSave}>
+            {patient ? 'บันทึกการแก้ไข' : 'เพิ่มผู้ป่วย'}
+          </Btn>
+        </div>
+      }>
     <div>
       {/* 🤖 OCR intake — ปิดใช้งานชั่วคราวตามคำขอ (โค้ด engine/HosxpOcrPanel ยังอยู่ครบ เปิดกลับได้ทันทีโดยเอา comment ออก) */}
       {/* {!patient && <HosxpOcrPanel onExtract={handleOcrExtract} />} */}
@@ -6743,13 +6760,8 @@ function PatientForm({ patient, onSave, onClose }) {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave}>
-          {patient ? 'บันทึกการแก้ไข' : 'เพิ่มผู้ป่วย'}
-        </Btn>
-      </div>
     </div>
+    </Modal>
   );
 }
 
@@ -7275,15 +7287,12 @@ function PatientList({ data, onDataChange, navigate }) {
         )}
       </Modal>
 
-      {/* Add modal */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="เพิ่มผู้ป่วยใหม่" width={720}>
-        <PatientForm onSave={handleAdd} onClose={() => setAddOpen(false)} />
-      </Modal>
+      {/* Add modal — PatientForm renders its own Modal (with a pinned footer so
+          บันทึก/ยกเลิก is always reachable without scrolling the long form) */}
+      {addOpen && <PatientForm onSave={handleAdd} onClose={() => setAddOpen(false)} />}
 
       {/* Edit modal */}
-      <Modal open={!!editPt} onClose={() => setEditPt(null)} title="แก้ไขข้อมูลผู้ป่วย" width={720}>
-        {editPt && <PatientForm patient={editPt} onSave={handleEdit} onClose={() => setEditPt(null)} />}
-      </Modal>
+      {editPt && <PatientForm patient={editPt} onSave={handleEdit} onClose={() => setEditPt(null)} />}
 
       {/* Delete confirm */}
       <ConfirmModal open={!!delId} onClose={() => setDelId(null)}
