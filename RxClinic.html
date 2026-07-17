@@ -11778,6 +11778,17 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const carePct    = dueCount > 0 ? ((cameCount / dueCount) * 100).toFixed(1) : '0';
   const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
 
+  // ─── KPI 7: ผู้ป่วยที่มี Adherence ตามเกณฑ์ (Good) จากผู้ป่วยที่ได้รับการบริบาล ≥ 80% ─────
+  // ใช้ค่า adherence.level ที่บันทึกอยู่แล้วใน visit form ทุกครั้ง (ไม่ต้องเพิ่มช่องกรอกใหม่)
+  const rosterIdsForAdherence = new Set([...copdCaredPts.map(p => p.id), ...asthmaCaredPts.map(p => p.id)]);
+  const adherenceBase = rosterIdsForAdherence.size;
+  let adherenceGoodCount = 0;
+  rosterIdsForAdherence.forEach(pid => {
+    if (latestVisit[pid]?.adherence?.level === 'Good') adherenceGoodCount++;
+  });
+  const adherenceGoodPct = adherenceBase > 0 ? ((adherenceGoodCount / adherenceBase) * 100).toFixed(1) : '0';
+  const adherenceStatus = parseFloat(adherenceGoodPct) >= 80 ? 'pass' : 'warn';
+
   // ─── รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ พร้อมค่าที่ใช้คิดแต่ละตัวชี้วัด (ดึงข้อมูลรายคนได้) ──
   const rosterIds = new Set([...copdCaredPts.map(p => p.id), ...asthmaCaredPts.map(p => p.id)]);
   const roster = patients.filter(p => rosterIds.has(p.id)).map(p => {
@@ -11807,6 +11818,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       hasICS: isAsthma ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
       techniquePass: techs.length > 0 ? techs.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable') : null,
+      adherenceGood: rosterIds.has(p.id) ? (v?.adherence?.level === 'Good') : null,
     };
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 
@@ -11817,6 +11829,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
     carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
+    adherenceGoodPercent: { value: adherenceGoodPct, target: 80, unit: '%',           status: adherenceStatus,    label: 'ผู้ป่วยมี Adherence ตามเกณฑ์', num: adherenceGoodCount, den: adherenceBase,     lowerBetter: false },
     visitCount:  srcVisits.length,
     patientCount: patients.length,
     copdExacerbApproxCount, // จำนวนผู้ป่วย COPD ที่ยังไม่มี event log — ค่า KPI1 ส่วนนี้เป็นค่าประมาณ
@@ -11975,6 +11988,7 @@ const QualityKPIsDashboard = ({ data }) => {
   const [viewMode, setViewMode] = React.useState('current'); // 'current' | 'trend'
   const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'fiscalYear' | 'year'
   const [trendCount, setTrendCount] = React.useState(12);
+  const [trendChartKeys, setTrendChartKeys] = React.useState(null); // null = แสดงกราฟทุกตัวชี้วัด
   const TREND_DEFAULT_COUNT = { month: 12, quarter: 4, fiscalYear: 3, year: 3 };
   const setTrendGranularityAndResetCount = (g) => { setTrendGranularity(g); setTrendCount(TREND_DEFAULT_COUNT[g] || 3); };
 
@@ -12031,6 +12045,11 @@ const QualityKPIsDashboard = ({ data }) => {
       key: 'carePercent', icon: '👨‍⚕️',
       targetLabel: '> 80%',
       desc: 'ร้อยละผู้ป่วยที่มีนัดในช่วงเวลานี้ (คลินิกหอบหืด/ปอดอุดกั้นเรื้อรัง) ที่มาตามนัดและได้รับการบริบาลทางเภสัชกรรมจริง — ตัวหารคือผู้ป่วยที่มีนัด ไม่ใช่ผู้ป่วยทั้งหมดที่เคยลงทะเบียน',
+    },
+    {
+      key: 'adherenceGoodPercent', icon: '💊',
+      targetLabel: '> 80%',
+      desc: 'ร้อยละผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรมในช่วงนี้ ที่มีความร่วมมือในการใช้ยาพ่น (Adherence) อยู่ในระดับ "ดี" — ใช้ค่าจากการประเมิน Adherence ที่บันทึกในแบบฟอร์ม visit ล่าสุดของผู้ป่วยแต่ละคนอยู่แล้ว ไม่ต้องกรอกซ้ำ',
     },
   ];
 
@@ -12227,8 +12246,131 @@ const QualityKPIsDashboard = ({ data }) => {
           <NoShowTable noShowRoster={kpis.noShowRoster} dateRange={dateRange} />
         </>
       ) : (
-        <KPITrendTable trend={trend} metrics={metrics} />
+        <>
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.primary }}>📊 กราฟแนวโน้มตัวชี้วัด ({trend?.length || 0} ช่วงเวลา)</h3>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {metrics.map(({ key, icon }) => {
+                  const active = !trendChartKeys || trendChartKeys.includes(key);
+                  return (
+                    <button key={key} onClick={() => {
+                      setTrendChartKeys(prev => {
+                        const cur = prev || metrics.map(m => m.key);
+                        const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key];
+                        return next.length === metrics.length ? null : next;
+                      });
+                    }} style={{
+                      padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      border: `1.5px solid ${active ? C.primary : C.border}`,
+                      background: active ? C.primaryBg : '#fff', color: active ? C.primary : C.textMuted,
+                      fontFamily: 'inherit',
+                    }}>{icon} {kpis[key]?.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+            {trend && (trendChartKeys || metrics.map(m => m.key)).map(key => {
+              const m = metrics.find(mm => mm.key === key);
+              return <KPIComboChart key={key} trend={trend} metricKey={key} icon={m.icon} label={kpis[key]?.label} />;
+            })}
+          </Card>
+          <KPITrendTable trend={trend} metrics={metrics} />
+        </>
       )}
+    </div>
+  );
+};
+
+// ─── กราฟแท่ง + เส้น (Combo Chart) ต่อ 1 ตัวชี้วัด ตามช่วงเวลา (เดือน/ไตรมาส/ปีงบ) ──
+// แท่งแดง = ตัวเศษ (num), แท่งฟ้า = ตัวส่วน (den), เส้นดำ = ค่า % (หรืออัตรา), เส้นแดงแนวนอน = เป้าหมาย
+const KPIComboChart = ({ trend, metricKey, icon, label }) => {
+  if (!trend || trend.length === 0) return null;
+  const points = trend.map(t => ({
+    label: t.label,
+    num: t.kpis[metricKey].num || 0,
+    den: t.kpis[metricKey].den || 0,
+    val: parseFloat(t.kpis[metricKey].value) || 0,
+    unit: t.kpis[metricKey].unit,
+    target: t.kpis[metricKey].target,
+    lowerBetter: t.kpis[metricKey].lowerBetter,
+    isPass: t.kpis[metricKey].status === 'pass',
+  }));
+  const metricLabel = trend[0]?.kpis[metricKey]?.label || label;
+  const target = points[0]?.target || 0;
+  const unit = points[0]?.unit || '%';
+
+  // ── ขนาด/สเกล ──
+  const W = Math.max(560, points.length * 92);
+  const H = 320;
+  const padL = 46, padR = 46, padT = 34, padB = 44;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const maxBar = Math.max(1, ...points.map(p => Math.max(p.num, p.den))) * 1.15;
+  const maxLine = Math.max(target * 1.2, ...points.map(p => p.val)) * 1.1 || 100;
+
+  const bandW = plotW / points.length;
+  const barW = Math.min(28, bandW * 0.28);
+  const xAt = (i) => padL + bandW * i + bandW / 2;
+  const yBar = (v) => padT + plotH - (v / maxBar) * plotH;
+  const yLine = (v) => padT + plotH - (v / maxLine) * plotH;
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yLine(p.val)}`).join(' ');
+  const targetY = yLine(target);
+
+  // gridlines ซ้าย (แท่ง) 5 เส้น
+  const barTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxBar / 4) * i));
+  const lineTicks = Array.from({ length: 5 }, (_, i) => Math.round((maxLine / 4) * i));
+
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: C.primary, marginBottom: 2 }}>{icon} {metricLabel}</div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>เป้าหมาย: {target}{unit}</div>
+      <div className="rx-scroll-x" style={{ overflowX: 'auto', background: '#fff', borderRadius: 10, border: `1px solid ${C.border}` }}>
+        <svg width={W} height={H} style={{ display: 'block' }}>
+          {/* gridlines ซ้าย (แท่ง) */}
+          {barTicks.map((t, i) => (
+            <g key={'bt' + i}>
+              <line x1={padL} x2={W - padR} y1={yBar(t)} y2={yBar(t)} stroke="#EEF2F7" strokeWidth={1} />
+              <text x={padL - 8} y={yBar(t) + 4} fontSize={10} fill={C.textMuted} textAnchor="end">{t}</text>
+            </g>
+          ))}
+          {/* แกนขวา (%) */}
+          {lineTicks.map((t, i) => (
+            <text key={'lt' + i} x={W - padR + 8} y={yLine(t) + 4} fontSize={10} fill={C.textMuted} textAnchor="start">{t}</text>
+          ))}
+          {/* เส้นเป้าหมาย */}
+          <line x1={padL} x2={W - padR} y1={targetY} y2={targetY} stroke="#EF4444" strokeWidth={2} strokeDasharray="5,4" />
+          {/* แท่ง num/den + label แกน x */}
+          {points.map((p, i) => {
+            const cx = xAt(i);
+            return (
+              <g key={i}>
+                <rect x={cx - barW - 2} y={yBar(p.num)} width={barW} height={plotH - (yBar(p.num) - padT)} fill="#EF4444" rx={2} />
+                <text x={cx - barW - 2 + barW / 2} y={yBar(p.num) - 5} fontSize={10.5} fontWeight={700} fill="#7F1D1D" textAnchor="middle">{p.num}</text>
+                <rect x={cx + 2} y={yBar(p.den)} width={barW} height={plotH - (yBar(p.den) - padT)} fill="#60A5FA" rx={2} />
+                <text x={cx + 2 + barW / 2} y={yBar(p.den) - 5} fontSize={10.5} fontWeight={700} fill="#1E3A8A" textAnchor="middle">{p.den}</text>
+                <text x={cx} y={H - padB + 18} fontSize={10.5} fill={C.text} textAnchor="middle">{p.label}</text>
+              </g>
+            );
+          })}
+          {/* เส้น % */}
+          <path d={linePath} fill="none" stroke="#111827" strokeWidth={2.5} />
+          {points.map((p, i) => (
+            <g key={'pt' + i}>
+              <circle cx={xAt(i)} cy={yLine(p.val)} r={4} fill={p.isPass ? '#059669' : '#DC2626'} stroke="#111827" strokeWidth={1.2} />
+              <text x={xAt(i)} y={yLine(p.val) - 10} fontSize={11.5} fontWeight={800} fill="#111827" textAnchor="middle">{p.val}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 11, color: C.textMuted, flexWrap: 'wrap' }}>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#EF4444', borderRadius: 2, marginRight: 4 }} />ตัวเศษ</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#60A5FA', borderRadius: 2, marginRight: 4 }} />ตัวส่วน</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 2, background: '#111827', marginRight: 4, verticalAlign: 'middle' }} />ค่า{unit === '%' ? '% รวม' : unit}</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 2, background: '#EF4444', borderTop: '2px dashed #EF4444', marginRight: 4, verticalAlign: 'middle' }} />เป้าหมาย</span>
+      </div>
     </div>
   );
 };
