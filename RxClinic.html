@@ -9382,9 +9382,19 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             </>
           )}
 
-          {/* Vitals & Spirometry */}
-          <SecHd n="V" title="สัญญาณชีพ & Spirometry" color={C.accentLight} />
-          <Card>
+          {/* Vitals & Spirometry — Collapsible, on-demand (เหมือนแบบประเมินมาตรฐาน) */}
+          <SecHd n="V" title="สัญญาณชีพ & Spirometry (กดเพื่อทำเมื่อต้องการ)" color={C.accentLight}
+            right={<span style={{ fontSize: 11, color: C.textMuted, marginLeft: 8 }}>เปิดเฉพาะเคสที่ต้องวัด</span>} />
+          <AssessmentCollapsible
+            title="สัญญาณชีพ & Spirometry"
+            subtitle="SpO₂ · RR · BP · FEV₁ · Peak Flow"
+            icon="🫁" color="#0891B2"
+            hasData={['spO2', 'rr', 'bp', 'fev1', 'peakFlow'].some(k => f.vitals?.[k])}
+            summary={['spO2', 'rr', 'bp', 'fev1', 'peakFlow'].some(k => f.vitals?.[k])
+              ? `กรอกแล้ว ${['spO2', 'rr', 'bp', 'fev1', 'peakFlow'].filter(k => f.vitals?.[k]).length}/5 ค่า`
+              : null}
+            onClear={() => set('vitals', { spO2: '', rr: '', bp: '', fev1: '', peakFlow: '' })}
+          >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
               <FormField label="SpO₂ (%)">
                 <Input type="number" value={f.vitals?.spO2 ?? ''} onChange={v => setVital('spO2', v)} placeholder="เช่น 96" />
@@ -9407,7 +9417,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 ⚠️ SpO₂ &lt; 92% — พิจารณาประเมินภาวะ hypoxemia และความจำเป็นในการให้ออกซิเจน
               </div>
             )}
-          </Card>
+          </AssessmentCollapsible>
 
           {/* ④ Medications */}
           <SecHd n="4" title="ยาที่ผู้ป่วยใช้อยู่ในปัจจุบัน" color={C.accent}
