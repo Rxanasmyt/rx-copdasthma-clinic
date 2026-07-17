@@ -8824,7 +8824,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     }]);
     setNewExacDate(''); setNewExacSeverity('Moderate'); setNewExacHosp(false); setNewExacER(false);
   };
-  const removeExacEvent = (id) => setExacEvents(prev => prev.filter(e => e.id !== id));
+  const autoEventIdRef = vfRef(null); // id ของประวัติกำเริบที่ระบบเพิ่มให้อัตโนมัติจากการติ๊ก นอน รพ./ER ของ visit นี้
+  const removeExacEvent = (id) => {
+    setExacEvents(prev => prev.filter(e => e.id !== id));
+    if (autoEventIdRef.current === id) autoEventIdRef.current = null; // ลบเองแล้ว ไม่ต้องสร้างซ้ำอัตโนมัติอีก
+  };
 
   // เมื่อมีประวัติกำเริบแบบมีวันที่แล้ว ให้ "ครั้งใน 6 เดือนล่าสุด" และ "ครั้งล่าสุดที่กำเริบ" คำนวณอัตโนมัติ
   // (นับย้อนหลัง 6 เดือนจากวันที่ visit นี้) — ไม่ทับช่องเดิมถ้ายังไม่มีประวัติ ยังกรอกมือได้ตามปกติ
@@ -8840,6 +8844,42 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       ? prev
       : { ...prev, exacerbation: { ...prev.exacerbation, countThisYear: countIn6mo, lastDate: latestDate } });
   }, [exacEvents, f.visitDate]);
+
+  // ถ้ากำลังแก้ไข visit เดิมที่เคยมีประวัติกำเริบซึ่งระบบเพิ่มให้อัตโนมัติอยู่แล้ว (จาก session ก่อนหน้า)
+  // ให้จำ id ไว้ก่อน ป้องกันสร้างรายการซ้ำซ้อนตอนเปิดแก้ไขใหม่
+  vfEffect(() => {
+    if (!isEditing) return;
+    const match = exacEvents.find(e => e.autoLinked && e.date === editingVisit.visitDate);
+    if (match) autoEventIdRef.current = match.id;
+  }, []);
+
+  // ติ๊ก "ต้องนอนโรงพยาบาล" หรือ "เข้าห้องฉุกเฉิน" → เพิ่ม/อัปเดตประวัติกำเริบให้อัตโนมัติทันที
+  // (วันที่ = วันที่ visit นี้) เพื่อความรวดเร็วและไม่ต้องพิมพ์ซ้ำ — ปลดติ๊กแล้วรายการที่สร้างอัตโนมัติจะถูกลบให้เอง
+  vfEffect(() => {
+    const shouldLog = f.exacerbation.hospitalized || f.exacerbation.erVisit;
+    const eventDate = f.visitDate || today;
+    if (shouldLog) {
+      if (autoEventIdRef.current) {
+        setExacEvents(prev => prev.map(e => {
+          if (e.id !== autoEventIdRef.current) return e;
+          const same = e.date === eventDate && e.hospitalized === !!f.exacerbation.hospitalized && e.erVisit === !!f.exacerbation.erVisit;
+          return same ? e : { ...e, date: eventDate, hospitalized: !!f.exacerbation.hospitalized, erVisit: !!f.exacerbation.erVisit };
+        }));
+      } else {
+        const newId = AppStore.generateId();
+        autoEventIdRef.current = newId;
+        setExacEvents(prev => [...prev, {
+          id: newId, date: eventDate,
+          severity: f.exacerbation.severity !== 'None' ? f.exacerbation.severity : (f.exacerbation.hospitalized ? 'Severe' : 'Moderate'),
+          hospitalized: !!f.exacerbation.hospitalized, erVisit: !!f.exacerbation.erVisit,
+          autoLinked: true,
+        }]);
+      }
+    } else if (autoEventIdRef.current) {
+      setExacEvents(prev => prev.filter(e => e.id !== autoEventIdRef.current));
+      autoEventIdRef.current = null;
+    }
+  }, [f.exacerbation.hospitalized, f.exacerbation.erVisit, f.visitDate]);
 
   // Check for existing draft on mount
   vfEffect(() => {
@@ -9223,22 +9263,20 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                 </label>
               ))}
             </div>
-            <div style={row2}>
-              <FormField label="ปัจจัยกระตุ้น (Trigger Factors)">
-                <CheckboxGroup options={AppStore.TRIGGER_OPTIONS} selected={f.exacerbation.triggers}
-                  onChange={v => setEx('triggers', v)} cols={1} />
-              </FormField>
-              <FormField label="ความถี่การใช้ยา Rescue (SABA)">
-                <Select value={f.exacerbation.rescueMedUse} onChange={v => setEx('rescueMedUse', v)}
-                  options={[
-                    { value: 'Never',     label: 'ไม่เคยใช้' },
-                    { value: 'Rarely',    label: 'นาน ๆ ครั้ง (<2 ครั้ง/สัปดาห์)' },
-                    { value: 'Sometimes', label: 'บางครั้ง (2–4 ครั้ง/สัปดาห์)' },
-                    { value: 'Often',     label: 'บ่อย (>4 ครั้ง/สัปดาห์)' },
-                    { value: 'Daily',     label: 'ทุกวัน' },
-                  ]} />
-              </FormField>
-            </div>
+            <FormField label="ปัจจัยกระตุ้น (Trigger Factors)">
+              <CheckboxGroup options={AppStore.TRIGGER_OPTIONS} selected={f.exacerbation.triggers}
+                onChange={v => setEx('triggers', v)} cols={3} />
+            </FormField>
+            <FormField label="ความถี่การใช้ยา Rescue (SABA)">
+              <Select value={f.exacerbation.rescueMedUse} onChange={v => setEx('rescueMedUse', v)}
+                options={[
+                  { value: 'Never',     label: 'ไม่เคยใช้' },
+                  { value: 'Rarely',    label: 'นาน ๆ ครั้ง (<2 ครั้ง/สัปดาห์)' },
+                  { value: 'Sometimes', label: 'บางครั้ง (2–4 ครั้ง/สัปดาห์)' },
+                  { value: 'Often',     label: 'บ่อย (>4 ครั้ง/สัปดาห์)' },
+                  { value: 'Daily',     label: 'ทุกวัน' },
+                ]} />
+            </FormField>
 
             <hr style={{ margin: '18px 0 14px', border: 'none', borderTop: `1px dashed ${C.border}` }} />
 
@@ -9258,9 +9296,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                     <span style={{ color: C.textMuted }}>{ev.severity}</span>
                     {ev.hospitalized && <span style={{ fontSize: 11, color: C.high }}>🏥 นอน รพ.</span>}
                     {ev.erVisit && <span style={{ fontSize: 11, color: C.high }}>🚑 ER</span>}
-                    <button type="button" onClick={() => removeExacEvent(ev.id)} title="ลบรายการนี้ (ใช้แก้ไขกรณีพิมพ์ผิดเท่านั้น)" style={{
-                      marginLeft: 'auto', background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 13, padding: 4,
-                    }}>✕</button>
+                    {ev.autoLinked
+                      ? <span style={{ marginLeft: 'auto', fontSize: 10, color: C.textMuted, fontStyle: 'italic' }} title="ระบบเพิ่มให้อัตโนมัติจากการติ๊ก นอน รพ./ER ของ visit นี้ — ปลดติ๊กด้านบนเพื่อลบ">🔗 อัตโนมัติ</span>
+                      : <button type="button" onClick={() => removeExacEvent(ev.id)} title="ลบรายการนี้ (ใช้แก้ไขกรณีพิมพ์ผิดเท่านั้น)" style={{
+                          marginLeft: 'auto', background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 13, padding: 4,
+                        }}>✕</button>}
                   </div>
                 ))}
               </div>
