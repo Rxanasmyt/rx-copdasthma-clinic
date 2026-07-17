@@ -11507,13 +11507,27 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const copdExacerbStatus = parseFloat(copdExacerbRate) < 110 ? 'pass' : 'warn';
 
   // ─── KPI 2: Asthma ER/OPD/Hospitalized Rate (เป้า < 20 /100 ผู้ป่วย) ──────────
-  // นับ visit ที่มี erVisit=true หรือ hospitalized=true ของผู้ป่วย Asthma ที่ได้รับการบริบาลแล้ว
+  // หลักการเดียวกับ KPI 1: ถ้าผู้ป่วยมี exacerbationEvents (วันที่จริง) แล้ว นับเฉพาะ event
+  // ที่ hospitalized/erVisit=true และวันที่ตกในช่วงที่เลือก — แม่นยำกว่า checkbox ต่อ visit
+  // (checkbox เดิมมักถูกกรอกแบบ recall เหมือน countThisYear ไม่ใช่เหตุการณ์ ณ วันที่ visit จริง
+  //  และเป็น true/false ต่อ visit จึงนับจำนวนครั้งที่เข้า ER/นอนรพ.ซ้ำในช่วงเดียวกันไม่ได้)
+  // ถ้ายังไม่มี event log fallback เป็นการนับ visit ที่ติ๊ก erVisit/hospitalized แบบเดิม
   const srcVisits = periodVisits.length > 0 ? periodVisits : allVisits;
-  const asthmaErVisits = srcVisits.filter(v =>
-    asthmaCaredIds.has(v.patientId) &&
-    (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
-  );
-  const asthmaErCount = asthmaErVisits.length;
+  let asthmaErCount = 0;
+  let asthmaErApproxCount = 0;
+  asthmaCaredPts.forEach(p => {
+    const events = p.exacerbationEvents || [];
+    if (events.length > 0) {
+      asthmaErCount += events.filter(e =>
+        e.date && e.date >= startDate && e.date <= endDate && (e.hospitalized || e.erVisit)
+      ).length;
+    } else {
+      asthmaErCount += srcVisits.filter(v =>
+        v.patientId === p.id && (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
+      ).length;
+      asthmaErApproxCount++;
+    }
+  });
   const asthmaErRate  = asthmaCaredPts.length > 0
     ? ((asthmaErCount / asthmaCaredPts.length) * 100).toFixed(1) : '0';
   const asthmaErStatus = parseFloat(asthmaErRate) < 20 ? 'pass' : 'warn';
@@ -11608,6 +11622,11 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     const exacerbCountInPeriod = usesEventLog
       ? pEvents.filter(e => e.date && e.date >= startDate && e.date <= endDate).length
       : (v?.exacerbation?.countThisYear || 0);
+    // fallback: เช็คทุก visit ในช่วงเวลา (ไม่ใช่แค่ visit ล่าสุด) ให้ตรงกับวิธีนับของ KPI2 จริง
+    const erOrAdmitInPeriod = usesEventLog
+      ? pEvents.some(e => e.date && e.date >= startDate && e.date <= endDate && (e.hospitalized || e.erVisit))
+      : allVisits.some(pv => pv.patientId === p.id && pv.visitDate >= startDate && pv.visitDate <= endDate &&
+          (pv.exacerbation?.erVisit === true || pv.exacerbation?.hospitalized === true));
     return {
       id: p.id, hn: p.hn,
       name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
@@ -11615,7 +11634,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       lastVisitDate: v?.visitDate || null,
       exacerbationCount: isCopd ? exacerbCountInPeriod : null,
       exacerbationIsApprox: isCopd ? !usesEventLog : null, // true = ยังไม่มี event log ใช้ค่าประมาณจาก recall
-      erOrAdmit: isAsthma ? (v?.exacerbation?.erVisit === true || v?.exacerbation?.hospitalized === true) : null,
+      erOrAdmit: isAsthma ? erOrAdmitInPeriod : null,
       hasICS: isAsthma ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
       techniquePass: techs.length > 0 ? techs.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable') : null,
@@ -11632,6 +11651,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     visitCount:  srcVisits.length,
     patientCount: patients.length,
     copdExacerbApproxCount, // จำนวนผู้ป่วย COPD ที่ยังไม่มี event log — ค่า KPI1 ส่วนนี้เป็นค่าประมาณ
+    asthmaErApproxCount,    // จำนวนผู้ป่วย Asthma ที่ยังไม่มี event log — ค่า KPI2 ส่วนนี้เป็นค่าประมาณ
     copdCount:   copdPts.length,
     asthmaCount: asthmaPts.length,
     roster,
@@ -11818,7 +11838,10 @@ const QualityKPIsDashboard = ({ data }) => {
     {
       key: 'asthmaErRate', icon: '🚑',
       targetLabel: '< 20 /100 ผู้ป่วย',
-      desc: 'อัตราการกำเริบเฉียบพลันที่ได้รับการรักษาในห้องฉุกเฉิน ผู้ป่วยนอก หรือต้องนอนรักษาในโรงพยาบาลในผู้ป่วยโรคหืด',
+      desc: 'อัตราการกำเริบเฉียบพลันที่ได้รับการรักษาในห้องฉุกเฉิน ผู้ป่วยนอก หรือต้องนอนรักษาในโรงพยาบาลในผู้ป่วยโรคหืด'
+        + (kpis.asthmaErApproxCount > 0
+          ? ` · ⚠️ ${kpis.asthmaErApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการติ๊กในฟอร์มแทน)`
+          : ''),
     },
     {
       key: 'asthmaIcsPercent', icon: '💊',
