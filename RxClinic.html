@@ -1490,6 +1490,32 @@ const VACCINATION_TYPES = [
   { id: 'covid', label: 'COVID-19',                  recommendInterval: 365 },
 ];
 
+// ── คำนำหน้า → เพศ (ใช้ตอนเลือก/วางชื่อ เพื่อให้เพศปรับอัตโนมัติ) ──
+const PREFIX_GENDER = { 'นาย': 'M', 'เด็กชาย': 'M', 'นาง': 'F', 'นางสาว': 'F', 'เด็กหญิง': 'F' };
+const genderFromPrefix = (prefix) => PREFIX_GENDER[prefix] || null;
+
+// ── คำนวณอายุปัจจุบัน (เต็มปี) จากวันเกิด — นับไปเองอัตโนมัติทุกครั้งที่เรียกใช้ ──
+const calcAgeFromDOB = (dob) => {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const beforeBirthdayThisYear =
+    today.getMonth() < birth.getMonth() ||
+    (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate());
+  if (beforeBirthdayThisYear) age--;
+  return age >= 0 ? age : null;
+};
+
+// ── อายุ "ปัจจุบันจริง" ของผู้ป่วย — ใช้วันเกิดคำนวณสดถ้ามี ไม่งั้น fallback เป็นตัวเลขอายุที่บันทึกไว้ ──
+// ใช้จุดนี้แทน patient.age ตรงๆ ในส่วนที่เกี่ยวกับความปลอดภัยทางคลินิก (คัดกรองความเสี่ยง)
+const getPatientAge = (patient) => {
+  if (!patient) return null;
+  const fromDOB = calcAgeFromDOB(patient.dateOfBirth);
+  return fromDOB != null ? fromDOB : (patient.age != null ? patient.age : null);
+};
+
 const calculateRisk = (patient, visitData) => {
   const flags = [];
   let highRisk = false;
@@ -1518,7 +1544,7 @@ const calculateRisk = (patient, visitData) => {
   if (patient && (patient.comorbidities || []).length >= 3) {
     flags.push('มีโรคร่วม ≥3 โรค');
   }
-  if (patient && patient.age >= 65) {
+  if (patient && getPatientAge(patient) >= 65) {
     flags.push('ผู้สูงอายุ (≥65 ปี)');
   }
 
@@ -1558,6 +1584,9 @@ const AppStore = {
   interpretACT,
   classifyGOLD,
   classifyGINA,
+  genderFromPrefix,
+  calcAgeFromDOB,
+  getPatientAge,
 
   getDefault() {
     return {
@@ -6466,6 +6495,20 @@ function PatientForm({ patient, onSave, onClose }) {
   };
   const ocrHint = (k) => ocrFilled[k] ? '🤖 อ่านจากภาพ — กรุณาตรวจสอบความถูกต้อง' : undefined;
 
+  // เปลี่ยนคำนำหน้า → ปรับเพศให้อัตโนมัติตามคำนำหน้า (นาย/เด็กชาย=ชาย, นาง/นางสาว/เด็กหญิง=หญิง)
+  const setPrefix = (v) => {
+    const gender = AppStore.genderFromPrefix(v);
+    setF(prev => ({ ...prev, prefix: v, ...(gender ? { gender } : {}) }));
+    setOcrFilled(prev => (prev.prefix || prev.gender) ? { ...prev, prefix: false, gender: false } : prev);
+  };
+
+  // เลือกวันเกิด → คำนวณอายุปัจจุบันให้อัตโนมัติทันที (อายุจะนับตามวันเกิดเสมอ ไม่ต้องพิมพ์เอง)
+  const setDOB = (v) => {
+    const age = AppStore.calcAgeFromDOB(v);
+    setF(prev => ({ ...prev, dateOfBirth: v, ...(age != null ? { age: String(age) } : {}) }));
+    setOcrFilled(prev => (prev.dateOfBirth || prev.age) ? { ...prev, dateOfBirth: false, age: false } : prev);
+  };
+
   // วางชื่อเต็ม (เช่น "นางป้อเสาะ ลี๊สะเอะ") ลงในช่องชื่อ/นามสกุล — แยกคำนำหน้า/ชื่อ/นามสกุลให้อัตโนมัติ
   const handleNamePaste = (e) => {
     const text = e.clipboardData?.getData('text');
@@ -6474,8 +6517,15 @@ function PatientForm({ patient, onSave, onClose }) {
     // แยกอัตโนมัติเฉพาะกรณีวางมาเป็นชื่อเต็ม (มีทั้งชื่อและนามสกุล) — ถ้าวางคำเดียวปล่อยให้ paste ปกติ
     if (!parsed || !parsed.firstName || !parsed.lastName) return;
     e.preventDefault();
-    setF(prev => ({ ...prev, prefix: parsed.prefix || prev.prefix, firstName: parsed.firstName, lastName: parsed.lastName }));
-    setOcrFilled(prev => ({ ...prev, prefix: false, firstName: false, lastName: false }));
+    const gender = parsed.prefix ? AppStore.genderFromPrefix(parsed.prefix) : null;
+    setF(prev => ({
+      ...prev,
+      prefix: parsed.prefix || prev.prefix,
+      firstName: parsed.firstName,
+      lastName: parsed.lastName,
+      ...(gender ? { gender } : {}),
+    }));
+    setOcrFilled(prev => ({ ...prev, prefix: false, firstName: false, lastName: false, gender: false }));
   };
 
   const validate = () => {
@@ -6529,7 +6579,7 @@ function PatientForm({ patient, onSave, onClose }) {
           display: 'grid', gridTemplateColumns: '104px 1fr 1fr',
           border: `1.5px solid ${C.border}`, borderRadius: 9, overflow: 'hidden', background: C.surface,
         }}>
-          <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']}
+          <Select value={f.prefix} onChange={setPrefix} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']}
             style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
           <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ" onPaste={handleNamePaste}
             style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
@@ -6594,8 +6644,8 @@ function PatientForm({ patient, onSave, onClose }) {
       {/* Contact */}
       <hr style={{ margin: '8px 0 16px', border: 'none', borderTop: `1px solid ${C.border}` }} />
       <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ช่องทางติดต่อเพิ่มเติม</p>
-      <FormField label="วันเกิด (DOB)" hint="ใช้เป็น 2nd identifier ตาม HA PSG1">
-        <Input type="date" value={f.dateOfBirth} onChange={v => set('dateOfBirth', v)} style={{ maxWidth: 220 }} />
+      <FormField label="วันเกิด (DOB)" hint="ใช้เป็น 2nd identifier ตาม HA PSG1 · กรอกแล้วช่อง “อายุ” ด้านบนจะคำนวณให้อัตโนมัติ และนับอายุเพิ่มขึ้นเองทุกปีโดยไม่ต้องแก้ไข">
+        <Input type="date" value={f.dateOfBirth} onChange={setDOB} style={{ maxWidth: 220 }} />
       </FormField>
 
       {/* Safety: Allergies + Renal */}
