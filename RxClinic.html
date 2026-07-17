@@ -4249,18 +4249,25 @@ const RxOCR = (() => {
     return loadPromise;
   }
 
-  const THAI_PREFIXES = ['เด็กชาย', 'เด็กหญิง', 'นางสาว', 'นาง', 'นาย', 'ด.ช.', 'ด.ญ.'];
+  // [รูปแบบที่อาจพบ (รวมคำย่อ), คำนำหน้าเต็มที่ตรงกับตัวเลือกในฟอร์ม]
+  // เรียงจากยาว/เจาะจงไปหาสั้น เพื่อกันจับผิด (เช่น "นางสาว" ต้องเช็คก่อน "นาง")
+  const THAI_PREFIX_MAP = [
+    ['เด็กชาย', 'เด็กชาย'], ['เด็กหญิง', 'เด็กหญิง'],
+    ['ด.ช.', 'เด็กชาย'], ['ด.ญ.', 'เด็กหญิง'],
+    ['นางสาว', 'นางสาว'], ['น.ส.', 'นางสาว'], ['นส.', 'นางสาว'],
+    ['นาง', 'นาง'], ['นาย', 'นาย'],
+  ];
 
-  // ── แยกคำนำหน้า/ชื่อ/นามสกุล จากสตริงชื่อเต็ม เช่น "นางป้อเสาะ ลี๊สะเอะ" ──
+  // ── แยกคำนำหน้า/ชื่อ/นามสกุล จากสตริงชื่อเต็ม เช่น "น.ส.รอปีอ๊ะ เปาะตองเซ็ง" ──
   // ใช้ทั้งตอน parse ข้อความจาก OCR และตอนวาง (paste) ชื่อเต็มลงในฟอร์มโดยตรง
   function splitThaiName(nameStr) {
     const trimmed = (nameStr || '').trim().replace(/\s+/g, ' ');
     if (!trimmed) return { prefix: null, firstName: null, lastName: null };
-    const prefix = THAI_PREFIXES.find(p => trimmed.startsWith(p));
-    const rest = prefix ? trimmed.slice(prefix.length).trim() : trimmed;
+    const match = THAI_PREFIX_MAP.find(([detect]) => trimmed.startsWith(detect));
+    const rest = match ? trimmed.slice(match[0].length).trim() : trimmed;
     const parts = rest.split(/\s+/).filter(Boolean);
     return {
-      prefix: prefix || null,
+      prefix: match ? match[1] : null,
       firstName: parts[0] || null,
       lastName: parts.slice(1).join(' ') || null,
     };
