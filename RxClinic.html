@@ -11492,6 +11492,27 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     ? ((caredCount / patients.length) * 100).toFixed(1) : '0';
   const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
 
+  // ─── รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ พร้อมค่าที่ใช้คิดแต่ละตัวชี้วัด (ดึงข้อมูลรายคนได้) ──
+  const rosterIds = new Set([...copdCaredPts.map(p => p.id), ...asthmaCaredPts.map(p => p.id)]);
+  const roster = patients.filter(p => rosterIds.has(p.id)).map(p => {
+    const v = latestVisit[p.id];
+    const isCopd = p.diagnosis === 'COPD' || p.diagnosis === 'Both';
+    const isAsthma = p.diagnosis === 'Asthma' || p.diagnosis === 'Both';
+    const techs = v?.inhalerTechnique || [];
+    const hasExacerbHx = (v?.exacerbation?.countThisYear || 0) > 0 || !!v?.exacerbation?.hospitalized;
+    return {
+      id: p.id, hn: p.hn,
+      name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+      diagnosis: p.diagnosis,
+      lastVisitDate: v?.visitDate || null,
+      exacerbationCount: isCopd ? (v?.exacerbation?.countThisYear || 0) : null,
+      erOrAdmit: isAsthma ? (v?.exacerbation?.erVisit === true || v?.exacerbation?.hospitalized === true) : null,
+      hasICS: isAsthma ? hasICS(v?.medications) : null,
+      hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
+      techniquePass: techs.length > 0 ? techs.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable') : null,
+    };
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
+
   return {
     copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdCaredPts.length,   lowerBetter: true  },
     asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaCaredPts.length, lowerBetter: true  },
@@ -11503,11 +11524,24 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     patientCount: patients.length,
     copdCount:   copdPts.length,
     asthmaCount: asthmaPts.length,
+    roster,
   };
 };
 
 // ─── สร้างรายการ "ช่วงเวลา" ย้อนหลัง สำหรับดึงรายงาน/แนวโน้ม KPI ─────────────
 // granularity: 'month' | 'quarter' | 'year' — คืนค่าเรียงจากอดีต → ปัจจุบัน (เก่าสุดอยู่ซ้าย)
+// ปีงบประมาณไทย (ปีงบ) = 1 ต.ค. ถึง 30 ก.ย. — ตั้งชื่อตาม พ.ศ. ของปีที่ "สิ้นสุด" (30 ก.ย.)
+// เช่น ปีงบ 2568 = 1 ต.ค. 2567 – 30 ก.ย. 2568
+const currentFiscalYearBE = (refDate) => {
+  const d = refDate ? new Date(refDate) : new Date();
+  const ceEndYear = d.getMonth() >= 9 ? d.getFullYear() + 1 : d.getFullYear(); // getMonth()===9 คือ ต.ค.
+  return ceEndYear + 543;
+};
+const fiscalYearRange = (fyBE) => {
+  const ceEnd = fyBE - 543;
+  return { start: `${ceEnd - 1}-10-01`, end: `${ceEnd}-09-30` };
+};
+
 const generateKPIPeriods = (granularity, count, refDate) => {
   const ref = refDate ? new Date(refDate) : new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -11533,7 +11567,11 @@ const generateKPIPeriods = (granularity, count, refDate) => {
         label: `Q${qIdx + 1}/${qYear + 543}`,
         start: iso(start), end: iso(end),
       });
-    } else { // year
+    } else if (granularity === 'fiscalYear') {
+      const fy = currentFiscalYearBE(ref) - i;
+      const { start, end } = fiscalYearRange(fy);
+      periods.push({ label: `ปีงบ ${fy}`, start, end });
+    } else { // calendar year
       const y = ref.getFullYear() - i;
       periods.push({
         label: `ปี ${y + 543}`,
@@ -11635,8 +11673,10 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
 // ─── Quality KPIs Dashboard ───────────────────────────────────────────────────
 const QualityKPIsDashboard = ({ data }) => {
   const [viewMode, setViewMode] = React.useState('current'); // 'current' | 'trend'
-  const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'year'
+  const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'fiscalYear' | 'year'
   const [trendCount, setTrendCount] = React.useState(12);
+  const TREND_DEFAULT_COUNT = { month: 12, quarter: 4, fiscalYear: 3, year: 3 };
+  const setTrendGranularityAndResetCount = (g) => { setTrendGranularity(g); setTrendCount(TREND_DEFAULT_COUNT[g] || 3); };
 
   const [dateRange, setDateRange] = React.useState(() => {
     const end   = new Date().toISOString().slice(0, 10);
@@ -11697,6 +11737,13 @@ const QualityKPIsDashboard = ({ data }) => {
     const start = new Date();
     start.setMonth(start.getMonth() - months);
     setDateRange({ start: start.toISOString().slice(0, 10), end });
+  };
+  // ดึงช่วง "เดือนนี้ / ไตรมาสนี้ / ปีงบนี้ / ปีงบที่แล้ว" แบบเป๊ะๆ (ไม่ใช่ N วันย้อนหลัง)
+  // back=0 คือช่วงปัจจุบัน, back=1 คือช่วงก่อนหน้า 1 ช่วง (เช่น ปีงบที่แล้ว)
+  const setExactPeriod = (granularity, back = 0) => {
+    const periods = generateKPIPeriods(granularity, back + 1);
+    const p = periods[0]; // เก่าสุดในชุด (back+1) ช่วงล่าสุด = ช่วงที่ย้อนไป `back` ช่วงพอดี
+    setDateRange({ start: p.start, end: p.end });
   };
 
   return (
@@ -11762,14 +11809,15 @@ const QualityKPIsDashboard = ({ data }) => {
           {viewMode === 'trend' && (
             <>
               <span style={{ fontSize: 12, color: C.textMuted, marginLeft: 8 }}>แยกตาม:</span>
-              <Select value={trendGranularity} onChange={setTrendGranularity}
-                options={[{ value: 'month', label: 'รายเดือน' }, { value: 'quarter', label: 'รายไตรมาส' }, { value: 'year', label: 'รายปี' }]}
-                style={{ width: 130, padding: '5px 10px', fontSize: 12 }} />
+              <Select value={trendGranularity} onChange={setTrendGranularityAndResetCount}
+                options={[{ value: 'month', label: 'รายเดือน' }, { value: 'quarter', label: 'รายไตรมาส' }, { value: 'fiscalYear', label: 'รายปีงบประมาณ' }, { value: 'year', label: 'รายปี (ปฏิทิน)' }]}
+                style={{ width: 150, padding: '5px 10px', fontSize: 12 }} />
               <Select value={String(trendCount)} onChange={v => setTrendCount(parseInt(v, 10))}
                 options={
-                  trendGranularity === 'month'   ? [{value:'6',label:'6 เดือนล่าสุด'},{value:'12',label:'12 เดือนล่าสุด'},{value:'24',label:'24 เดือนล่าสุด'}] :
-                  trendGranularity === 'quarter' ? [{value:'4',label:'4 ไตรมาสล่าสุด'},{value:'8',label:'8 ไตรมาสล่าสุด'}] :
-                                                    [{value:'3',label:'3 ปีล่าสุด'},{value:'5',label:'5 ปีล่าสุด'}]
+                  trendGranularity === 'month'      ? [{value:'6',label:'6 เดือนล่าสุด'},{value:'12',label:'12 เดือนล่าสุด'},{value:'24',label:'24 เดือนล่าสุด'}] :
+                  trendGranularity === 'quarter'    ? [{value:'4',label:'4 ไตรมาสล่าสุด'},{value:'8',label:'8 ไตรมาสล่าสุด'}] :
+                  trendGranularity === 'fiscalYear' ? [{value:'3',label:'3 ปีงบล่าสุด'},{value:'5',label:'5 ปีงบล่าสุด'}] :
+                                                       [{value:'3',label:'3 ปีล่าสุด'},{value:'5',label:'5 ปีล่าสุด'}]
                 }
                 style={{ width: 150, padding: '5px 10px', fontSize: 12 }} />
             </>
@@ -11783,6 +11831,18 @@ const QualityKPIsDashboard = ({ data }) => {
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: C.textMuted }}>📅 ช่วงเวลา:</span>
+              {[
+                { label: 'เดือนนี้',      onClick: () => setExactPeriod('month') },
+                { label: 'ไตรมาสนี้',     onClick: () => setExactPeriod('quarter') },
+                { label: 'ปีงบนี้',       onClick: () => setExactPeriod('fiscalYear') },
+                { label: 'ปีงบที่แล้ว',   onClick: () => setExactPeriod('fiscalYear', 1) },
+              ].map(({ label, onClick }) => (
+                <button key={label} onClick={onClick} style={{
+                  padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `1.5px solid #2563EB`, background: '#EFF6FF', color: '#1E40AF', fontFamily: 'inherit',
+                }}>{label}</button>
+              ))}
+              <span style={{ width: 1, height: 20, background: C.border }} />
               {[
                 { label: '3 เดือน', months: 3 },
                 { label: '6 เดือน', months: 6 },
@@ -11853,6 +11913,9 @@ const QualityKPIsDashboard = ({ data }) => {
               </table>
             </div>
           </Card>
+
+          {/* ─── Patient Roster — ดึงข้อมูลผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ ── */}
+          <PatientRosterTable roster={kpis.roster} dateRange={dateRange} />
         </>
       ) : (
         <KPITrendTable trend={trend} metrics={metrics} />
@@ -11916,6 +11979,58 @@ const KPITrendTable = ({ trend, metrics }) => {
   );
 };
 
+// ── รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงเวลาที่เลือก พร้อมค่าที่ใช้คิด KPI รายคน ──
+const PatientRosterTable = ({ roster, dateRange }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  if (!roster) return null;
+  const yn = (v) => v == null ? '—' : (v ? '✅' : '⚠️');
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.primary }}>👥 รายชื่อผู้ป่วยที่ได้รับการบริบาล ({roster.length} คน)</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 11.5, color: C.textMuted }}>ดูรายคนว่าใครถูกนับในตัวชี้วัดไหนบ้าง — ดึงย้อนหลังได้ตามช่วงเวลาที่เลือกด้านบน</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn size="sm" variant="ghost" onClick={() => setExpanded(e => !e)}>{expanded ? '▲ ซ่อนรายชื่อ' : '▼ แสดงรายชื่อ'}</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => window.printPatientRoster?.(roster, dateRange)}>🖨️ พิมพ์รายชื่อ</Btn>
+        </div>
+      </div>
+      {expanded && (
+        <div className="rx-scroll-x" style={{ overflowX: 'auto', marginTop: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ background: C.bgAlt }}>
+                {['ชื่อ-สกุล','HN','โรค','Visit ล่าสุด','Exacerb.','ER/Admit','ICS','LABA/LAMA','เทคนิคผ่าน'].map((h,i) => (
+                  <th key={i} style={{ padding: '8px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {roster.map(r => (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.hn}</td>
+                  <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{r.diagnosis}</td>
+                  <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.lastVisitDate || '—'}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{r.exacerbationCount ?? '—'}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.erOrAdmit)}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasICS)}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasAppropriateCOPDTherapy)}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.techniquePass)}</td>
+                </tr>
+              ))}
+              {roster.length === 0 && (
+                <tr><td colSpan={9} style={{ padding: 16, textAlign: 'center', color: C.textMuted }}>ไม่มีผู้ป่วยที่ได้รับการบริบาลในช่วงเวลานี้</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 // ── พิมพ์รายงานตัวชี้วัดคุณภาพ — ช่วงเวลาเดียว ──────────────────────────────
 function printQualityKPIReport(kpis, metrics, dateRange) {
   const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -11970,6 +12085,29 @@ function printQualityKPITrend(trend, metrics) {
 }
 window.printQualityKPIReport = printQualityKPIReport;
 window.printQualityKPITrend = printQualityKPITrend;
+
+// ── พิมพ์รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงเวลาที่เลือก ──────────────────
+function printPatientRoster(roster, dateRange) {
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const yn = (v) => v == null ? '—' : (v ? '✅' : '⚠️');
+  const rows = roster.map(r => `<tr>
+    <td>${r.name || '—'}</td><td>${r.hn}</td><td>${r.diagnosis}</td><td>${r.lastVisitDate || '—'}</td>
+    <td style="text-align:center">${r.exacerbationCount ?? '—'}</td>
+    <td style="text-align:center">${yn(r.erOrAdmit)}</td>
+    <td style="text-align:center">${yn(r.hasICS)}</td>
+    <td style="text-align:center">${yn(r.hasAppropriateCOPDTherapy)}</td>
+    <td style="text-align:center">${yn(r.techniquePass)}</td>
+  </tr>`).join('');
+  const html = `
+    <h1>👥 รายชื่อผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรม</h1>
+    <div class="meta">ช่วงเวลา: ${dateRange.start} ถึง ${dateRange.end} · จำนวน ${roster.length} คน · พิมพ์เมื่อ: ${today}</div>
+    <table>
+      <thead><tr><th>ชื่อ-สกุล</th><th>HN</th><th>โรค</th><th>Visit ล่าสุด</th><th>Exacerb.</th><th>ER/Admit</th><th>ICS</th><th>LABA/LAMA</th><th>เทคนิคผ่าน</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  window.openPrintWindow(html, 'รายชื่อผู้ป่วยที่ได้รับการบริบาล');
+}
+window.printPatientRoster = printPatientRoster;
 
 // ============ Analytics Dashboard (Full) ============
 // ════════════════════════════════════════════════════════
