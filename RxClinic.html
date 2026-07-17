@@ -6493,10 +6493,16 @@ function PatientForm({ patient, onSave, onClose }) {
       </div>
       {/* คำนำหน้า + ชื่อ + นามสกุล รวมอยู่ในแถวเดียวกัน */}
       <FormField label="คำนำหน้า / ชื่อ-นามสกุล" required error={err.firstName || err.lastName} hint={ocrHint('firstName') || ocrHint('lastName') || ocrHint('prefix')}>
-        <div style={{ display: 'grid', gridTemplateColumns: '104px 1fr 1fr', gap: 8 }}>
-          <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']} />
-          <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ" />
-          <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล" />
+        <div style={{
+          display: 'grid', gridTemplateColumns: '104px 1fr 1fr',
+          border: `1.5px solid ${C.border}`, borderRadius: 9, overflow: 'hidden', background: C.surface,
+        }}>
+          <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']}
+            style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
+          <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ"
+            style={{ border: 'none', borderRadius: 0, borderRight: `1.5px solid ${C.border}`, boxShadow: 'none' }} />
+          <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล"
+            style={{ border: 'none', borderRadius: 0, boxShadow: 'none' }} />
         </div>
       </FormField>
       <div style={row3}>
