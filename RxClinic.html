@@ -863,6 +863,11 @@ const COMMON_MEDICATIONS = [
   { name: 'Budesonide/Formoterol (Symbicort) DPI 160/4.5 mcg',     category: 'ICS/LABA',      defaultDevice: 'turbuhaler' },
   { name: 'Fluticasone/Salmeterol (Seretide) Accuhaler 50/250 mcg', category: 'ICS/LABA',      defaultDevice: 'diskus' },
   { name: 'Umeclidinium/Vilanterol (Anoro) Ellipta 55/22 mcg',      category: 'LABA/LAMA',     defaultDevice: 'ellipta' },
+  { name: 'Glycopyrronium/Indacaterol (Ultibro) Breezhaler 50/110 mcg', category: 'LABA/LAMA', defaultDevice: 'breezhaler' },
+  { name: 'Tiotropium (Spiriva) Handihaler 18 mcg',                 category: 'LAMA',          defaultDevice: 'handihaler' },
+  { name: 'Tiotropium/Olodaterol (Spiolto) Respimat 2.5/2.5 mcg',   category: 'LABA/LAMA',     defaultDevice: 'respimat' },
+  { name: 'Glycopyrronium (Seebri) Breezhaler 50 mcg',              category: 'LAMA',          defaultDevice: 'breezhaler' },
+  { name: 'Fluticasone Furoate/Umeclidinium/Vilanterol (Trelegy) Ellipta 100/62.5/25 mcg', category: 'ICS/LABA/LAMA', defaultDevice: 'ellipta' },
   // ── Oral ────────────────────────────────────────────
   { name: 'Prednisolone 5 mg',      category: 'OCS',          defaultDevice: 'Oral' },
   { name: 'Theophylline SR 200 mg', category: 'Theophylline', defaultDevice: 'Oral' },
@@ -950,6 +955,35 @@ const COMMON_MEDICATIONS = [
   { name: 'Alendronate 70 mg (weekly)', category: 'Bisphosphonate', defaultDevice: 'Oral', type: 'oral' },
   { name: 'Calcium+Vit D3 500/200 mg',  category: 'Supplement',  defaultDevice: 'Oral', type: 'oral' },
 ];
+
+// ── จำแนกยาทางเดินหายใจ (ICS/LABA/LAMA/SABA/SAMA) ตามแนวทาง GINA/GOLD ──────────
+// จุดเชื่อมกลาง ใช้ร่วมกันทั้ง KPI3 (Asthma+ICS), KPI4 (COPD LABA/LAMA/Combo) และจุดอื่นที่ต้องเช็คหมวดยา
+// 1) ถ้าชื่อยาตรงกับ COMMON_MEDICATIONS เป๊ะ ใช้ category ที่ระบุไว้แล้ว (แม่นยำที่สุด)
+// 2) เสริมด้วยการจับ keyword ในชื่อยาเสมอ (ครอบคลุมยาที่พิมพ์เอง/สะกดต่างกัน/ยังไม่มีในลิสต์ preset)
+//    ผลจากทั้งสองวิธีจะถูกรวมกัน (union) ไม่ใช่แทนที่กัน เพื่อไม่ให้พลาดยาที่ควรนับ
+const RESP_DRUG_KEYWORDS = {
+  ICS:  ['budesonide', 'fluticasone', 'beclomethasone', 'ciclesonide', 'mometasone',
+         'symbicort', 'seretide', 'trelegy', 'foster', 'flixotide', 'pulmicort'],
+  LABA: ['salmeterol', 'formoterol', 'vilanterol', 'olodaterol', 'indacaterol',
+         'seretide', 'symbicort', 'anoro', 'trelegy', 'ultibro', 'spiolto'],
+  LAMA: ['umeclidinium', 'tiotropium', 'glycopyrronium', 'aclidinium',
+         'anoro', 'trelegy', 'spiriva', 'ultibro', 'spiolto', 'seebri', 'incruse'],
+  SABA: ['salbutamol', 'terbutaline', 'albuterol', 'berodual'],
+  SAMA: ['ipratropium', 'berodual'],
+};
+const classifyRespiratoryMed = (name) => {
+  const result = { ICS: false, LABA: false, LAMA: false, SABA: false, SAMA: false };
+  if (!name) return result;
+  const preset = COMMON_MEDICATIONS.find(m => m.name === name);
+  if (preset?.category) {
+    preset.category.split('/').forEach(part => { if (part in result) result[part] = true; });
+  }
+  const n = name.toLowerCase();
+  Object.keys(RESP_DRUG_KEYWORDS).forEach(cls => {
+    if (RESP_DRUG_KEYWORDS[cls].some(k => n.includes(k))) result[cls] = true;
+  });
+  return result;
+};
 
 // ── Drug Dosing Guide (Thai community hospital formulary) ──
 // ข้อมูลอ้างอิง: MIMS Thailand, Lexicomp, Micromedex
@@ -1595,6 +1629,7 @@ const AppStore = {
   generateId,
   INHALER_CHECKLISTS,
   COMMON_MEDICATIONS,
+  classifyRespiratoryMed,
   TRIGGER_OPTIONS,
   COMORBIDITY_OPTIONS,
   INSURANCE_OPTIONS,
@@ -11618,26 +11653,19 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const asthmaErStatus = parseFloat(asthmaErRate) < 20 ? 'pass' : 'warn';
 
   // ─── KPI 3: Asthma + ICS ≥ 80% (เฉพาะผู้ป่วยที่ได้รับการบริบาลแล้ว) ─────────
-  const ICS_KW = ['budesonide','fluticasone','beclomethasone','ciclesonide','mometasone',
-                  'symbicort','seretide','trelegy','foster','flixotide','pulmicort'];
-  const hasICS = (meds) => (meds||[]).some(m => {
-    const n = (m.name||'').toLowerCase();
-    return ICS_KW.some(k => n.includes(k));
-  });
+  // ใช้ classifyRespiratoryMed กลาง (category จาก COMMON_MEDICATIONS + keyword เสริม) แทน
+  // การจับ keyword แยกเฉพาะ KPI นี้ — เพื่อไม่ให้ยาที่พิมพ์เอง/สะกดต่างกันหลุดจากการนับ
+  const hasICS = (meds) => (meds||[]).some(m => classifyRespiratoryMed(m.name).ICS);
   const asthmaWithICS = asthmaCaredPts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
   const asthmaIcsPct  = asthmaCaredPts.length > 0
     ? ((asthmaWithICS / asthmaCaredPts.length) * 100).toFixed(1) : '0';
   const asthmaIcsStatus = parseFloat(asthmaIcsPct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 4: COPD ที่มีประวัติกำเริบ ได้รับ LABA/LAMA/Combo ≥ 80% ──────────────
-  const LABA_KW = ['salmeterol','formoterol','vilanterol','olodaterol','indacaterol','seretide','symbicort','anoro','trelegy'];
-  const LAMA_KW = ['umeclidinium','tiotropium','glycopyrronium','aclidinium','anoro','trelegy'];
-  const hasAppropriate = (meds) => {
-    const names = (meds||[]).map(m => (m.name||'').toLowerCase());
-    const laba = names.some(n => LABA_KW.some(k => n.includes(k)));
-    const lama = names.some(n => LAMA_KW.some(k => n.includes(k)));
-    return laba || lama;
-  };
+  const hasAppropriate = (meds) => (meds||[]).some(m => {
+    const c = classifyRespiratoryMed(m.name);
+    return c.LABA || c.LAMA;
+  });
   // ฐาน = ผู้ป่วย COPD ที่ได้รับการบริบาลแล้ว (มี visit) และมีประวัติกำเริบ — ไม่ fallback ไปนับผู้ป่วยทั้งหมด
   // เพราะจะเปลี่ยนความหมายตัวชี้วัดไปคนละกลุ่ม (ถ้าไม่มีผู้ป่วยกลุ่มนี้เลย ค่าจะเป็น 0/0 = "0" ซึ่งถูกต้องแล้ว)
   const copdWithExacerb = copdCaredPts.filter(p => {
