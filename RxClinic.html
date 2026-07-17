@@ -11481,15 +11481,38 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     ? ((techPassed / techVisits.length) * 100).toFixed(1) : '0';
   const techniqueStatus = parseFloat(techniquePct) >= 80 ? 'pass' : 'warn';
 
-  // ─── KPI 6: ผู้ป่วยได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────────────
-  // นับเฉพาะ visit/telepharmacy ที่เกิดขึ้น "ณ วันสิ้นสุดช่วงที่เลือก" หรือก่อนหน้า (สำหรับรายงานย้อนหลัง)
-  const visitedIds = new Set(allVisits.filter(v => v.visitDate && v.visitDate <= endDate).map(v => v.patientId));
-  const teleIds    = new Set((data.telepharmacy||[])
-    .filter(t => (t.actualDate || t.scheduledDate || '') && (t.actualDate || t.scheduledDate) <= endDate)
-    .map(t => t.patientId));
-  const caredCount = patients.filter(p => visitedIds.has(p.id) || teleIds.has(p.id)).length;
-  const carePct    = patients.length > 0
-    ? ((caredCount / patients.length) * 100).toFixed(1) : '0';
+  // ─── KPI 6: ผู้ป่วยมาตามนัด ได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────
+  // ตัวหาร = ผู้ป่วยที่ "มีนัด" (nextVisit จาก visit ครั้งก่อน) ตกอยู่ในช่วงเวลาที่เลือก
+  //          (คือผู้ป่วยที่ควรมาคลินิกในช่วงนี้ — ไม่ใช่ผู้ป่วยทั้งหมดที่เคยลงทะเบียน
+  //           ผู้ป่วยใหม่ที่ยังไม่เคยมีนัดจึงไม่ถูกนับในตัวหารข้อนี้ เพราะยังไม่มีนัดให้เทียบ)
+  // ตัวเศษ = ในจำนวนที่มีนัด กี่คนที่มา (มี visit หรือ telepharmacy จริงในช่วงเวลาเดียวกัน)
+  const dueThisPeriod = new Map(); // patientId -> nextVisit ล่าสุดที่ตกช่วงนี้
+  allVisits.forEach(v => {
+    if (v.nextVisit && v.nextVisit >= startDate && v.nextVisit <= endDate) {
+      const prevDue = dueThisPeriod.get(v.patientId);
+      if (!prevDue || v.nextVisit > prevDue) dueThisPeriod.set(v.patientId, v.nextVisit);
+    }
+  });
+  const dueCount = dueThisPeriod.size;
+  let cameCount = 0;
+  const noShowRoster = [];
+  dueThisPeriod.forEach((nextVisitDate, pid) => {
+    const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= startDate && v.visitDate <= endDate);
+    const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid &&
+      (t.actualDate || t.scheduledDate || '') >= startDate && (t.actualDate || t.scheduledDate || '') <= endDate);
+    if (cameByVisit || cameByTele) {
+      cameCount++;
+    } else {
+      const p = patients.find(pt => pt.id === pid);
+      if (p) noShowRoster.push({
+        id: p.id, hn: p.hn,
+        name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+        diagnosis: p.diagnosis, nextVisit: nextVisitDate,
+      });
+    }
+  });
+  noShowRoster.sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
+  const carePct    = dueCount > 0 ? ((cameCount / dueCount) * 100).toFixed(1) : '0';
   const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
 
   // ─── รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ พร้อมค่าที่ใช้คิดแต่ละตัวชี้วัด (ดึงข้อมูลรายคนได้) ──
@@ -11519,12 +11542,13 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaCaredPts.length, lowerBetter: false },
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
-    carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยได้รับบริบาลเภสัชกรรม', num: caredCount,        den: patients.length,      lowerBetter: false },
+    carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
     visitCount:  srcVisits.length,
     patientCount: patients.length,
     copdCount:   copdPts.length,
     asthmaCount: asthmaPts.length,
     roster,
+    noShowRoster,
   };
 };
 
@@ -11724,7 +11748,7 @@ const QualityKPIsDashboard = ({ data }) => {
     {
       key: 'carePercent', icon: '👨‍⚕️',
       targetLabel: '> 80%',
-      desc: 'ร้อยละจำนวนผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกหอบหืดและปอดอุดกั้นเรื้อรัง',
+      desc: 'ร้อยละผู้ป่วยที่มีนัดในช่วงเวลานี้ (คลินิกหอบหืด/ปอดอุดกั้นเรื้อรัง) ที่มาตามนัดและได้รับการบริบาลทางเภสัชกรรมจริง — ตัวหารคือผู้ป่วยที่มีนัด ไม่ใช่ผู้ป่วยทั้งหมดที่เคยลงทะเบียน',
     },
   ];
 
@@ -11916,6 +11940,9 @@ const QualityKPIsDashboard = ({ data }) => {
 
           {/* ─── Patient Roster — ดึงข้อมูลผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ ── */}
           <PatientRosterTable roster={kpis.roster} dateRange={dateRange} />
+
+          {/* ─── ผู้ป่วยที่มีนัดแต่ไม่มา — สำหรับติดตาม/โทรเตือน ───── */}
+          <NoShowTable noShowRoster={kpis.noShowRoster} dateRange={dateRange} />
         </>
       ) : (
         <KPITrendTable trend={trend} metrics={metrics} />
@@ -12031,6 +12058,53 @@ const PatientRosterTable = ({ roster, dateRange }) => {
   );
 };
 
+// ── ผู้ป่วยที่มีนัด (nextVisit) ในช่วงนี้ แต่ไม่มา — ใช้ตามติดต่อกลับ ─────────
+const NoShowTable = ({ noShowRoster, dateRange }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  if (!noShowRoster) return null;
+  return (
+    <Card style={{ borderLeft: noShowRoster.length > 0 ? `3px solid ${C.high}` : undefined }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: noShowRoster.length > 0 ? C.high : C.primary }}>
+            📵 ผู้ป่วยที่นัดแต่ไม่มา ({noShowRoster.length} คน)
+          </h3>
+          <p style={{ margin: '4px 0 0', fontSize: 11.5, color: C.textMuted }}>มีนัด (nextVisit) ตกในช่วงเวลานี้ แต่ยังไม่พบ visit หรือ telepharmacy — ใช้สำหรับโทรติดตาม</p>
+        </div>
+        {noShowRoster.length > 0 && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn size="sm" variant="ghost" onClick={() => setExpanded(e => !e)}>{expanded ? '▲ ซ่อนรายชื่อ' : '▼ แสดงรายชื่อ'}</Btn>
+            <Btn size="sm" variant="ghost" onClick={() => window.printNoShowRoster?.(noShowRoster, dateRange)}>🖨️ พิมพ์รายชื่อติดตาม</Btn>
+          </div>
+        )}
+      </div>
+      {expanded && noShowRoster.length > 0 && (
+        <div className="rx-scroll-x" style={{ overflowX: 'auto', marginTop: 14 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ background: C.bgAlt }}>
+                {['ชื่อ-สกุล','HN','โรค','วันนัดเดิม'].map((h,i) => (
+                  <th key={i} style={{ padding: '8px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {noShowRoster.map(r => (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.hn}</td>
+                  <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{r.diagnosis}</td>
+                  <td style={{ padding: '7px 10px', color: C.high, fontWeight: 600, whiteSpace: 'nowrap' }}>{r.nextVisit}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 // ── พิมพ์รายงานตัวชี้วัดคุณภาพ — ช่วงเวลาเดียว ──────────────────────────────
 function printQualityKPIReport(kpis, metrics, dateRange) {
   const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -12108,6 +12182,23 @@ function printPatientRoster(roster, dateRange) {
   window.openPrintWindow(html, 'รายชื่อผู้ป่วยที่ได้รับการบริบาล');
 }
 window.printPatientRoster = printPatientRoster;
+
+// ── พิมพ์รายชื่อผู้ป่วยที่นัดแต่ไม่มา (สำหรับโทรติดตาม) ─────────────────────
+function printNoShowRoster(noShowRoster, dateRange) {
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const rows = noShowRoster.map(r => `<tr>
+    <td>${r.name || '—'}</td><td>${r.hn}</td><td>${r.diagnosis}</td><td>${r.nextVisit}</td><td></td>
+  </tr>`).join('');
+  const html = `
+    <h1>📵 รายชื่อผู้ป่วยที่นัดแต่ไม่มา — ใช้ติดตามกลับ</h1>
+    <div class="meta">ช่วงเวลา: ${dateRange.start} ถึง ${dateRange.end} · จำนวน ${noShowRoster.length} คน · พิมพ์เมื่อ: ${today}</div>
+    <table>
+      <thead><tr><th>ชื่อ-สกุล</th><th>HN</th><th>โรค</th><th>วันนัดเดิม</th><th>ผลติดตาม</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  window.openPrintWindow(html, 'รายชื่อผู้ป่วยที่นัดแต่ไม่มา');
+}
+window.printNoShowRoster = printNoShowRoster;
 
 // ============ Analytics Dashboard (Full) ============
 // ════════════════════════════════════════════════════════
