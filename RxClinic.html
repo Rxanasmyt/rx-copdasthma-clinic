@@ -11395,50 +11395,59 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     v.visitDate && v.visitDate >= startDate && v.visitDate <= endDate
   );
 
-  // latest visit ต่อผู้ป่วย (ใช้ทั้งหมด ไม่จำกัดช่วง)
+  // latest visit ต่อผู้ป่วย "ณ วันสิ้นสุดช่วงที่เลือก" (ไม่ใช่ล่าสุดตลอดกาล)
+  // จำเป็นสำหรับรายงานย้อนหลัง — ถ้าใช้ล่าสุดตลอดกาลเสมอ ตัวชี้วัดของทุกเดือนในอดีตจะเท่ากันหมด
+  // เมื่อ endDate = วันนี้ พฤติกรรมจะเหมือนเดิมทุกประการ (latest visit ล่าสุดตลอดกาล)
   const latestVisit = {};
   allVisits.forEach(v => {
+    if (!v.visitDate || v.visitDate > endDate) return;
     if (!latestVisit[v.patientId] || v.visitDate > latestVisit[v.patientId].visitDate)
       latestVisit[v.patientId] = v;
   });
 
   const copdPts   = patients.filter(p => p.diagnosis === 'COPD' || p.diagnosis === 'Both');
   const asthmaPts = patients.filter(p => p.diagnosis === 'Asthma' || p.diagnosis === 'Both');
-  const asthmaIds = new Set(asthmaPts.map(p => p.id));
+
+  // "ได้รับการบริบาลทางเภสัชกรรม" สำหรับ KPI 1-4 = มี visit อย่างน้อย 1 ครั้ง
+  // (ไม่นับ telepharmacy อย่างเดียว เพราะ exacerbation/medication ถูกบันทึกเฉพาะใน visit เท่านั้น
+  //  ผู้ป่วยที่ยังไม่เคยมี visit จึงไม่มีข้อมูลพอจะประเมินตัวชี้วัดเหล่านี้ได้)
+  const copdCaredPts   = copdPts.filter(p => !!latestVisit[p.id]);
+  const asthmaCaredPts = asthmaPts.filter(p => !!latestVisit[p.id]);
+  const asthmaCaredIds = new Set(asthmaCaredPts.map(p => p.id));
 
   // ─── KPI 1: COPD Exacerbation Rate (เป้า < 110 /100 ผู้ป่วย) ─────────────────
-  // ใช้ countThisYear จาก latest visit ของผู้ป่วย COPD แต่ละคน
+  // ใช้ countThisYear จาก latest visit ของผู้ป่วย COPD ที่ได้รับการบริบาลแล้วเท่านั้น
   let copdExacerbCount = 0;
-  copdPts.forEach(p => {
+  copdCaredPts.forEach(p => {
     const v = latestVisit[p.id];
     copdExacerbCount += (v?.exacerbation?.countThisYear || 0);
   });
-  const copdExacerbRate = copdPts.length > 0
-    ? ((copdExacerbCount / copdPts.length) * 100).toFixed(1) : '0';
+  const copdExacerbRate = copdCaredPts.length > 0
+    ? ((copdExacerbCount / copdCaredPts.length) * 100).toFixed(1) : '0';
   const copdExacerbStatus = parseFloat(copdExacerbRate) < 110 ? 'pass' : 'warn';
 
   // ─── KPI 2: Asthma ER/OPD/Hospitalized Rate (เป้า < 20 /100 ผู้ป่วย) ──────────
-  // นับ visit ที่มี erVisit=true หรือ hospitalized=true ของผู้ป่วย Asthma
+  // นับ visit ที่มี erVisit=true หรือ hospitalized=true ของผู้ป่วย Asthma ที่ได้รับการบริบาลแล้ว
   const srcVisits = periodVisits.length > 0 ? periodVisits : allVisits;
   const asthmaErVisits = srcVisits.filter(v =>
-    asthmaIds.has(v.patientId) &&
+    asthmaCaredIds.has(v.patientId) &&
     (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
   );
   const asthmaErCount = asthmaErVisits.length;
-  const asthmaErRate  = asthmaPts.length > 0
-    ? ((asthmaErCount / asthmaPts.length) * 100).toFixed(1) : '0';
+  const asthmaErRate  = asthmaCaredPts.length > 0
+    ? ((asthmaErCount / asthmaCaredPts.length) * 100).toFixed(1) : '0';
   const asthmaErStatus = parseFloat(asthmaErRate) < 20 ? 'pass' : 'warn';
 
-  // ─── KPI 3: Asthma + ICS ≥ 80% ───────────────────────────────────────────────
+  // ─── KPI 3: Asthma + ICS ≥ 80% (เฉพาะผู้ป่วยที่ได้รับการบริบาลแล้ว) ─────────
   const ICS_KW = ['budesonide','fluticasone','beclomethasone','ciclesonide','mometasone',
                   'symbicort','seretide','trelegy','foster','flixotide','pulmicort'];
   const hasICS = (meds) => (meds||[]).some(m => {
     const n = (m.name||'').toLowerCase();
     return ICS_KW.some(k => n.includes(k));
   });
-  const asthmaWithICS = asthmaPts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
-  const asthmaIcsPct  = asthmaPts.length > 0
-    ? ((asthmaWithICS / asthmaPts.length) * 100).toFixed(1) : '0';
+  const asthmaWithICS = asthmaCaredPts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
+  const asthmaIcsPct  = asthmaCaredPts.length > 0
+    ? ((asthmaWithICS / asthmaCaredPts.length) * 100).toFixed(1) : '0';
   const asthmaIcsStatus = parseFloat(asthmaIcsPct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 4: COPD ที่มีประวัติกำเริบ ได้รับ LABA/LAMA/Combo ≥ 80% ──────────────
@@ -11450,13 +11459,14 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     const lama = names.some(n => LAMA_KW.some(k => n.includes(k)));
     return laba || lama;
   };
-  const copdWithExacerb = copdPts.filter(p => {
+  // ฐาน = ผู้ป่วย COPD ที่ได้รับการบริบาลแล้ว (มี visit) และมีประวัติกำเริบ — ไม่ fallback ไปนับผู้ป่วยทั้งหมด
+  // เพราะจะเปลี่ยนความหมายตัวชี้วัดไปคนละกลุ่ม (ถ้าไม่มีผู้ป่วยกลุ่มนี้เลย ค่าจะเป็น 0/0 = "0" ซึ่งถูกต้องแล้ว)
+  const copdWithExacerb = copdCaredPts.filter(p => {
     const v = latestVisit[p.id];
-    return v && ((v.exacerbation?.countThisYear||0) > 0 || v.exacerbation?.hospitalized);
+    return (v.exacerbation?.countThisYear || 0) > 0 || v.exacerbation?.hospitalized;
   });
-  const copdExacerbBase = copdWithExacerb.length > 0 ? copdWithExacerb.length : copdPts.length;
-  const copdAppropriate = (copdWithExacerb.length > 0 ? copdWithExacerb : copdPts)
-    .filter(p => hasAppropriate(latestVisit[p.id]?.medications)).length;
+  const copdExacerbBase = copdWithExacerb.length;
+  const copdAppropriate = copdWithExacerb.filter(p => hasAppropriate(latestVisit[p.id]?.medications)).length;
   const copdTherapyPct  = copdExacerbBase > 0
     ? ((copdAppropriate / copdExacerbBase) * 100).toFixed(1) : '0';
   const copdTherapyStatus = parseFloat(copdTherapyPct) >= 80 ? 'pass' : 'warn';
@@ -11472,17 +11482,20 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const techniqueStatus = parseFloat(techniquePct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 6: ผู้ป่วยได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────────────
-  const visitedIds = new Set(allVisits.map(v => v.patientId));
-  const teleIds    = new Set((data.telepharmacy||[]).map(t => t.patientId));
+  // นับเฉพาะ visit/telepharmacy ที่เกิดขึ้น "ณ วันสิ้นสุดช่วงที่เลือก" หรือก่อนหน้า (สำหรับรายงานย้อนหลัง)
+  const visitedIds = new Set(allVisits.filter(v => v.visitDate && v.visitDate <= endDate).map(v => v.patientId));
+  const teleIds    = new Set((data.telepharmacy||[])
+    .filter(t => (t.actualDate || t.scheduledDate || '') && (t.actualDate || t.scheduledDate) <= endDate)
+    .map(t => t.patientId));
   const caredCount = patients.filter(p => visitedIds.has(p.id) || teleIds.has(p.id)).length;
   const carePct    = patients.length > 0
     ? ((caredCount / patients.length) * 100).toFixed(1) : '0';
   const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
 
   return {
-    copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdPts.length,       lowerBetter: true  },
-    asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaPts.length,     lowerBetter: true  },
-    asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaPts.length,     lowerBetter: false },
+    copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdCaredPts.length,   lowerBetter: true  },
+    asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaCaredPts.length, lowerBetter: true  },
+    asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaCaredPts.length, lowerBetter: false },
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
     carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยได้รับบริบาลเภสัชกรรม', num: caredCount,        den: patients.length,      lowerBetter: false },
@@ -11491,6 +11504,50 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     copdCount:   copdPts.length,
     asthmaCount: asthmaPts.length,
   };
+};
+
+// ─── สร้างรายการ "ช่วงเวลา" ย้อนหลัง สำหรับดึงรายงาน/แนวโน้ม KPI ─────────────
+// granularity: 'month' | 'quarter' | 'year' — คืนค่าเรียงจากอดีต → ปัจจุบัน (เก่าสุดอยู่ซ้าย)
+const generateKPIPeriods = (granularity, count, refDate) => {
+  const ref = refDate ? new Date(refDate) : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const thMonth = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const periods = [];
+
+  for (let i = count - 1; i >= 0; i--) {
+    if (granularity === 'month') {
+      const start = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
+      const end   = new Date(ref.getFullYear(), ref.getMonth() - i + 1, 0);
+      periods.push({
+        label: `${thMonth[start.getMonth()]} ${start.getFullYear() + 543}`,
+        start: iso(start), end: iso(end),
+      });
+    } else if (granularity === 'quarter') {
+      const totalQ = (ref.getFullYear() * 4 + Math.floor(ref.getMonth() / 3)) - i;
+      const qYear  = Math.floor(totalQ / 4);
+      const qIdx   = totalQ % 4; // 0-3
+      const start  = new Date(qYear, qIdx * 3, 1);
+      const end    = new Date(qYear, qIdx * 3 + 3, 0);
+      periods.push({
+        label: `Q${qIdx + 1}/${qYear + 543}`,
+        start: iso(start), end: iso(end),
+      });
+    } else { // year
+      const y = ref.getFullYear() - i;
+      periods.push({
+        label: `ปี ${y + 543}`,
+        start: `${y}-01-01`, end: `${y}-12-31`,
+      });
+    }
+  }
+  return periods;
+};
+
+// ─── คำนวณ KPI ทุกช่วงเวลาย้อนหลัง สำหรับตารางแนวโน้ม (ดึงรายงานย้อนหลัง) ────
+const calculateQualityKPIsTrend = (data, granularity, count, refDate) => {
+  const periods = generateKPIPeriods(granularity, count, refDate);
+  return periods.map(p => ({ ...p, kpis: calculateQualityKPIs(data, p.start, p.end) }));
 };
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
@@ -11577,6 +11634,10 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
 
 // ─── Quality KPIs Dashboard ───────────────────────────────────────────────────
 const QualityKPIsDashboard = ({ data }) => {
+  const [viewMode, setViewMode] = React.useState('current'); // 'current' | 'trend'
+  const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'year'
+  const [trendCount, setTrendCount] = React.useState(12);
+
   const [dateRange, setDateRange] = React.useState(() => {
     const end   = new Date().toISOString().slice(0, 10);
     const start = new Date();
@@ -11587,6 +11648,11 @@ const QualityKPIsDashboard = ({ data }) => {
   const kpis = React.useMemo(
     () => calculateQualityKPIs(data, dateRange.start, dateRange.end),
     [data, dateRange]
+  );
+
+  const trend = React.useMemo(
+    () => viewMode === 'trend' ? calculateQualityKPIsTrend(data, trendGranularity, trendCount) : null,
+    [data, viewMode, trendGranularity, trendCount]
   );
 
   const metrics = [
@@ -11678,82 +11744,232 @@ const QualityKPIsDashboard = ({ data }) => {
         </div>
       </div>
 
-      {/* ─── Date Range Filter ────────────────── */}
+      {/* ─── Mode toggle: ช่วงเวลาเดียว vs แนวโน้มย้อนหลัง ────── */}
       <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.textMuted }}>📅 ช่วงเวลา:</span>
-          {[
-            { label: '3 เดือน', months: 3 },
-            { label: '6 เดือน', months: 6 },
-            { label: '1 ปี', months: 12 },
-          ].map(({ label, months }) => (
-            <button key={label} onClick={() => quickSetRange(months)} style={{
-              padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              border: `1px solid ${C.border}`, background: C.bgAlt, color: C.text, fontFamily: 'inherit',
-            }}>{label}</button>
-          ))}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <input type="date" value={dateRange.start}
-              onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
-              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
-            <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
-            <input type="date" value={dateRange.end}
-              onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
-              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', borderRadius: 9, overflow: 'hidden', border: `1.5px solid ${C.border}` }}>
+            {[
+              { v: 'current', l: '📅 ช่วงเวลาเดียว' },
+              { v: 'trend',   l: '📈 แนวโน้มย้อนหลัง' },
+            ].map(({ v, l }) => (
+              <button key={v} onClick={() => setViewMode(v)} style={{
+                padding: '7px 16px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: 'none',
+                background: viewMode === v ? C.primary : C.surface, color: viewMode === v ? '#fff' : C.text,
+                fontFamily: 'inherit', transition: 'all 0.15s',
+              }}>{l}</button>
+            ))}
           </div>
+          {viewMode === 'trend' && (
+            <>
+              <span style={{ fontSize: 12, color: C.textMuted, marginLeft: 8 }}>แยกตาม:</span>
+              <Select value={trendGranularity} onChange={setTrendGranularity}
+                options={[{ value: 'month', label: 'รายเดือน' }, { value: 'quarter', label: 'รายไตรมาส' }, { value: 'year', label: 'รายปี' }]}
+                style={{ width: 130, padding: '5px 10px', fontSize: 12 }} />
+              <Select value={String(trendCount)} onChange={v => setTrendCount(parseInt(v, 10))}
+                options={
+                  trendGranularity === 'month'   ? [{value:'6',label:'6 เดือนล่าสุด'},{value:'12',label:'12 เดือนล่าสุด'},{value:'24',label:'24 เดือนล่าสุด'}] :
+                  trendGranularity === 'quarter' ? [{value:'4',label:'4 ไตรมาสล่าสุด'},{value:'8',label:'8 ไตรมาสล่าสุด'}] :
+                                                    [{value:'3',label:'3 ปีล่าสุด'},{value:'5',label:'5 ปีล่าสุด'}]
+                }
+                style={{ width: 150, padding: '5px 10px', fontSize: 12 }} />
+            </>
+          )}
         </div>
       </Card>
 
-      {/* ─── KPI Cards Grid ──────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-        {metrics.map(({ key, icon, targetLabel, desc }) => (
-          <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc} />
-        ))}
-      </div>
+      {viewMode === 'current' ? (
+        <>
+          {/* ─── Date Range Filter ────────────────── */}
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: C.textMuted }}>📅 ช่วงเวลา:</span>
+              {[
+                { label: '3 เดือน', months: 3 },
+                { label: '6 เดือน', months: 6 },
+                { label: '1 ปี', months: 12 },
+              ].map(({ label, months }) => (
+                <button key={label} onClick={() => quickSetRange(months)} style={{
+                  padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `1px solid ${C.border}`, background: C.bgAlt, color: C.text, fontFamily: 'inherit',
+                }}>{label}</button>
+              ))}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                <input type="date" value={dateRange.start}
+                  onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+                  style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+                <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
+                <input type="date" value={dateRange.end}
+                  onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+                  style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+                <Btn size="sm" variant="ghost" onClick={() => window.printQualityKPIReport?.(kpis, metrics, dateRange)}>🖨️ พิมพ์รายงาน</Btn>
+              </div>
+            </div>
+          </Card>
 
-      {/* ─── Summary Table ───────────────────── */}
-      <Card>
-        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.primary }}>📋 ตารางสรุปตัวชี้วัด</h3>
-        <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: C.bgAlt }}>
-                {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','ตัวเศษ/ส่วน','ผล'].map((h,i) => (
-                  <th key={i} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map(({ key, icon, targetLabel }) => {
-                const m = kpis[key];
-                const isPass = m.status === 'pass';
-                return (
-                  <tr key={key} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
-                      {icon} {m.label}
-                    </td>
-                    <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 15, color: isPass ? '#059669' : '#DC2626' }}>
-                      {m.value}{m.unit}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{targetLabel}</td>
-                    <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{m.num} / {m.den}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <span style={{
-                        display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                        background: isPass ? '#F0FDF4' : '#FEF2F2',
-                        color: isPass ? '#059669' : '#DC2626',
-                      }}>{isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</span>
-                    </td>
+          {/* ─── KPI Cards Grid ──────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+            {metrics.map(({ key, icon, targetLabel, desc }) => (
+              <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc} />
+            ))}
+          </div>
+
+          {/* ─── Summary Table ───────────────────── */}
+          <Card>
+            <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.primary }}>📋 ตารางสรุปตัวชี้วัด</h3>
+            <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: C.bgAlt }}>
+                    {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','ตัวเศษ/ส่วน','ผล'].map((h,i) => (
+                      <th key={i} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                </thead>
+                <tbody>
+                  {metrics.map(({ key, icon, targetLabel }) => {
+                    const m = kpis[key];
+                    const isPass = m.status === 'pass';
+                    return (
+                      <tr key={key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
+                          {icon} {m.label}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 15, color: isPass ? '#059669' : '#DC2626' }}>
+                          {m.value}{m.unit}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{targetLabel}</td>
+                        <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{m.num} / {m.den}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: isPass ? '#F0FDF4' : '#FEF2F2',
+                            color: isPass ? '#059669' : '#DC2626',
+                          }}>{isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      ) : (
+        <KPITrendTable trend={trend} metrics={metrics} />
+      )}
     </div>
   );
 };
+
+// ─── ตารางแนวโน้มย้อนหลัง — ตัวชี้วัดครบทั้ง 6 ตัว × หลายช่วงเวลา ────────────
+const KPITrendTable = ({ trend, metrics }) => {
+  if (!trend || trend.length === 0) return null;
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.primary }}>📈 แนวโน้มตัวชี้วัดย้อนหลัง ({trend.length} ช่วงเวลา)</h3>
+        <Btn size="sm" variant="ghost" onClick={() => window.printQualityKPITrend?.(trend, metrics)}>🖨️ พิมพ์รายงานแนวโน้ม</Btn>
+      </div>
+      <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead>
+            <tr style={{ background: C.bgAlt }}>
+              <th style={{ padding: '9px 12px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: C.bgAlt, zIndex: 1 }}>ตัวชี้วัด</th>
+              {trend.map(t => (
+                <th key={t.label} style={{ padding: '9px 12px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>{t.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map(({ key, icon, label: fallbackLabel }) => {
+              const firstVal = parseFloat(trend[0]?.kpis[key]?.value) || 0;
+              const lastVal  = parseFloat(trend[trend.length - 1]?.kpis[key]?.value) || 0;
+              const lowerBetter = trend[0]?.kpis[key]?.lowerBetter;
+              const improved = lowerBetter ? lastVal < firstVal : lastVal > firstVal;
+              const changed  = lastVal !== firstVal;
+              return (
+                <tr key={key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '9px 12px', fontWeight: 600, color: C.text, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: C.surface }}>
+                    {icon} {trend[0]?.kpis[key]?.label || fallbackLabel}
+                    {changed && <span style={{ marginLeft: 6, fontSize: 11, color: improved ? '#059669' : '#DC2626' }}>{improved ? '↗' : '↘'}</span>}
+                  </td>
+                  {trend.map(t => {
+                    const m = t.kpis[key];
+                    const isPass = m.status === 'pass';
+                    return (
+                      <td key={t.label} style={{ padding: '9px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 700, color: isPass ? '#059669' : '#DC2626' }}>{m.value}{m.unit === '%' ? '%' : ''}</span>
+                        <div style={{ fontSize: 9.5, color: C.textMuted }}>{m.num}/{m.den}</div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11, color: C.textMuted }}>
+        * ตัวเลขเล็กใต้ค่าคือ ตัวเศษ/ตัวส่วน ของช่วงเวลานั้น · ลูกศร ↗/↘ เทียบช่วงแรกกับช่วงล่าสุดในตาราง
+      </div>
+    </Card>
+  );
+};
+
+// ── พิมพ์รายงานตัวชี้วัดคุณภาพ — ช่วงเวลาเดียว ──────────────────────────────
+function printQualityKPIReport(kpis, metrics, dateRange) {
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const rows = metrics.map(({ key, icon, targetLabel }) => {
+    const m = kpis[key];
+    const isPass = m.status === 'pass';
+    return `<tr>
+      <td>${icon} ${m.label}</td>
+      <td style="font-weight:700;color:${isPass ? '#059669' : '#DC2626'}">${m.value}${m.unit}</td>
+      <td>${targetLabel}</td>
+      <td>${m.num} / ${m.den}</td>
+      <td style="font-weight:700;color:${isPass ? '#059669' : '#DC2626'}">${isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</td>
+    </tr>`;
+  }).join('');
+  const html = `
+    <h1>🏆 รายงานตัวชี้วัดคุณภาพ COPD/Asthma Clinic</h1>
+    <div class="meta">ช่วงเวลา: ${dateRange.start} ถึง ${dateRange.end} · พิมพ์เมื่อ: ${today}</div>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${kpis.patientCount}</div><div class="l">ผู้ป่วยทั้งหมด</div></div>
+      <div class="stat"><div class="n">${kpis.copdCount}</div><div class="l">COPD</div></div>
+      <div class="stat"><div class="n">${kpis.asthmaCount}</div><div class="l">Asthma</div></div>
+      <div class="stat"><div class="n">${kpis.visitCount}</div><div class="l">Visits ในช่วง</div></div>
+    </div>
+    <table>
+      <thead><tr><th>ตัวชี้วัด</th><th>ค่าที่ได้</th><th>เป้าหมาย</th><th>ตัวเศษ/ส่วน</th><th>ผล</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  window.openPrintWindow(html, 'รายงานตัวชี้วัดคุณภาพ COPD-Asthma Clinic');
+}
+
+// ── พิมพ์รายงานแนวโน้มตัวชี้วัดย้อนหลัง — หลายช่วงเวลา ──────────────────────
+function printQualityKPITrend(trend, metrics) {
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const headerCells = trend.map(t => `<th>${t.label}</th>`).join('');
+  const rows = metrics.map(({ key, icon, label: fallbackLabel }) => {
+    const cells = trend.map(t => {
+      const m = t.kpis[key];
+      const isPass = m.status === 'pass';
+      return `<td style="text-align:center"><span style="font-weight:700;color:${isPass ? '#059669' : '#DC2626'}">${m.value}${m.unit === '%' ? '%' : ''}</span><br><span style="font-size:9px;color:#94A3B8">${m.num}/${m.den}</span></td>`;
+    }).join('');
+    const label = trend[0]?.kpis[key]?.label || fallbackLabel;
+    return `<tr><td>${icon} ${label}</td>${cells}</tr>`;
+  }).join('');
+  const html = `
+    <h1>📈 รายงานแนวโน้มตัวชี้วัดคุณภาพย้อนหลัง</h1>
+    <div class="meta">${trend[0]?.label || ''} — ${trend[trend.length - 1]?.label || ''} (${trend.length} ช่วงเวลา) · พิมพ์เมื่อ: ${today}</div>
+    <table>
+      <thead><tr><th>ตัวชี้วัด</th>${headerCells}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  window.openPrintWindow(html, 'รายงานแนวโน้มตัวชี้วัดคุณภาพย้อนหลัง');
+}
+window.printQualityKPIReport = printQualityKPIReport;
+window.printQualityKPITrend = printQualityKPITrend;
 
 // ============ Analytics Dashboard (Full) ============
 // ════════════════════════════════════════════════════════
