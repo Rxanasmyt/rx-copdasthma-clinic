@@ -784,6 +784,8 @@
 const generateId = () =>
   Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
+// critical: true บนขั้นตอนที่ถ้าทำผิดจะทำให้ยาไม่เข้าปอดอย่างมีนัยสำคัญ (ตามหลัก ADMIT/GINA/GOLD)
+// ขั้นตอนเหล่านี้ถ้าพลาดแม้เพียงข้อเดียว จะถือว่า "ไม่ผ่าน" ทันที ไม่ว่าคะแนนรวมจะเป็นเท่าไร
 const INHALER_CHECKLISTS = {
   pMDI: {
     label: 'pMDI',
@@ -796,7 +798,8 @@ const INHALER_CHECKLISTS = {
       'กลั้นหายใจอย่างน้อย 10 วินาที',
       'หายใจออกช้าๆ ทางจมูกหรือออกข้างปาก',
       'รอ 1 นาทีก่อนพ่นครั้งถัดไป (กรณีพ่นหลายครั้ง)'
-    ]
+    ],
+    critical: [false, false, true, true, true, false, false]
   },
   pMDI_spacer: {
     label: 'pMDI + Spacer',
@@ -809,7 +812,8 @@ const INHALER_CHECKLISTS = {
       'กลั้นหายใจอย่างน้อย 10 วินาที',
       'หายใจออกช้าๆ (ผ่าน Spacer หรือถอดออกก่อน)',
       'รอ 30–60 วินาทีก่อนพ่นครั้งถัดไป'
-    ]
+    ],
+    critical: [true, false, true, true, false, false, false]
   },
   turbuhaler: {
     label: 'Turbuhaler',
@@ -822,7 +826,8 @@ const INHALER_CHECKLISTS = {
       'หายใจเข้าแรง เร็ว ลึก ให้มากที่สุดเท่าที่ทำได้',
       'กลั้นหายใจอย่างน้อย 10 วินาที',
       'ปิดฝาหลังใช้งานทุกครั้ง'
-    ]
+    ],
+    critical: [false, true, false, true, true, true, false]
   },
   diskus: {
     label: 'Diskus/Accuhaler',
@@ -835,7 +840,8 @@ const INHALER_CHECKLISTS = {
       'หายใจเข้าแรง เร็ว ลึก ให้มากที่สุดเท่าที่ทำได้',
       'กลั้นหายใจอย่างน้อย 10 วินาที',
       'ปิดฝา Diskus หลังใช้งานทุกครั้ง'
-    ]
+    ],
+    critical: [false, true, false, true, true, true, false]
   },
   ellipta: {
     label: 'Ellipta',
@@ -848,7 +854,8 @@ const INHALER_CHECKLISTS = {
       'กลั้นหายใจอย่างน้อย 3–4 วินาที (แนะนำ 10 วินาที)',
       'หายใจออกช้าๆ',
       'ปิดฝาทันทีหลังใช้งาน'
-    ]
+    ],
+    critical: [true, false, true, true, true, false, false]
   }
 };
 
@@ -8036,12 +8043,20 @@ function SecHd({ n, title, color, right }) {
 function InhalerChecklistCard({ entry, index, onChange, onRemove }) {
   const cl = AppStore.INHALER_CHECKLISTS;
   const steps = entry.device && cl[entry.device] ? cl[entry.device].steps : [];
+  const critical = entry.device && cl[entry.device] ? (cl[entry.device].critical || steps.map(() => false)) : [];
+  // ขั้นตอนที่เป็น critical ถ้าพลาดแม้ข้อเดียว ถือว่าเทคนิคไม่ผ่าน (Poor) ทันที
+  // เพราะเป็นขั้นตอนที่กระทบการนำส่งยาเข้าปอดโดยตรง ไม่ใช่แค่ความครบถ้วนของขั้นตอนทั้งหมด
+  const scoreFrom = (next) => {
+    const cnt = next.filter(Boolean).length;
+    const pct = steps.length > 0 ? cnt / steps.length : 0;
+    const criticalMissed = critical.some((c, si) => c && !next[si]);
+    if (criticalMissed) return 'Poor';
+    return pct >= 0.85 ? 'Good' : pct >= 0.57 ? 'Acceptable' : 'Poor';
+  };
   const toggleStep = (i) => {
     const next = [...(entry.stepsCorrect || steps.map(() => false))];
     next[i] = !next[i];
-    const cnt = next.filter(Boolean).length;
-    const pct = steps.length > 0 ? cnt / steps.length : 0;
-    const overallScore = pct >= 0.85 ? 'Good' : pct >= 0.57 ? 'Acceptable' : 'Poor';
+    const overallScore = scoreFrom(next);
     const errors = steps.filter((_, si) => !next[si]);
     onChange(index, { ...entry, stepsCorrect: next, overallScore, errors });
   };
@@ -8083,12 +8098,17 @@ function InhalerChecklistCard({ entry, index, onChange, onRemove }) {
             <label key={si} style={{
               display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
               padding: '5px 8px', borderRadius: 6, marginBottom: 1,
-              background: stepsCorrect[si] ? '#F0FDF4' : 'transparent', transition: 'background 0.1s',
+              background: stepsCorrect[si] ? '#F0FDF4' : (critical[si] ? '#FEF2F2' : 'transparent'), transition: 'background 0.1s',
             }}>
               <input type="checkbox" checked={!!stepsCorrect[si]} onChange={() => toggleStep(si)}
                 style={{ accentColor: '#059669', marginTop: 2, flexShrink: 0, width: 15, height: 15 }} />
               <span style={{ fontSize: 13, color: stepsCorrect[si] ? '#059669' : C.text, lineHeight: 1.5 }}>
                 <strong style={{ color: C.textMuted }}>{si + 1}.</strong> {step}
+                {critical[si] && (
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#DC2626', background: '#FEE2E2', padding: '1px 6px', borderRadius: 8 }}>
+                    ⚠ จุดสำคัญ
+                  </span>
+                )}
               </span>
             </label>
           ))}
