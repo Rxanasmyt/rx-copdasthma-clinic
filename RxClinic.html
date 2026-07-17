@@ -1522,6 +1522,14 @@ const calcDOBFromAge = (years, months, days) => {
   return `${dob.getFullYear()}-${pad(dob.getMonth() + 1)}-${pad(dob.getDate())}`;
 };
 
+// ── แกะ "63 ปี 1 เดือน 2 วัน" (รูปแบบที่ HOSxP แสดง) เป็น {years, months, days} ──
+// คืนค่า null ถ้าข้อความที่วางไม่มีคำว่า "ปี" ประกอบ (กันไม่ให้ paste ตัวเลขเดี่ยวๆ ถูกตีความผิด)
+const parseAgeYMD = (str) => {
+  const m = (str || '').match(/(\d{1,3})\s*ปี(?:\s*(\d{1,2})\s*เดือน)?(?:\s*(\d{1,2})\s*วัน)?/);
+  if (!m) return null;
+  return { years: m[1], months: m[2] || '0', days: m[3] || '0' };
+};
+
 // ── อายุ "ปัจจุบันจริง" ของผู้ป่วย — ใช้วันเกิดคำนวณสดถ้ามี ไม่งั้น fallback เป็นตัวเลขอายุที่บันทึกไว้ ──
 // ใช้จุดนี้แทน patient.age ตรงๆ ในส่วนที่เกี่ยวกับความปลอดภัยทางคลินิก (คัดกรองความเสี่ยง)
 const getPatientAge = (patient) => {
@@ -1601,6 +1609,7 @@ const AppStore = {
   genderFromPrefix,
   calcAgeFromDOB,
   calcDOBFromAge,
+  parseAgeYMD,
   getPatientAge,
 
   getDefault() {
@@ -6545,6 +6554,19 @@ function PatientForm({ patient, onSave, onClose }) {
     if (dob) setDOB(dob);
   };
 
+  // วางข้อความอายุละเอียด เช่น "63 ปี 1 เดือน 2 วัน" ลงในช่องอายุ — แยก ปี/เดือน/วัน และคำนวณวันเกิดให้อัตโนมัติ
+  const handleAgePaste = (e) => {
+    const text = e.clipboardData?.getData('text');
+    if (!text) return;
+    const parsed = AppStore.parseAgeYMD(text);
+    if (!parsed) return; // ไม่มีคำว่า "ปี" ประกอบ — ปล่อยให้วางตัวเลขปกติ (เช่น พิมพ์แค่ "63")
+    e.preventDefault();
+    setShowAgeCalc(true);
+    setAgeParts({ y: parsed.years, m: parsed.months, d: parsed.days });
+    const dob = AppStore.calcDOBFromAge(parsed.years, parsed.months, parsed.days);
+    if (dob) setDOB(dob); else set('age', parsed.years);
+  };
+
   // วางชื่อเต็ม (เช่น "นางป้อเสาะ ลี๊สะเอะ") ลงในช่องชื่อ/นามสกุล — แยกคำนำหน้า/ชื่อ/นามสกุลให้อัตโนมัติ
   const handleNamePaste = (e) => {
     const text = e.clipboardData?.getData('text');
@@ -6633,8 +6655,8 @@ function PatientForm({ patient, onSave, onClose }) {
         </div>
       </FormField>
       <div style={row3}>
-        <FormField label="อายุ (ปี)" required error={err.age} hint={ocrHint('age')}>
-          <Input value={f.age} onChange={v => set('age', v)} type="number" placeholder="0" />
+        <FormField label="อายุ (ปี)" required error={err.age} hint={ocrHint('age') || 'วางข้อความ "63 ปี 1 เดือน 2 วัน" ได้ตรงนี้ ระบบจะแยกและคำนวณวันเกิดให้เอง'}>
+          <Input value={f.age} onChange={v => set('age', v)} onPaste={handleAgePaste} type="number" placeholder="0" />
         </FormField>
         <FormField label="วันเกิด (DOB)" hint="กรอกแล้วช่อง “อายุ” จะคำนวณให้อัตโนมัติ และนับอายุเพิ่มขึ้นเองทุกปี">
           <Input type="date" value={f.dateOfBirth} onChange={setDOB} />
@@ -6658,7 +6680,7 @@ function PatientForm({ patient, onSave, onClose }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
             <FormField label="ปี" hint={null}>
-              <Input value={ageParts.y} onChange={v => updateAgePart('y', v)} type="number" placeholder="0" />
+              <Input value={ageParts.y} onChange={v => updateAgePart('y', v)} onPaste={handleAgePaste} type="number" placeholder="0" />
             </FormField>
             <FormField label="เดือน" hint={null}>
               <Input value={ageParts.m} onChange={v => updateAgePart('m', v)} type="number" placeholder="0" />
