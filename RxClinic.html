@@ -6481,24 +6481,24 @@ function PatientForm({ patient, onSave, onClose }) {
       {/* 🤖 OCR intake — เฉพาะตอนเพิ่มผู้ป่วยใหม่ */}
       {!patient && <HosxpOcrPanel onExtract={handleOcrExtract} />}
 
-      {/* Basic Info */}
-      <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ข้อมูลพื้นฐาน</p>
+      {/* Basic Info — ช่องที่บังคับกรอก (*) จัดไว้ใกล้กันด้านบนสุด เพื่อกรอกได้เร็วขึ้น */}
+      <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ข้อมูลพื้นฐาน (* บังคับกรอก)</p>
       <div style={row2}>
         <FormField label="HN" required error={err.hn} hint={ocrHint('hn')}>
           <Input value={f.hn} onChange={v => set('hn', v)} placeholder="67-XXXXXX" error={err.hn} />
         </FormField>
-        <FormField label="คำนำหน้า" hint={ocrHint('prefix')}>
+        <FormField label="เบอร์โทรศัพท์" required error={err.phone} hint={ocrHint('phone')}>
+          <Input value={f.phone} onChange={v => set('phone', v)} placeholder="0XX-XXX-XXXX" />
+        </FormField>
+      </div>
+      {/* คำนำหน้า + ชื่อ + นามสกุล รวมอยู่ในแถวเดียวกัน */}
+      <FormField label="คำนำหน้า / ชื่อ-นามสกุล" required error={err.firstName || err.lastName} hint={ocrHint('firstName') || ocrHint('lastName') || ocrHint('prefix')}>
+        <div style={{ display: 'grid', gridTemplateColumns: '104px 1fr 1fr', gap: 8 }}>
           <Select value={f.prefix} onChange={v => set('prefix', v)} options={['นาย','นาง','นางสาว','เด็กชาย','เด็กหญิง']} />
-        </FormField>
-      </div>
-      <div style={row2}>
-        <FormField label="ชื่อ" required error={err.firstName} hint={ocrHint('firstName')}>
           <Input value={f.firstName} onChange={v => set('firstName', v)} placeholder="ชื่อ" />
-        </FormField>
-        <FormField label="นามสกุล" required error={err.lastName} hint={ocrHint('lastName')}>
           <Input value={f.lastName} onChange={v => set('lastName', v)} placeholder="นามสกุล" />
-        </FormField>
-      </div>
+        </div>
+      </FormField>
       <div style={row3}>
         <FormField label="อายุ (ปี)" required error={err.age} hint={ocrHint('age')}>
           <Input value={f.age} onChange={v => set('age', v)} type="number" placeholder="0" />
@@ -6555,15 +6555,10 @@ function PatientForm({ patient, onSave, onClose }) {
 
       {/* Contact */}
       <hr style={{ margin: '8px 0 16px', border: 'none', borderTop: `1px solid ${C.border}` }} />
-      <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ช่องทางติดต่อ</p>
-      <div style={row2}>
-        <FormField label="เบอร์โทรศัพท์" required error={err.phone} hint={ocrHint('phone')}>
-          <Input value={f.phone} onChange={v => set('phone', v)} placeholder="0XX-XXX-XXXX" />
-        </FormField>
-        <FormField label="วันเกิด (DOB)" hint="ใช้เป็น 2nd identifier ตาม HA PSG1">
-          <Input type="date" value={f.dateOfBirth} onChange={v => set('dateOfBirth', v)} />
-        </FormField>
-      </div>
+      <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>ช่องทางติดต่อเพิ่มเติม</p>
+      <FormField label="วันเกิด (DOB)" hint="ใช้เป็น 2nd identifier ตาม HA PSG1">
+        <Input type="date" value={f.dateOfBirth} onChange={v => set('dateOfBirth', v)} style={{ maxWidth: 220 }} />
+      </FormField>
 
       {/* Safety: Allergies + Renal */}
       <hr style={{ margin: '8px 0 16px', border: 'none', borderTop: `1px solid ${C.border}` }} />
