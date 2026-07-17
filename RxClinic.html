@@ -1664,6 +1664,7 @@ const AppStore = {
       patients: [...SAMPLE_PATIENTS],
       visits: [...SAMPLE_VISITS],
       telepharmacy: [...SAMPLE_TELEPHARMACY],
+      clinicDayRosters: [],
       haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
       _savedAt: 0,      // ข้อมูลตัวอย่าง — เก่าที่สุดเสมอ เพื่อให้ข้อมูลจริงจาก Firebase ชนะตอน merge
       _isSample: true,  // ธงบอกว่าเป็นข้อมูลตัวอย่าง ยังไม่เคยถูกผู้ใช้แก้ไข
@@ -5105,7 +5106,7 @@ function UserManager({ data, onDataChange, currentUser }) {
             if (!window.confirm('ยืนยันอีกครั้ง — ข้อมูลผู้ป่วยทั้งหมดจะถูกลบถาวร')) return;
             // Auto-backup ก่อนล้างข้อมูลเสมอ
             if (window._rxForceBackup) await window._rxForceBackup();
-            onDataChange({ ...data, patients: [], visits: [], telepharmacy: [],
+            onDataChange({ ...data, patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
               haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
           }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
         </Card>
@@ -5722,6 +5723,7 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       patients: data.patients || [],
       visits: data.visits || [],
       telepharmacy: data.telepharmacy || [],
+      clinicDayRosters: data.clinicDayRosters || [],
       haCompliance: data.haCompliance || {},
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -5777,6 +5779,7 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       patients:     p.patients || [],
       visits:       p.visits || [],
       telepharmacy: p.telepharmacy || [],
+      clinicDayRosters: p.clinicDayRosters || data.clinicDayRosters || [],
       haCompliance: p.haCompliance || data.haCompliance || {},
     };
     onDataChange(merged);
@@ -11709,20 +11712,53 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const techniqueStatus = parseFloat(techniquePct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 6: ผู้ป่วยมาตามนัด ได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────
-  // ตัวหาร = ผู้ป่วยที่ "มีนัด" (nextVisit จาก visit ครั้งก่อน) ตกอยู่ในช่วงเวลาที่เลือก
-  //          (คือผู้ป่วยที่ควรมาคลินิกในช่วงนี้ — ไม่ใช่ผู้ป่วยทั้งหมดที่เคยลงทะเบียน
-  //           ผู้ป่วยใหม่ที่ยังไม่เคยมีนัดจึงไม่ถูกนับในตัวหารข้อนี้ เพราะยังไม่มีนัดให้เทียบ)
-  // ตัวเศษ = ในจำนวนที่มีนัด กี่คนที่มา (มี visit หรือ telepharmacy จริงในช่วงเวลาเดียวกัน)
-  const dueThisPeriod = new Map(); // patientId -> nextVisit ล่าสุดที่ตกช่วงนี้
+  // ตัวหาร (แหล่งข้อมูลหลัก) = "จำนวนที่นัดวันคลินิก" ที่เภสัชกรรีวิว/บันทึกเองทุกเช้าวันคลินิก
+  //   (clinicDayRosters) เพราะเป็นจำนวนที่ตรงกับรายชื่อนัดจริงของแพทย์วันนั้น ไม่ใช่แค่ผู้ป่วยที่
+  //   เภสัชกรเคยตั้ง nextVisit ไว้เอง (ซึ่งอาจไม่ครบทุกคนที่แพทย์นัด)
+  // ถ้าวันไหนยังไม่มีการบันทึก roster (เช่น ข้อมูลเก่าก่อนเริ่มใช้ฟีเจอร์นี้) จะ fallback ไปใช้
+  //   วิธีเดิม คือนับจาก nextVisit ของ visit ครั้งก่อน เฉพาะผู้ป่วยที่นัดวันนั้นไม่ได้ถูกบันทึก roster ไว้
+  const clinicDayRosters = (data.clinicDayRosters || []).filter(r => r.date >= startDate && r.date <= endDate);
+  const rosterDates = new Set(clinicDayRosters.map(r => r.date));
+
+  let dueCount = 0;
+  let cameCount = 0;
+  const noShowRoster = [];
+
+  // ── ส่วนที่มาจาก roster ที่บันทึกเอง (ตัวหาร = scheduledCount ตรงๆ) ──
+  clinicDayRosters.forEach(r => {
+    const scheduled = Number(r.scheduledCount) || 0;
+    dueCount += scheduled;
+    const trackedIds = r.patientIds || [];
+    // นับคนที่มาจริงในวันนั้น (visit หรือ telepharmacy สำเร็จ ตรงวันที่ roster)
+    const cameSet = new Set();
+    allVisits.forEach(v => { if (v.visitDate === r.date) cameSet.add(v.patientId); });
+    (data.telepharmacy || []).forEach(t => {
+      const d = t.actualDate || t.scheduledDate || '';
+      if (d === r.date && t.status === 'Success') cameSet.add(t.patientId);
+    });
+    cameCount += cameSet.size;
+    // สร้างรายชื่อไม่มาเฉพาะกรณีที่ระบุรายชื่อผู้ป่วยที่นัด (trackedIds) ไว้ด้วย
+    trackedIds.forEach(pid => {
+      if (!cameSet.has(pid)) {
+        const p = patients.find(pt => pt.id === pid);
+        if (p) noShowRoster.push({
+          id: p.id, hn: p.hn,
+          name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+          diagnosis: p.diagnosis, nextVisit: r.date,
+        });
+      }
+    });
+  });
+
+  // ── ส่วน fallback สำหรับวันที่ยังไม่มีการบันทึก roster (ข้อมูลเก่า/ยังไม่ได้ log) ──
+  const dueThisPeriod = new Map(); // patientId -> nextVisit ล่าสุดที่ตกช่วงนี้ และยังไม่มี roster ของวันนั้น
   allVisits.forEach(v => {
-    if (v.nextVisit && v.nextVisit >= startDate && v.nextVisit <= endDate) {
+    if (v.nextVisit && v.nextVisit >= startDate && v.nextVisit <= endDate && !rosterDates.has(v.nextVisit)) {
       const prevDue = dueThisPeriod.get(v.patientId);
       if (!prevDue || v.nextVisit > prevDue) dueThisPeriod.set(v.patientId, v.nextVisit);
     }
   });
-  const dueCount = dueThisPeriod.size;
-  let cameCount = 0;
-  const noShowRoster = [];
+  dueCount += dueThisPeriod.size;
   dueThisPeriod.forEach((nextVisitDate, pid) => {
     const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= startDate && v.visitDate <= endDate);
     const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid &&
@@ -16239,7 +16275,104 @@ function AIInsightsPanel({ data, navigate }) {
   );
 }
 
-function Dashboard({ data, navigate }) {
+// ── บันทึกจำนวนนัดวันคลินิก (Clinic Day Roster) ─────────────────────────────
+// ทุกเช้าวันคลินิก เภสัชกรรีวิวรายชื่อนัดจากแพทย์ แล้วบันทึกจำนวน/รายชื่อที่นัดไว้ที่นี่
+// ค่านี้ใช้เป็นตัวหาร KPI6 แทนการอนุมานจาก nextVisit เพียงอย่างเดียว เพราะ nextVisit
+// เป็นแค่นัดที่เภสัชกรตั้งเอง ไม่ครอบคลุมผู้ป่วยทุกคนที่แพทย์นัดมาคลินิกวันนั้นจริง
+function ClinicDayRosterCard({ data, onDataChange, todayStr, scheduledToday, currentUser }) {
+  const rosters = data.clinicDayRosters || [];
+  const existing = rosters.find(r => r.date === todayStr);
+  const [editing, setEditing] = useState(!existing);
+  const [checkedIds, setCheckedIds] = useState(() =>
+    existing ? new Set(existing.patientIds || []) : new Set(scheduledToday.map(x => x.patient.id)));
+  const [extraCount, setExtraCount] = useState(existing ? (existing.extraCount || 0) : 0);
+  const [note, setNote] = useState(existing ? (existing.note || '') : '');
+
+  if (!editing && existing) {
+    const scheduledCount = existing.scheduledCount ?? ((existing.patientIds || []).length + (existing.extraCount || 0));
+    return (
+      <Card style={{ marginBottom: 20, borderLeft: `3px solid ${C.primary}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.primary }}>📋 จำนวนนัดวันคลินิกวันนี้ (ใช้เป็นตัวหาร KPI6)</div>
+            <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{scheduledCount} คน</div>
+            {existing.enteredBy && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>บันทึกโดย {existing.enteredBy} · {existing.enteredAt ? new Date(existing.enteredAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}</div>}
+            {existing.note && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{existing.note}</div>}
+          </div>
+          <Btn size="sm" variant="ghost" onClick={() => setEditing(true)}>✎ แก้ไข</Btn>
+        </div>
+      </Card>
+    );
+  }
+
+  const toggle = (id) => {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const scheduledCount = checkedIds.size + (Number(extraCount) || 0);
+
+  const save = () => {
+    const entry = {
+      id: existing?.id || AppStore.generateId(),
+      date: todayStr,
+      patientIds: [...checkedIds],
+      extraCount: Number(extraCount) || 0,
+      scheduledCount,
+      note,
+      enteredBy: (currentUser?.name || currentUser?.username || ''),
+      enteredAt: Date.now(),
+    };
+    const next = existing
+      ? rosters.map(r => r.id === existing.id ? entry : r)
+      : [...rosters, entry];
+    onDataChange({ ...data, clinicDayRosters: next });
+    setEditing(false);
+  };
+
+  return (
+    <Card style={{ marginBottom: 20, borderLeft: `3px solid ${C.primary}` }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.primary, marginBottom: 4 }}>📋 บันทึกจำนวนนัดวันคลินิกวันนี้</div>
+      <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
+        รีวิวรายชื่อนัดจากแพทย์ตอนเช้า แล้วติ๊กผู้ป่วยที่มีในระบบ + ระบุจำนวนที่ยังไม่ได้ลงทะเบียน (walk-in/OPD เพิ่ม)
+        — ใช้เป็นตัวหารของตัวชี้วัดที่ 6
+      </div>
+      {scheduledToday.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+          {scheduledToday.map(({ patient: p }) => (
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', background: checkedIds.has(p.id) ? '#F0FDF4' : 'transparent' }}>
+              <input type="checkbox" checked={checkedIds.has(p.id)} onChange={() => toggle(p.id)}
+                style={{ accentColor: '#059669', width: 15, height: 15 }} />
+              <span style={{ fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName} <span style={{ color: C.textMuted, fontSize: 11 }}>(HN {p.hn})</span></span>
+            </label>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <div>
+          <label style={{ fontSize: 11.5, fontWeight: 600, color: C.textMuted, display: 'block', marginBottom: 4 }}>+ นัดเพิ่มที่ยังไม่มีในระบบ (walk-in/OPD เพิ่ม)</label>
+          <Input type="number" min="0" value={extraCount} onChange={v => setExtraCount(v)} style={{ width: 100 }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <label style={{ fontSize: 11.5, fontWeight: 600, color: C.textMuted, display: 'block', marginBottom: 4 }}>หมายเหตุ (ถ้ามี)</label>
+          <Input value={note} onChange={v => setNote(v)} placeholder="เช่น วันนี้แพทย์นัดพิเศษเพิ่ม" />
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>รวมนัดวันนี้: <span style={{ color: C.primary }}>{scheduledCount} คน</span></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {existing && <Btn size="sm" variant="ghost" onClick={() => setEditing(false)}>ยกเลิก</Btn>}
+          <Btn size="sm" variant="accent" onClick={save}>💾 บันทึก</Btn>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const pts = data.patients;
   const vis = data.visits;
   const tel = data.telepharmacy;
@@ -16447,6 +16580,10 @@ function Dashboard({ data, navigate }) {
           </div>
         </div>
       )}
+
+      {/* ── บันทึกจำนวนนัดวันคลินิก (ใช้เป็นตัวหาร KPI6) ── */}
+      <ClinicDayRosterCard data={data} onDataChange={onDataChange} todayStr={todayStr}
+        scheduledToday={scheduledToday} currentUser={currentUser} />
 
       {/* Upcoming visit reminders */}
       {overdueFollowups.length > 0 && (
@@ -16886,7 +17023,7 @@ function App() {
 
       // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
-      let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
+      let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], clinicDayRosters:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
       setCurrentUser(prev => {
@@ -17191,7 +17328,7 @@ function App() {
   const renderView = () => {
     switch (view) {
       case 'dashboard':
-        return <Dashboard data={data} navigate={navigate} />;
+        return <Dashboard data={data} navigate={navigate} onDataChange={handleDataChange} currentUser={currentUser} />;
       case 'patients':
         return <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} />;
       case 'history':
@@ -17230,7 +17367,7 @@ function App() {
           onConfigSave={initFirebase} syncStatus={syncStatus}
           onForceBackup={forceBackup} onLoadBackupSlots={loadBackupSlots} />;
       default:
-        return <Dashboard data={data} navigate={navigate} />;
+        return <Dashboard data={data} navigate={navigate} onDataChange={handleDataChange} currentUser={currentUser} />;
     }
   };
 
