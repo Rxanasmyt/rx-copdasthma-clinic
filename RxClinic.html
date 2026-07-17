@@ -6513,8 +6513,9 @@ function PatientForm({ patient, onSave, onClose }) {
     eGFR: '', weight: '',
     smokingStatus: 'Unknown', packYears: '',
     vaccinations: { flu: '', pcv13: '', ppsv23: '', covid: '' },
+    exacerbationEvents: [], // ประวัติกำเริบแบบมีวันที่จริง — สะสมไปเรื่อยๆ ไม่ถูกลบเมื่อมี visit ใหม่
   };
-  const [f, setF] = pvState(patient ? { ...patient } : blank);
+  const [f, setF] = pvState(patient ? { ...blank, ...patient } : blank);
   const [err, setErr] = pvState({});
   const [ocrFilled, setOcrFilled] = pvState({}); // { fieldKey: true } — ช่องที่ AI กรอกให้ ยังไม่ได้ตรวจสอบ
 
@@ -8808,6 +8809,23 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   };
   const [f, setF] = vfState(initial);
 
+  // ── ประวัติกำเริบแบบมีวันที่จริง (เก็บที่ระดับผู้ป่วย สะสมไปเรื่อยๆ) ──────
+  // ตั้งต้นจากประวัติเดิมของผู้ป่วยเสมอ (ไม่ต้องพิมพ์ซ้ำ) — เพิ่มได้เฉพาะรายการใหม่ ลบได้เฉพาะที่พิมพ์ผิด
+  const [exacEvents, setExacEvents] = vfState(patient?.exacerbationEvents || []);
+  const [newExacDate, setNewExacDate] = vfState('');
+  const [newExacSeverity, setNewExacSeverity] = vfState('Moderate');
+  const [newExacHosp, setNewExacHosp] = vfState(false);
+  const [newExacER, setNewExacER] = vfState(false);
+  const addExacEvent = () => {
+    if (!newExacDate) return;
+    setExacEvents(prev => [...prev, {
+      id: AppStore.generateId(), date: newExacDate, severity: newExacSeverity,
+      hospitalized: newExacHosp, erVisit: newExacER,
+    }]);
+    setNewExacDate(''); setNewExacSeverity('Moderate'); setNewExacHosp(false); setNewExacER(false);
+  };
+  const removeExacEvent = (id) => setExacEvents(prev => prev.filter(e => e.id !== id));
+
   // Check for existing draft on mount
   vfEffect(() => {
     const editId = isEditing ? editingVisit.id : null;
@@ -9012,7 +9030,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     const latestRisk = allForPt[0] ? { level: allForPt[0].riskLevel, flags: allForPt[0].riskFlags || [] } : { level: 'Low', flags: [] };
 
     const updatedPatients = data.patients.map(p => p.id === patientId
-      ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High' }
+      ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High', exacerbationEvents: exacEvents }
       : p);
     let newData = { ...data, visits: updatedVisits, patients: updatedPatients };
     // Audit log
@@ -9205,6 +9223,58 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                     { value: 'Daily',     label: 'ทุกวัน' },
                   ]} />
               </FormField>
+            </div>
+          </Card>
+
+          {/* ②b ประวัติกำเริบแบบมีวันที่จริง — สำหรับนับตัวชี้วัดตามช่วงเวลาอย่างแม่นยำ (ไม่ทับข้อมูลเดิม) */}
+          <Card style={{ marginTop: -6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.high }}>📅 ประวัติวันที่กำเริบ (ไม่บังคับ แต่ช่วยให้ตัวชี้วัดแม่นยำขึ้น)</span>
+              <span style={{ fontSize: 11, color: C.textMuted }}>— รายการเดิมจะแสดงไว้เสมอ เพิ่มเฉพาะครั้งใหม่ ไม่ต้องพิมพ์ซ้ำ</span>
+            </div>
+
+            {exacEvents.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                {[...exacEvents].sort((a, b) => b.date.localeCompare(a.date)).map(ev => (
+                  <div key={ev.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
+                    borderRadius: 8, background: C.bgAlt, fontSize: 12.5,
+                  }}>
+                    <span style={{ fontWeight: 700, color: C.text, minWidth: 90 }}>{ev.date}</span>
+                    <span style={{ color: C.textMuted }}>{ev.severity}</span>
+                    {ev.hospitalized && <span style={{ fontSize: 11, color: C.high }}>🏥 นอน รพ.</span>}
+                    {ev.erVisit && <span style={{ fontSize: 11, color: C.high }}>🚑 ER</span>}
+                    <button type="button" onClick={() => removeExacEvent(ev.id)} title="ลบรายการนี้ (ใช้แก้ไขกรณีพิมพ์ผิดเท่านั้น)" style={{
+                      marginLeft: 'auto', background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', fontSize: 13, padding: 4,
+                    }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '150px 160px auto auto auto', gap: 10, alignItems: 'end' }}>
+              <FormField label="วันที่กำเริบ" hint={null}>
+                <Input type="date" value={newExacDate} onChange={setNewExacDate} />
+              </FormField>
+              <FormField label="ความรุนแรง" hint={null}>
+                <Select value={newExacSeverity} onChange={setNewExacSeverity}
+                  options={[
+                    { value: 'Mild',     label: 'Mild' },
+                    { value: 'Moderate', label: 'Moderate' },
+                    { value: 'Severe',   label: 'Severe' },
+                  ]} />
+              </FormField>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5, marginBottom: 16 }}>
+                <input type="checkbox" checked={newExacHosp} onChange={e => setNewExacHosp(e.target.checked)}
+                  style={{ accentColor: C.high, width: 15, height: 15 }} />
+                นอน รพ.
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5, marginBottom: 16 }}>
+                <input type="checkbox" checked={newExacER} onChange={e => setNewExacER(e.target.checked)}
+                  style={{ accentColor: C.high, width: 15, height: 15 }} />
+                ER
+              </label>
+              <Btn size="sm" variant="accent" disabled={!newExacDate} onClick={addExacEvent} style={{ marginBottom: 16 }}>+ เพิ่ม</Btn>
             </div>
           </Card>
 
@@ -11416,11 +11486,21 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const asthmaCaredIds = new Set(asthmaCaredPts.map(p => p.id));
 
   // ─── KPI 1: COPD Exacerbation Rate (เป้า < 110 /100 ผู้ป่วย) ─────────────────
-  // ใช้ countThisYear จาก latest visit ของผู้ป่วย COPD ที่ได้รับการบริบาลแล้วเท่านั้น
+  // ถ้าผู้ป่วยมี "ประวัติวันที่กำเริบ" (exacerbationEvents) แล้ว ใช้นับเฉพาะ event ที่มีวันที่
+  // ตกอยู่ในช่วงเวลาที่เลือกจริง (แม่นยำ ไม่ซ้ำซ้อน ไม่มีปัญหา recall window ทับซ้อนกัน)
+  // ถ้ายังไม่มี event log เลย (ผู้ป่วยเก่า/ยังไม่เริ่มใช้ฟีเจอร์นี้) fallback เป็นค่า countThisYear
+  // จาก visit ล่าสุด (ค่าประมาณแบบเดิม) เพื่อไม่ให้ตัวเลขหายไปทั้งหมดระหว่างเปลี่ยนผ่าน
   let copdExacerbCount = 0;
+  let copdExacerbApproxCount = 0; // จำนวนผู้ป่วยที่ยังใช้ค่าประมาณ (ไม่มี event log) — ไว้แจ้งเตือนความแม่นยำ
   copdCaredPts.forEach(p => {
-    const v = latestVisit[p.id];
-    copdExacerbCount += (v?.exacerbation?.countThisYear || 0);
+    const events = p.exacerbationEvents || [];
+    if (events.length > 0) {
+      copdExacerbCount += events.filter(e => e.date && e.date >= startDate && e.date <= endDate).length;
+    } else {
+      const v = latestVisit[p.id];
+      copdExacerbCount += (v?.exacerbation?.countThisYear || 0);
+      copdExacerbApproxCount++;
+    }
   });
   const copdExacerbRate = copdCaredPts.length > 0
     ? ((copdExacerbCount / copdCaredPts.length) * 100).toFixed(1) : '0';
@@ -11523,12 +11603,18 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     const isAsthma = p.diagnosis === 'Asthma' || p.diagnosis === 'Both';
     const techs = v?.inhalerTechnique || [];
     const hasExacerbHx = (v?.exacerbation?.countThisYear || 0) > 0 || !!v?.exacerbation?.hospitalized;
+    const pEvents = p.exacerbationEvents || [];
+    const usesEventLog = pEvents.length > 0;
+    const exacerbCountInPeriod = usesEventLog
+      ? pEvents.filter(e => e.date && e.date >= startDate && e.date <= endDate).length
+      : (v?.exacerbation?.countThisYear || 0);
     return {
       id: p.id, hn: p.hn,
       name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
       diagnosis: p.diagnosis,
       lastVisitDate: v?.visitDate || null,
-      exacerbationCount: isCopd ? (v?.exacerbation?.countThisYear || 0) : null,
+      exacerbationCount: isCopd ? exacerbCountInPeriod : null,
+      exacerbationIsApprox: isCopd ? !usesEventLog : null, // true = ยังไม่มี event log ใช้ค่าประมาณจาก recall
       erOrAdmit: isAsthma ? (v?.exacerbation?.erVisit === true || v?.exacerbation?.hospitalized === true) : null,
       hasICS: isAsthma ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
@@ -11545,6 +11631,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
     visitCount:  srcVisits.length,
     patientCount: patients.length,
+    copdExacerbApproxCount, // จำนวนผู้ป่วย COPD ที่ยังไม่มี event log — ค่า KPI1 ส่วนนี้เป็นค่าประมาณ
     copdCount:   copdPts.length,
     asthmaCount: asthmaPts.length,
     roster,
@@ -11723,7 +11810,10 @@ const QualityKPIsDashboard = ({ data }) => {
     {
       key: 'copdExacerbRate', icon: '💨',
       targetLabel: '< 110 /100 ผู้ป่วย',
-      desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง',
+      desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง'
+        + (kpis.copdExacerbApproxCount > 0
+          ? ` · ⚠️ ${kpis.copdExacerbApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการซักประวัติแทน)`
+          : ''),
     },
     {
       key: 'asthmaErRate', icon: '🚑',
@@ -12040,7 +12130,9 @@ const PatientRosterTable = ({ roster, dateRange }) => {
                   <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.hn}</td>
                   <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{r.diagnosis}</td>
                   <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.lastVisitDate || '—'}</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{r.exacerbationCount ?? '—'}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }} title={r.exacerbationIsApprox ? 'ค่าประมาณ — ยังไม่มีบันทึกวันที่กำเริบละเอียด' : ''}>
+                    {r.exacerbationCount ?? '—'}{r.exacerbationIsApprox ? ' ≈' : ''}
+                  </td>
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.erOrAdmit)}</td>
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasICS)}</td>
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasAppropriateCOPDTherapy)}</td>
