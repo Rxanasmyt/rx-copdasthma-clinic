@@ -11345,7 +11345,7 @@ const MetricCard = ({ icon, label, value, subtitle, color = C.primary, suffix = 
   const numeric = raw !== '' && /^-?\d+(\.\d+)?$/.test(raw);
   const decimals = numeric && raw.includes('.') ? raw.split('.')[1].length : 0;
   return (
-    <div className="rx-insight-card rx-reveal" style={{
+    <div className="rx-insight-card" style={{
       position: 'relative', overflow: 'hidden', background: color,
       borderRadius: 16, padding: '18px 20px', color: '#fff',
       boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
@@ -11391,7 +11391,7 @@ const WeeklyCalendar = ({ data }) => {
   }, [data, week]);
 
   return (
-    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card">
       <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>📅 ปฏิทินสัปดาห์นี้</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
         {week.map((dateStr, i) => {
@@ -11432,7 +11432,7 @@ const PharmacistWorkload = ({ workloadMap }) => {
   const palette = ['#2563EB','#7C3AED','#059669','#DC2626','#D97706','#0F766E','#DB2777','#0369A1'];
   const maxV = Math.max(...entries.map(([, c]) => c), 1);
   return (
-    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card">
       <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>👥 ภาระงานเภสัชกร (สัปดาห์นี้)</h3>
       {entries.length === 0 ? (
         <EmptyState icon="📊" title="ยังไม่มี Visit สัปดาห์นี้" />
@@ -11479,7 +11479,7 @@ const DRPPatterns = ({ data }) => {
 
   const maxDrp = Math.max(...drpCounts.map(([, c]) => c), 1);
   return (
-    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card">
       <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>⚠️ DRP Patterns (Top 5)</h3>
       {drpCounts.length === 0 ? (
         <EmptyState icon="✅" title="ไม่มี DRP ในระบบ" />
@@ -11587,7 +11587,7 @@ const TechniqueMasteryCurve = ({ data }) => {
         .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
       
       if (visits.length >= 2) {
-        const scoreMap = { Good: 3, Fair: 2, Poor: 1 };
+        const scoreMap = { Good: 3, Acceptable: 2, Fair: 2, Poor: 1 };
         const scores = visits.map(v => {
           const techniques = v.inhalerTechnique || [];
           if (techniques.length === 0) return null;
@@ -11686,7 +11686,7 @@ const KPIsDashboard = ({ data }) => {
       </div>
 
       {/* Visit Volume Trend */}
-      <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card">
         <div style={{ fontSize: 15, fontWeight: 800, color: C.primary, marginBottom: 2 }}>📈 จำนวน Visit รายเดือน</div>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>ย้อนหลัง 6 เดือนล่าสุด</div>
         <TrendAreaChart points={visitTrend} color="#2563EB" />
@@ -12944,7 +12944,7 @@ const InsightsDashboard = ({ data }) => {
       {/* ── Hero KPI strip ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         {heroCards.map((c, i) => (
-          <div key={i} className="rx-insight-card rx-reveal" style={{
+          <div key={i} className="rx-insight-card" style={{
             position: 'relative', overflow: 'hidden',
             background: `linear-gradient(135deg, ${c.color} 0%, ${c.color}cc 100%)`,
             borderRadius: 16, padding: '18px 20px', color: '#fff',
@@ -12962,7 +12962,7 @@ const InsightsDashboard = ({ data }) => {
       </div>
 
       {/* ── DRP Intelligence ── */}
-      <div style={{ ...card }} className="rx-insight-card rx-reveal">
+      <div style={{ ...card }} className="rx-insight-card">
         <SectionTitle icon="🧠" title="DRP Intelligence" sub="วิเคราะห์ปัญหาจากการใช้ยาทั้งระบบ (auto-detected ตาม PCNE)" />
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24 }} className="rx-insights-grid">
           {/* category breakdown */}
@@ -13009,7 +13009,7 @@ const InsightsDashboard = ({ data }) => {
       </div>
 
       {/* ── Clinical Outcomes ── */}
-      <div style={{ ...card }} className="rx-insight-card rx-reveal">
+      <div style={{ ...card }} className="rx-insight-card">
         <SectionTitle icon="📈" title="Clinical Outcomes" sub="ผลลัพธ์ทางคลินิกจากการบริบาล — พิสูจน์ว่าผู้ป่วยดีขึ้นจริง" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 18 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 12 }}>
@@ -13039,7 +13039,7 @@ const InsightsDashboard = ({ data }) => {
 
       {/* ── Workflow / Productivity ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16 }} className="rx-insights-grid">
-        <div style={{ ...card }} className="rx-insight-card rx-reveal">
+        <div style={{ ...card }} className="rx-insight-card">
           <SectionTitle icon="⚡" title="Pharmacist Performance" sub="ภาระงานและ DRP ที่ตรวจพบรายเภสัชกร" />
           {ins.pharmList.length ? (
             <div>
@@ -13066,7 +13066,7 @@ const InsightsDashboard = ({ data }) => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ ...card }} className="rx-insight-card rx-reveal">
+          <div style={{ ...card }} className="rx-insight-card">
             <SectionTitle icon="📞" title="Follow-up Compliance" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <ProgressRing pct={ins.followupRate} color="#2563EB" size={88} sub="สำเร็จ" />
@@ -13077,7 +13077,7 @@ const InsightsDashboard = ({ data }) => {
               </div>
             </div>
           </div>
-          <div style={{ ...card, background: ins.overdueHighRisk.length ? '#FEF2F2' : '#fff', border: `1px solid ${ins.overdueHighRisk.length ? C.highBorder : C.border}` }} className="rx-insight-card rx-reveal">
+          <div style={{ ...card, background: ins.overdueHighRisk.length ? '#FEF2F2' : '#fff', border: `1px solid ${ins.overdueHighRisk.length ? C.highBorder : C.border}` }} className="rx-insight-card">
             <SectionTitle icon="🚨" title="High-Risk เลยนัด" sub="ผู้ป่วยเสี่ยงสูงที่ไม่มี visit >30 วัน" />
             <div style={{ fontSize: 36, fontWeight: 800, color: ins.overdueHighRisk.length ? C.high : C.low }}>
               <AnimatedNumber value={ins.overdueHighRisk.length} /> <span style={{ fontSize: 14, fontWeight: 600, color: C.textMuted }}>ราย</span>
