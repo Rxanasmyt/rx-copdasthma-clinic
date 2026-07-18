@@ -11934,6 +11934,10 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     ? ((copdAppropriate / copdExacerbBase) * 100).toFixed(1) : '0';
   const copdTherapyStatus = parseFloat(copdTherapyPct) >= 80 ? 'pass' : 'warn';
 
+  // ─── KPI 5-7: ไม่แยกโรค (รวม COPD+Asthma+Both เหมือนเดิม) แต่แถม breakdown แยกดูแนวโน้ม
+  // เฉพาะ COPD เดี่ยว/Asthma เดี่ยว ให้เทียบกันได้ — ตัวเลขหลักของ KPI5-7 ไม่เปลี่ยน ยังคงรวมทุกคน
+  const patientById = new Map(patients.map(p => [p.id, p]));
+
   // ─── KPI 5: ผู้ป่วยผ่านเกณฑ์เทคนิคยาพ่น MDI/DPI ≥ 80% ──────────────────────
   // "ผ่านเกณฑ์" = overallScore อยู่ใน RX_KPI_ENUMS.TECHNIQUE_PASS (single source of truth)
   const techVisits  = periodVisits.filter(v => v.inhalerTechnique && v.inhalerTechnique.length > 0);
@@ -11943,6 +11947,12 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const techniquePct   = techVisits.length > 0
     ? ((techPassed / techVisits.length) * 100).toFixed(1) : '0';
   const techniqueStatus = parseFloat(techniquePct) >= 80 ? 'pass' : 'warn';
+  const techniqueBreakdownFor = (dx) => {
+    const vs = techVisits.filter(v => patientById.get(v.patientId)?.diagnosis === dx);
+    const passed = vs.filter(v => v.inhalerTechnique.some(t => isTechniquePass(t.overallScore))).length;
+    const pct = vs.length > 0 ? ((passed / vs.length) * 100).toFixed(1) : '0';
+    return { value: pct, num: passed, den: vs.length, status: parseFloat(pct) >= 80 ? 'pass' : 'warn' };
+  };
 
   // ─── KPI 6: ผู้ป่วยมาตามนัด ได้รับการบริบาลเภสัชกรรม ≥ 80% ───────────────────
   // ตัวหาร (แหล่งข้อมูลหลัก) = "จำนวนที่นัดวันคลินิก" ที่เภสัชกรรีวิว/บันทึกเองทุกเช้าวันคลินิก
@@ -11956,6 +11966,10 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   let dueCount = 0;
   let cameCount = 0;
   const noShowRoster = [];
+  // breakdown แยก COPD เดี่ยว/Asthma เดี่ยว — คำนวณได้เฉพาะส่วนที่รู้ตัวตนผู้ป่วย (trackedIds/nextVisit fallback)
+  // ส่วน extraCount (walk-in ที่ยังไม่ลงทะเบียน) ไม่รู้ diagnosis จึงนับได้แค่ในตัวเลขรวม ไม่รวมใน breakdown
+  const dueCountByDx  = { COPD: 0, Asthma: 0 };
+  const cameCountByDx = { COPD: 0, Asthma: 0 };
 
   // ── ส่วนที่มาจาก roster ที่บันทึกเอง (ตัวหาร = scheduledCount ตรงๆ) ──
   clinicDayRosters.forEach(r => {
@@ -11970,6 +11984,13 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       if (d === r.date && t.status === 'Success') cameSet.add(t.patientId);
     });
     cameCount += cameSet.size;
+    trackedIds.forEach(pid => {
+      const dx = patientById.get(pid)?.diagnosis;
+      if (dx === 'COPD' || dx === 'Asthma') {
+        dueCountByDx[dx]++;
+        if (cameSet.has(pid)) cameCountByDx[dx]++;
+      }
+    });
     // สร้างรายชื่อไม่มาเฉพาะกรณีที่ระบุรายชื่อผู้ป่วยที่นัด (trackedIds) ไว้ด้วย
     trackedIds.forEach(pid => {
       if (!cameSet.has(pid)) {
@@ -11996,8 +12017,11 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= startDate && v.visitDate <= endDate);
     const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid &&
       (t.actualDate || t.scheduledDate || '') >= startDate && (t.actualDate || t.scheduledDate || '') <= endDate);
+    const dx = patientById.get(pid)?.diagnosis;
+    if (dx === 'COPD' || dx === 'Asthma') dueCountByDx[dx]++;
     if (cameByVisit || cameByTele) {
       cameCount++;
+      if (dx === 'COPD' || dx === 'Asthma') cameCountByDx[dx]++;
     } else {
       const p = patients.find(pt => pt.id === pid);
       if (p) noShowRoster.push({
@@ -12010,6 +12034,11 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   noShowRoster.sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
   const carePct    = dueCount > 0 ? ((cameCount / dueCount) * 100).toFixed(1) : '0';
   const careStatus  = parseFloat(carePct) >= 80 ? 'pass' : 'warn';
+  const careBreakdownFor = (dx) => {
+    const den = dueCountByDx[dx], num = cameCountByDx[dx];
+    const pct = den > 0 ? ((num / den) * 100).toFixed(1) : '0';
+    return { value: pct, num, den, status: parseFloat(pct) >= 80 ? 'pass' : 'warn' };
+  };
 
   // ─── KPI 7: ผู้ป่วยที่มี Adherence ตามเกณฑ์ (Good) จากผู้ป่วยที่ได้รับการบริบาล ≥ 80% ─────
   // ใช้ค่า adherence.level ที่บันทึกอยู่แล้วใน visit form ทุกครั้ง (ไม่ต้องเพิ่มช่องกรอกใหม่)
@@ -12021,6 +12050,12 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   });
   const adherenceGoodPct = adherenceBase > 0 ? ((adherenceGoodCount / adherenceBase) * 100).toFixed(1) : '0';
   const adherenceStatus = parseFloat(adherenceGoodPct) >= 80 ? 'pass' : 'warn';
+  const adherenceBreakdownFor = (dx) => {
+    const ids = [...rosterIdsForAdherence].filter(pid => patientById.get(pid)?.diagnosis === dx);
+    const num = ids.filter(pid => isAdherenceGood(latestVisit[pid]?.adherence?.level)).length;
+    const pct = ids.length > 0 ? ((num / ids.length) * 100).toFixed(1) : '0';
+    return { value: pct, num, den: ids.length, status: parseFloat(pct) >= 80 ? 'pass' : 'warn' };
+  };
 
   // ─── รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงนี้ พร้อมค่าที่ใช้คิดแต่ละตัวชี้วัด (ดึงข้อมูลรายคนได้) ──
   const rosterIds = new Set([...copdCaredPts.map(p => p.id), ...asthmaCaredPts.map(p => p.id)]);
@@ -12062,9 +12097,12 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaExacerbBasePts.length, lowerBetter: true  },
     asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaIcsBasePts.length, lowerBetter: false },
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
-    techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
-    carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
-    adherenceGoodPercent: { value: adherenceGoodPct, target: 80, unit: '%',           status: adherenceStatus,    label: 'ผู้ป่วยมี Adherence ตามเกณฑ์', num: adherenceGoodCount, den: adherenceBase,     lowerBetter: false },
+    techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false,
+      breakdown: { copd: techniqueBreakdownFor('COPD'), asthma: techniqueBreakdownFor('Asthma') } },
+    carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false,
+      breakdown: { copd: careBreakdownFor('COPD'), asthma: careBreakdownFor('Asthma') } },
+    adherenceGoodPercent: { value: adherenceGoodPct, target: 80, unit: '%',           status: adherenceStatus,    label: 'ผู้ป่วยมี Adherence ตามเกณฑ์', num: adherenceGoodCount, den: adherenceBase,     lowerBetter: false,
+      breakdown: { copd: adherenceBreakdownFor('COPD'), asthma: adherenceBreakdownFor('Asthma') } },
     visitCount:  periodVisits.length,
     patientCount: patients.length,
     copdExacerbApproxCount, // จำนวนผู้ป่วย COPD ที่ยังไม่มี event log — ค่า KPI1 ส่วนนี้เป็นค่าประมาณ
@@ -12233,6 +12271,21 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, de
         </div>
       </div>
 
+      {/* แยกดูแนวโน้ม COPD เดี่ยว / Asthma เดี่ยว (ตัวเลขหลักด้านบนยังรวมทุกคนเหมือนเดิม) */}
+      {metric.breakdown && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[{ dx: 'copd', label: 'COPD', bg: '#EFF6FF', fg: '#1D4ED8' }, { dx: 'asthma', label: 'Asthma', bg: '#F5F3FF', fg: '#6D28D9' }].map(({ dx, label, bg, fg }) => {
+            const b = metric.breakdown[dx];
+            return (
+              <div key={dx} style={{ flex: 1, background: bg, borderRadius: 8, padding: '5px 9px', fontSize: 10.5 }}>
+                <span style={{ fontWeight: 700, color: fg }}>{label}</span>
+                <span style={{ color: '#6B7280', marginLeft: 4 }}>{b.den > 0 ? `${b.value}${metric.unit} (${b.num}/${b.den})` : 'ไม่มีข้อมูล'}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Description */}
       {desc && (
         <div style={{
@@ -12379,6 +12432,32 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
             </div>
           </div>
         </div>
+
+        {/* ─── แยกดูแนวโน้ม COPD เดี่ยว / Asthma เดี่ยว (ตัวเลขหลักด้านบนยังรวมทุกคน) ─── */}
+        {latest.breakdown && (
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>🔬 แยกตามโรค (เฉพาะวินิจฉัยเดี่ยว)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {[{ dx: 'copd', label: 'COPD', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
+                { dx: 'asthma', label: 'Asthma', color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE' }].map(({ dx, label, color: c, bg, border }) => {
+                const b = latest.breakdown[dx];
+                return (
+                  <div key={dx} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: '12px 16px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: c, marginBottom: 4 }}>{label}</div>
+                    {b.den > 0 ? (
+                      <>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: c }}>{b.value}{latest.unit}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{b.num} / {b.den}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>ยังไม่มีข้อมูล</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ─── ผู้ป่วยที่เป็นสาเหตุให้ตัวชี้วัดนี้ไม่ผ่าน/ต้องติดตาม (ช่วงเวลาที่กำลังดูอยู่) ─── */}
         {roster && (
