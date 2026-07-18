@@ -12011,7 +12011,25 @@ const calculateQualityKPIsTrend = (data, granularity, count, refDate) => {
 };
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
-const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, denLabel }) => {
+// ── กราฟแนวโน้มจิ๋ว (sparkline) แปะบนการ์ด — เห็นทิศทางคร่าวๆ ได้ทันทีโดยไม่ต้องคลิกเข้าไปดู ──
+const MiniSparkline = ({ values, color = '#2563EB', width = 120, height = 32 }) => {
+  if (!values || values.length < 2) return null;
+  const max = Math.max(...values, 0.0001);
+  const min = Math.min(...values, 0);
+  const range = (max - min) || 1;
+  const stepX = width / (values.length - 1);
+  const yAt = (v) => height - 3 - ((v - min) / range) * (height - 6);
+  const path = values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${i * stepX} ${yAt(v)}`).join(' ');
+  const last = values[values.length - 1];
+  return (
+    <svg width={width} height={height} style={{ display: 'block', overflow: 'visible' }}>
+      <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+      <circle cx={(values.length - 1) * stepX} cy={yAt(last)} r={2.6} fill={color} />
+    </svg>
+  );
+};
+
+const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, denLabel, sparkValues }) => {
   const isPass = metric.status === 'pass';
   const passColor  = '#059669';
   const warnColor  = '#DC2626';
@@ -12057,12 +12075,19 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, de
             </div>
           )}
         </div>
-        <div style={{
-          padding: '5px 11px', borderRadius: 20,
-          background: isPass ? '#059669' : '#DC2626',
-          color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
-        }}>
-          {isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+          <div style={{
+            padding: '5px 11px', borderRadius: 20,
+            background: isPass ? '#059669' : '#DC2626',
+            color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+          }}>
+            {isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}
+          </div>
+          {sparkValues && sparkValues.length >= 2 && (
+            <div title="แนวโน้ม 6 เดือนล่าสุด">
+              <MiniSparkline values={sparkValues} color={borderColor} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -12104,17 +12129,54 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, de
 };
 
 // ─── รายละเอียดตัวชี้วัดรายตัว (คลิกจากการ์ด) — เลขจริง + กราฟแนวโน้มรายเดือน ──
-const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor }) => {
+// ── หาผู้ป่วยที่เป็นสาเหตุให้ตัวชี้วัดนี้ไม่ผ่าน/ต้องติดตาม จาก roster ของช่วงเวลาที่เลือก ──
+// คืนค่า [{ id, hn, name, diagnosis, reason }] — ใช้ในการ์ด "ผู้ป่วยที่ต้องแก้ไข" ของ modal รายละเอียด
+const getProblemPatients = (metricKey, roster, noShowRoster) => {
+  roster = roster || []; noShowRoster = noShowRoster || [];
+  switch (metricKey) {
+    case 'copdExacerbRate':
+      return roster.filter(r => (r.diagnosis === 'COPD' || r.diagnosis === 'Both') && r.exacerbationCount > 0)
+        .map(r => ({ ...r, reason: `กำเริบ ${r.exacerbationCount} ครั้ง${r.exacerbationIsApprox ? ' (ค่าประมาณจากการซักประวัติ)' : ''}` }))
+        .sort((a, b) => b.exacerbationCount - a.exacerbationCount);
+    case 'asthmaErRate':
+      return roster.filter(r => (r.diagnosis === 'Asthma' || r.diagnosis === 'Both') && r.erOrAdmit === true)
+        .map(r => ({ ...r, reason: 'เข้าห้องฉุกเฉินหรือนอนโรงพยาบาลจากอาการกำเริบ' }));
+    case 'asthmaIcsPercent':
+      return roster.filter(r => (r.diagnosis === 'Asthma' || r.diagnosis === 'Both') && r.hasICS === false)
+        .map(r => ({ ...r, reason: 'ยังไม่ได้รับยา ICS' }));
+    case 'copdTherapyPercent':
+      return roster.filter(r => r.hasAppropriateCOPDTherapy === false)
+        .map(r => ({ ...r, reason: 'มีประวัติกำเริบ แต่ยังไม่ได้รับยา LABA/LAMA/Combo ที่เหมาะสม' }));
+    case 'techniquePercent':
+      return roster.filter(r => r.techniquePass === false)
+        .map(r => ({ ...r, reason: 'ประเมินเทคนิคการใช้ยาพ่นล่าสุด ไม่ผ่านเกณฑ์' }));
+    case 'carePercent':
+      return noShowRoster.map(r => ({ ...r, reason: `มีนัดวันที่ ${r.nextVisit} แต่ยังไม่พบว่ามารับบริการ` }));
+    case 'adherenceGoodPercent':
+      return roster.filter(r => r.adherenceGood === false)
+        .map(r => ({ ...r, reason: 'ความร่วมมือในการใช้ยาพ่น (Adherence) ยังไม่อยู่ในระดับดี' }));
+    default:
+      return [];
+  }
+};
+
+const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor, roster, noShowRoster, dateRange, navigate }) => {
   const monthlyTrend = React.useMemo(() => {
     if (!open || !metricKey) return null;
     return calculateQualityKPIsTrend(data, 'month', 12);
   }, [open, metricKey, data]);
+
+  const problemPatients = React.useMemo(
+    () => (open && metricKey) ? getProblemPatients(metricKey, roster, noShowRoster) : [],
+    [open, metricKey, roster, noShowRoster]
+  );
 
   if (!open || !metricKey || !monthlyTrend) return null;
   const latest = monthlyTrend[monthlyTrend.length - 1].kpis[metricKey];
   const isPass = latest.status === 'pass';
   const color = isPass ? '#059669' : '#DC2626';
   const chartColor = accentColor || '#2563EB';
+  const goToPatient = (id) => { onClose(); navigate?.('history', id); };
 
   return (
     <Modal open={open} onClose={onClose} title={`${icon} ${latest.label}`} width={900}>
@@ -12169,6 +12231,41 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
           </div>
         </div>
 
+        {/* ─── ผู้ป่วยที่เป็นสาเหตุให้ตัวชี้วัดนี้ไม่ผ่าน/ต้องติดตาม (ช่วงเวลาที่กำลังดูอยู่) ─── */}
+        {roster && (
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: problemPatients.length ? '#DC2626' : '#059669', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              🚩 ผู้ป่วยที่ต้องติดตาม/แก้ไข {problemPatients.length > 0 && `(${problemPatients.length} ราย)`}
+            </div>
+            {dateRange && <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>ช่วงเวลาที่กำลังดู: {dateRange.start} ถึง {dateRange.end}</div>}
+            {problemPatients.length === 0 ? (
+              <div style={{ padding: '12px 16px', borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 12.5, color: '#059669', fontWeight: 600 }}>
+                ✅ ไม่มีผู้ป่วยที่ต้องแก้ไขในช่วงเวลานี้
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+                {problemPatients.map((p, i) => (
+                  <div key={p.id} onClick={() => goToPatient(p.id)} className="rx-kpi-row-click" style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9,
+                    background: '#FEF2F2', border: '1px solid #FECACA', cursor: navigate ? 'pointer' : 'default',
+                    animation: 'rxRiseSm 0.35s ease', animationDelay: `${i * 40}ms`, animationFillMode: 'both',
+                  }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: '#DC2626', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700,
+                    }}>{(p.name || p.hn || '?').charAt(0)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>{p.name || '—'} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {p.hn}</span></div>
+                      <div style={{ fontSize: 11.5, color: '#B91C1C', marginTop: 1 }}>{p.reason}</div>
+                    </div>
+                    {navigate && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', flexShrink: 0 }}>ดูประวัติ →</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ─── กราฟแนวโน้มรายเดือน (12 เดือนล่าสุด) ─── */}
         <div>
           <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📈 แนวโน้มรายเดือน (12 เดือนล่าสุด)</div>
@@ -12178,7 +12275,26 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
 
         {/* ─── ตารางข้อมูลจริงรายเดือน ─── */}
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📋 ข้อมูลรายเดือน</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary }}>📋 ข้อมูลรายเดือน</div>
+            <button onClick={() => {
+              const rows = [['เดือน', 'ค่าที่ได้', numLabel || 'ตัวเศษ', denLabel || 'ตัวส่วน', 'ผล'],
+                ...[...monthlyTrend].reverse().map(t => {
+                  const m = t.kpis[metricKey];
+                  return [t.label, `${m.value}${m.unit}`, m.num, m.den, m.status === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน'];
+                })];
+              const csv = '﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = Object.assign(document.createElement('a'), { href: url, download: `${latest.label.replace(/\s+/g, '_')}_${metricKey}.csv` });
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }} style={{
+              padding: '5px 12px', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+              border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>⬇️ ดาวน์โหลด CSV</button>
+          </div>
           <div className="rx-scroll-x" style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 10 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
@@ -12217,7 +12333,7 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
 };
 
 // ─── Quality KPIs Dashboard ───────────────────────────────────────────────────
-const QualityKPIsDashboard = ({ data }) => {
+const QualityKPIsDashboard = ({ data, navigate }) => {
   const [viewMode, setViewMode] = React.useState('current'); // 'current' | 'trend'
   const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'fiscalYear' | 'year'
   const [trendCount, setTrendCount] = React.useState(12);
@@ -12242,6 +12358,9 @@ const QualityKPIsDashboard = ({ data }) => {
     () => viewMode === 'trend' ? calculateQualityKPIsTrend(data, trendGranularity, trendCount) : null,
     [data, viewMode, trendGranularity, trendCount]
   );
+
+  // แนวโน้ม 6 เดือนล่าสุด (คงที่ ไม่ขึ้นกับช่วงเวลาที่เลือกดู) — ใช้แปะ sparkline บนการ์ดแต่ละใบ
+  const sparkTrend = React.useMemo(() => calculateQualityKPIsTrend(data, 'month', 6), [data]);
 
   const metrics = [
     {
@@ -12436,14 +12555,16 @@ const QualityKPIsDashboard = ({ data }) => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
             {metrics.map(({ key, icon, targetLabel, desc, numLabel, denLabel }) => (
               <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc}
-                numLabel={numLabel} denLabel={denLabel} onClick={() => setDetailKey(key)} />
+                numLabel={numLabel} denLabel={denLabel} onClick={() => setDetailKey(key)}
+                sparkValues={sparkTrend.map(t => parseFloat(t.kpis[key].value) || 0)} />
             ))}
           </div>
 
           <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey}
             icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
             desc={metrics.find(m => m.key === detailKey)?.desc} color={metrics.find(m => m.key === detailKey)?.color}
-            numLabel={metrics.find(m => m.key === detailKey)?.numLabel} denLabel={metrics.find(m => m.key === detailKey)?.denLabel} />
+            numLabel={metrics.find(m => m.key === detailKey)?.numLabel} denLabel={metrics.find(m => m.key === detailKey)?.denLabel}
+            roster={kpis.roster} noShowRoster={kpis.noShowRoster} dateRange={dateRange} navigate={navigate} />
 
           {/* ─── Summary Table ───────────────────── */}
           <Card>
@@ -13243,7 +13364,7 @@ const InsightsDashboard = ({ data }) => {
 };
 window.InsightsDashboard = InsightsDashboard;
 
-const AnalyticsDashboard = ({ data }) => {
+const AnalyticsDashboard = ({ data, navigate }) => {
   const [tab, setTab] = React.useState('insights');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -13273,7 +13394,7 @@ const AnalyticsDashboard = ({ data }) => {
         </div>
       )}
 
-      {tab === 'quality' && <QualityKPIsDashboard data={data} />}
+      {tab === 'quality' && <QualityKPIsDashboard data={data} navigate={navigate} />}
 
       {tab === 'ha' && <HAIndicators data={data} />}
     </div>
@@ -17746,7 +17867,7 @@ function App() {
       case 'reports':
         return <ReportsView data={data} navigate={navigate} onDataChange={handleDataChange} onForceBackup={forceBackup} onLoadBackupSlots={loadBackupSlots} />;
       case 'analytics':
-        return <AnalyticsDashboard data={data} />;
+        return <AnalyticsDashboard data={data} navigate={navigate} />;
       case 'ha':
         return <HAComplianceDashboard data={data} onDataChange={handleDataChange} currentUser={currentUser} />;
       case 'research':
