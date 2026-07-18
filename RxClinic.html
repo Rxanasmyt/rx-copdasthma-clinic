@@ -9162,8 +9162,6 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   // ใช้ classifyRespiratoryMed ตัวเดียวกับที่ calculateQualityKPIs ใช้จริง เพื่อไม่ให้ผลลัพธ์เพี้ยนไปจากที่แสดงในหน้ารายงาน
   const kpiImpact = () => {
     const dx = patient?.diagnosis;
-    const isCopd = dx === 'COPD' || dx === 'Both';
-    const isAsthma = dx === 'Asthma' || dx === 'Both';
     const items = [];
 
     // อัตรากำเริบ (KPI1/KPI2) นับเฉพาะวินิจฉัยเดี่ยวตรงกับตัวชี้วัดนั้นเท่านั้น (ไม่รวม Both)
@@ -9184,14 +9182,15 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         detail: erOrAdmit ? 'visit นี้จะถูกนับเป็นตัวเศษ (เข้า ER/นอนรพ.)' : 'ไม่มีเข้า ER/นอนรพ.',
       });
     }
-    if (dx === 'Both' && (f.exacerbation?.hospitalized || f.exacerbation?.erVisit)) {
+    // ตัวชี้วัดยา (KPI3/KPI4) ก็แยกโรคเหมือนกัน — นับเฉพาะวินิจฉัยเดี่ยว ไม่รวม Both
+    if (dx === 'Both') {
       items.push({
-        key: 'exacerbNote', icon: 'ℹ️', label: 'อัตรากำเริบ (COPD/Asthma)',
+        key: 'bothNote', icon: 'ℹ️', label: 'ตัวชี้วัด KPI1–4 (COPD/Asthma)',
         status: 'note',
-        detail: 'ผู้ป่วย Both ไม่ถูกนับในตัวชี้วัดอัตรากำเริบทั้งสองตัว เพราะระบุไม่ได้ว่ากำเริบจาก COPD หรือ Asthma',
+        detail: 'ผู้ป่วย Both ไม่ถูกนับในตัวชี้วัดที่แยกตามโรค (Exacerbation Rate, ICS, LABA/LAMA) เพราะระบุไม่ได้ว่าอาการ/ยานี้เกี่ยวกับ COPD หรือ Asthma โดยเฉพาะ',
       });
     }
-    if (isCopd) {
+    if (dx === 'COPD') {
       const hasAppropriate = f.medications.some(m => { const c = AppStore.classifyRespiratoryMed(m.name); return c.LABA || c.LAMA; });
       items.push({
         key: 'copdTherapyPercent', icon: '💉', label: 'COPD LABA/LAMA/Combo',
@@ -9199,7 +9198,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         detail: hasAppropriate ? 'มียา LABA/LAMA แล้ว — นับเป็นผ่าน' : 'ยังไม่มียา LABA/LAMA/Combo ในรายการยา',
       });
     }
-    if (isAsthma) {
+    if (dx === 'Asthma') {
       const hasICS = f.medications.some(m => AppStore.classifyRespiratoryMed(m.name).ICS);
       items.push({
         key: 'asthmaIcsPercent', icon: '💊', label: 'Asthma + ICS',
@@ -11908,10 +11907,12 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   // ─── KPI 3: Asthma + ICS ≥ 80% (เฉพาะผู้ป่วยที่ได้รับการบริบาลแล้ว) ─────────
   // ใช้ classifyRespiratoryMed กลาง (category จาก COMMON_MEDICATIONS + keyword เสริม) แทน
   // การจับ keyword แยกเฉพาะ KPI นี้ — เพื่อไม่ให้ยาที่พิมพ์เอง/สะกดต่างกันหลุดจากการนับ
+  // นับเฉพาะผู้ป่วยที่วินิจฉัย Asthma เดี่ยว ไม่รวม Both (แยกโรคให้ชัดเจนเหมือน KPI1/KPI2)
+  const asthmaIcsBasePts = asthmaCaredPts.filter(p => p.diagnosis === 'Asthma');
   const hasICS = (meds) => (meds||[]).some(m => classifyRespiratoryMed(m.name).ICS);
-  const asthmaWithICS = asthmaCaredPts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
-  const asthmaIcsPct  = asthmaCaredPts.length > 0
-    ? ((asthmaWithICS / asthmaCaredPts.length) * 100).toFixed(1) : '0';
+  const asthmaWithICS = asthmaIcsBasePts.filter(p => hasICS(latestVisit[p.id]?.medications)).length;
+  const asthmaIcsPct  = asthmaIcsBasePts.length > 0
+    ? ((asthmaWithICS / asthmaIcsBasePts.length) * 100).toFixed(1) : '0';
   const asthmaIcsStatus = parseFloat(asthmaIcsPct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 4: COPD ที่มีประวัติกำเริบ ได้รับ LABA/LAMA/Combo ≥ 80% ──────────────
@@ -11919,9 +11920,11 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     const c = classifyRespiratoryMed(m.name);
     return c.LABA || c.LAMA;
   });
-  // ฐาน = ผู้ป่วย COPD ที่ได้รับการบริบาลแล้ว (มี visit) และมีประวัติกำเริบ — ไม่ fallback ไปนับผู้ป่วยทั้งหมด
-  // เพราะจะเปลี่ยนความหมายตัวชี้วัดไปคนละกลุ่ม (ถ้าไม่มีผู้ป่วยกลุ่มนี้เลย ค่าจะเป็น 0/0 = "0" ซึ่งถูกต้องแล้ว)
-  const copdWithExacerb = copdCaredPts.filter(p => {
+  // ฐาน = ผู้ป่วยที่วินิจฉัย COPD เดี่ยว (ไม่รวม Both) ได้รับการบริบาลแล้ว (มี visit) และมีประวัติกำเริบ
+  // ไม่ fallback ไปนับผู้ป่วยทั้งหมด เพราะจะเปลี่ยนความหมายตัวชี้วัดไปคนละกลุ่ม
+  // (ถ้าไม่มีผู้ป่วยกลุ่มนี้เลย ค่าจะเป็น 0/0 = "0" ซึ่งถูกต้องแล้ว)
+  const copdTherapyBasePts = copdCaredPts.filter(p => p.diagnosis === 'COPD');
+  const copdWithExacerb = copdTherapyBasePts.filter(p => {
     const v = latestVisit[p.id];
     return (v.exacerbation?.countThisYear || 0) > 0 || v.exacerbation?.hospitalized;
   });
@@ -12046,8 +12049,9 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       exacerbationCount: p.diagnosis === 'COPD' ? exacerbCountInPeriod : null,
       exacerbationIsApprox: p.diagnosis === 'COPD' ? !usesEventLog : null, // true = ยังไม่มี event log ใช้ค่าประมาณจาก recall
       erOrAdmit: p.diagnosis === 'Asthma' ? erOrAdmitInPeriod : null,
-      hasICS: isAsthma ? hasICS(v?.medications) : null,
-      hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
+      // hasICS/hasAppropriateCOPDTherapy: เฉพาะวินิจฉัยเดี่ยว ไม่รวม Both ให้ตรงกับฐานที่ใช้คิด KPI3/KPI4 จริง
+      hasICS: p.diagnosis === 'Asthma' ? hasICS(v?.medications) : null,
+      hasAppropriateCOPDTherapy: (p.diagnosis === 'COPD' && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
       techniquePass: techs.length > 0 ? techs.some(t => isTechniquePass(t.overallScore)) : null,
       adherenceGood: rosterIds.has(p.id) ? isAdherenceGood(v?.adherence?.level) : null,
     };
@@ -12056,7 +12060,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   return {
     copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdExacerbBasePts.length,   lowerBetter: true  },
     asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaExacerbBasePts.length, lowerBetter: true  },
-    asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaCaredPts.length, lowerBetter: false },
+    asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaIcsBasePts.length, lowerBetter: false },
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
     carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
@@ -12267,7 +12271,8 @@ const getProblemPatients = (metricKey, roster, noShowRoster) => {
       return roster.filter(r => r.diagnosis === 'Asthma' && r.erOrAdmit === true)
         .map(r => ({ ...r, reason: 'เข้าห้องฉุกเฉินหรือนอนโรงพยาบาลจากอาการกำเริบ' }));
     case 'asthmaIcsPercent':
-      return roster.filter(r => (r.diagnosis === 'Asthma' || r.diagnosis === 'Both') && r.hasICS === false)
+      // เฉพาะวินิจฉัย Asthma เดี่ยว (ไม่รวม Both) ให้ตรงกับฐานที่ใช้คิดตัวชี้วัดนี้จริง
+      return roster.filter(r => r.diagnosis === 'Asthma' && r.hasICS === false)
         .map(r => ({ ...r, reason: 'ยังไม่ได้รับยา ICS' }));
     case 'copdTherapyPercent':
       return roster.filter(r => r.hasAppropriateCOPDTherapy === false)
@@ -12623,14 +12628,16 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
     {
       key: 'asthmaIcsPercent', icon: '💊', color: '#7C3AED',
       targetLabel: '> 80%',
-      numLabel: 'จำนวนผู้ป่วยที่ได้รับยา ICS', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล',
-      desc: 'ร้อยละผู้ป่วยคลินิกโรคหืดที่ได้รับการบริบาลเภสัชกรรมและได้รับยา Inhaled Corticosteroid (ICS)',
+      numLabel: 'จำนวนผู้ป่วยที่ได้รับยา ICS', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล (เฉพาะวินิจฉัย Asthma ไม่รวม Both)',
+      desc: 'ร้อยละผู้ป่วยคลินิกโรคหืดที่ได้รับการบริบาลเภสัชกรรมและได้รับยา Inhaled Corticosteroid (ICS)'
+        + ' · นับเฉพาะผู้ป่วยที่วินิจฉัย Asthma เดี่ยว ไม่รวมผู้ป่วย Both',
     },
     {
       key: 'copdTherapyPercent', icon: '💉', color: '#059669',
       targetLabel: '> 80%',
-      numLabel: 'จำนวนผู้ป่วยที่ได้รับยาเหมาะสม (LABA/LAMA/Combo)', denLabel: 'จำนวนผู้ป่วย COPD ที่มีประวัติกำเริบ',
-      desc: 'ร้อยละผู้ป่วย COPD ที่มีประวัติกำเริบ ได้รับยาที่มีส่วนประกอบของ LABA, LAMA, LABA/LAMA หรือ ICS/LABA, ICS/LABA/LAMA',
+      numLabel: 'จำนวนผู้ป่วยที่ได้รับยาเหมาะสม (LABA/LAMA/Combo)', denLabel: 'จำนวนผู้ป่วย COPD ที่มีประวัติกำเริบ (เฉพาะวินิจฉัย COPD ไม่รวม Both)',
+      desc: 'ร้อยละผู้ป่วย COPD ที่มีประวัติกำเริบ ได้รับยาที่มีส่วนประกอบของ LABA, LAMA, LABA/LAMA หรือ ICS/LABA, ICS/LABA/LAMA'
+        + ' · นับเฉพาะผู้ป่วยที่วินิจฉัย COPD เดี่ยว ไม่รวมผู้ป่วย Both',
     },
     {
       key: 'techniquePercent', icon: '🎯', color: '#D97706',
