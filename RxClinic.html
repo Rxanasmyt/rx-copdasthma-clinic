@@ -11302,20 +11302,65 @@ const calculateKPIs = (data) => {
   return { avgAdherence, exacerbRate, drpResolutionRate, workloadMap, recentVisits };
 };
 
-// ============ MetricCard Component ============
-const MetricCard = ({ icon, label, value, subtitle, color = C.primary }) => (
-  <div style={{
-    background: '#fff', borderRadius: 10, padding: '16px 20px', border: `1px solid ${C.border}`,
-    display: 'flex', flexDirection: 'column', gap: 6,
-  }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 24 }}>{icon}</span>
-      <span style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
+// ============ Modern area/line trend chart (self-contained SVG) ============
+const TrendAreaChart = ({ points, color = '#2563EB', height = 150, valueSuffix = '' }) => {
+  if (!points || points.length === 0) return null;
+  const W = Math.max(360, points.length * 68);
+  const H = height;
+  const padL = 10, padR = 10, padT = 22, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxV = Math.max(1, ...points.map(p => p.value)) * 1.25;
+  const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+  const xAt = i => padL + stepX * i;
+  const yAt = v => padT + plotH - (v / maxV) * plotH;
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(p.value)}`).join(' ');
+  const areaPath = `${linePath} L ${xAt(points.length - 1)} ${padT + plotH} L ${xAt(0)} ${padT + plotH} Z`;
+  const gradId = 'rxTAG' + points.length + '_' + Math.round(maxV);
+  return (
+    <div className="rx-scroll-x" style={{ overflowX: 'auto' }}>
+      <svg width={W} height={H} style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={xAt(i)} cy={yAt(p.value)} r={3.5} fill="#fff" stroke={color} strokeWidth={2} />
+            <text x={xAt(i)} y={yAt(p.value) - 10} fontSize={10.5} fontWeight={700} fill={color} textAnchor="middle">{p.value}{valueSuffix}</text>
+            <text x={xAt(i)} y={H - 8} fontSize={10} fill={C.textMuted} textAnchor="middle">{p.label}</text>
+          </g>
+        ))}
+      </svg>
     </div>
-    <div style={{ fontSize: 32, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
-    {subtitle && <div style={{ fontSize: 12, color: C.textMuted }}>{subtitle}</div>}
-  </div>
-);
+  );
+};
+
+// ============ MetricCard Component (modern gradient hero style) ============
+const MetricCard = ({ icon, label, value, subtitle, color = C.primary, suffix = '' }) => {
+  const raw = String(value ?? '').trim();
+  const numeric = raw !== '' && /^-?\d+(\.\d+)?$/.test(raw);
+  const decimals = numeric && raw.includes('.') ? raw.split('.')[1].length : 0;
+  return (
+    <div className="rx-insight-card rx-reveal" style={{
+      position: 'relative', overflow: 'hidden', background: color,
+      borderRadius: 16, padding: '18px 20px', color: '#fff',
+      boxShadow: '0 8px 20px rgba(0,0,0,0.14)',
+    }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0) 60%)', pointerEvents: 'none' }} />
+      <div className="rx-hero-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+      <div style={{ position: 'relative', fontSize: 22, marginBottom: 8 }}>{icon}</div>
+      <div style={{ position: 'relative', fontSize: 30, fontWeight: 800, lineHeight: 1 }}>
+        {numeric ? <AnimatedNumber value={parseFloat(raw)} decimals={decimals} suffix={suffix} /> : value}
+      </div>
+      <div style={{ position: 'relative', fontSize: 12, fontWeight: 600, opacity: 0.95, marginTop: 6 }}>{label}</div>
+      {subtitle && <div style={{ position: 'relative', fontSize: 10.5, opacity: 0.85, marginTop: 1 }}>{subtitle}</div>}
+    </div>
+  );
+};
 
 // ============ Weekly Calendar (นัดทั้งสัปดาห์) ============
 const WeeklyCalendar = ({ data }) => {
@@ -11346,8 +11391,8 @@ const WeeklyCalendar = ({ data }) => {
   }, [data, week]);
 
   return (
-    <Card>
-      <h3 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700 }}>📅 ปฏิทินสัปดาห์นี้</h3>
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+      <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>📅 ปฏิทินสัปดาห์นี้</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
         {week.map((dateStr, i) => {
           const appts = appointmentsMap[dateStr] || [];
@@ -11355,48 +11400,66 @@ const WeeklyCalendar = ({ data }) => {
           const dayNum = dateStr.slice(8, 10);
           return (
             <div key={dateStr} style={{
-              padding: 10, borderRadius: 8,
-              background: isToday ? C.primaryBg : C.bgAlt,
-              border: `1px solid ${isToday ? C.primary : C.border}`,
-              textAlign: 'center',
+              padding: '12px 6px', borderRadius: 10, textAlign: 'center',
+              background: isToday ? 'linear-gradient(135deg,#2563EB 0%,#1E40AF 100%)' : C.bgAlt,
+              border: `1px solid ${isToday ? '#1E40AF' : C.border}`,
+              boxShadow: isToday ? '0 6px 16px rgba(37,99,235,0.3)' : 'none',
+              transition: 'transform 0.15s',
             }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>{dayLabels[i]}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? C.primary : C.text, marginBottom: 6 }}>{dayNum}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: isToday ? 'rgba(255,255,255,0.85)' : C.textMuted, marginBottom: 4 }}>{dayLabels[i]}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: isToday ? '#fff' : C.text, marginBottom: 6 }}>{dayNum}</div>
               {appts.length > 0 ? (
-                <div style={{ fontSize: 10, fontWeight: 600, color: C.accent, background: C.accentBg, borderRadius: 4, padding: '2px 4px' }}>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 8px', display: 'inline-block',
+                  color: isToday ? '#1E40AF' : C.accent, background: isToday ? '#fff' : C.accentBg,
+                }}>
                   {appts.length} นัด
                 </div>
               ) : (
-                <div style={{ fontSize: 10, color: C.textMuted }}>—</div>
+                <div style={{ fontSize: 10, color: isToday ? 'rgba(255,255,255,0.6)' : C.textMuted }}>—</div>
               )}
             </div>
           );
         })}
       </div>
-    </Card>
+    </div>
   );
 };
 
 // ============ Pharmacist Workload ============
 const PharmacistWorkload = ({ workloadMap }) => {
   const entries = Object.entries(workloadMap).sort((a, b) => b[1] - a[1]);
+  const palette = ['#2563EB','#7C3AED','#059669','#DC2626','#D97706','#0F766E','#DB2777','#0369A1'];
+  const maxV = Math.max(...entries.map(([, c]) => c), 1);
   return (
-    <Card>
-      <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>👥 ภาระงานเภสัชกร (สัปดาห์นี้)</h3>
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+      <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>👥 ภาระงานเภสัชกร (สัปดาห์นี้)</h3>
       {entries.length === 0 ? (
         <EmptyState icon="📊" title="ยังไม่มี Visit สัปดาห์นี้" />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {entries.map(([name, count]) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {entries.map(([name, count], i) => (
             <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{name}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: C.primary }}>{count}</div>
-              <div style={{ fontSize: 12, color: C.textMuted }}>visits</div>
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+                background: palette[i % palette.length], color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700,
+              }}>{(name || '?').replace(/^(ภก\.|ภญ\.)/, '').trim().charAt(0) || '?'}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                <div style={{ height: 7, background: C.bg, borderRadius: 4, marginTop: 4, overflow: 'hidden' }}>
+                  <div className="rx-bar-grow" style={{ height: '100%', width: `${(count / maxV) * 100}%`, background: palette[i % palette.length], borderRadius: 4, animationDelay: `${i * 60}ms` }} />
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{count}</div>
+                <div style={{ fontSize: 10, color: C.textMuted }}>visits</div>
+              </div>
             </div>
           ))}
         </div>
       )}
-    </Card>
+    </div>
   );
 };
 
@@ -11414,26 +11477,32 @@ const DRPPatterns = ({ data }) => {
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [data]);
 
+  const maxDrp = Math.max(...drpCounts.map(([, c]) => c), 1);
   return (
-    <Card>
-      <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>⚠️ DRP Patterns (Top 5)</h3>
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+      <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>⚠️ DRP Patterns (Top 5)</h3>
       {drpCounts.length === 0 ? (
         <EmptyState icon="✅" title="ไม่มี DRP ในระบบ" />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {drpCounts.map(([drp, count], i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
               <div style={{
-                minWidth: 24, height: 24, borderRadius: '50%', background: C.highBg, color: C.high,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
+                minWidth: 22, height: 22, borderRadius: '50%', background: '#FEF2F2', color: '#DC2626',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0,
               }}>{i + 1}</div>
-              <div style={{ flex: 1, fontSize: 13 }}>{drp}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.high }}>{count}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: C.text, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drp}>{drp}</div>
+                <div style={{ height: 8, background: C.bg, borderRadius: 4, overflow: 'hidden' }}>
+                  <div className="rx-bar-grow" style={{ height: '100%', width: `${(count / maxDrp) * 100}%`, background: '#DC2626', borderRadius: 4, animationDelay: `${i * 60}ms` }} />
+                </div>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#DC2626', flexShrink: 0 }}>{count}</div>
             </div>
           ))}
         </div>
       )}
-    </Card>
+    </div>
   );
 };
 
@@ -11472,23 +11541,34 @@ const OutcomeTracking = ({ data }) => {
 
   return (
     <Card>
-      <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📊 Outcome Tracking</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-        <MetricCard icon="📉" label="CAT Δ (เฉลี่ย)" value={outcomes.avgCATDelta} subtitle="คะแนนลดลง = ดีขึ้น" color={C.low} />
-        <MetricCard icon="🚑" label="Exacerbation Δ" value={outcomes.avgExacerbDelta} subtitle="ลดลง = ดีขึ้น" color={C.low} />
+      <h3 style={{ margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: C.primary }}>📊 Outcome Tracking</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
+        <MetricCard icon="📉" label="CAT Δ (เฉลี่ย)" value={outcomes.avgCATDelta} subtitle="คะแนนลดลง = ดีขึ้น" color="#0F766E" />
+        <MetricCard icon="🚑" label="Exacerbation Δ" value={outcomes.avgExacerbDelta} subtitle="ลดลง = ดีขึ้น" color="#0369A1" />
       </div>
-      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>ตัวอย่าง CAT Improvement (Top 5):</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', marginBottom: 10 }}>ตัวอย่าง CAT Improvement (Top 5)</div>
       {outcomes.catImprovement.length === 0 ? (
         <div style={{ fontSize: 12, color: C.textMuted }}>ยังไม่มีข้อมูล (ต้องมี ≥2 visits พร้อม CAT)</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {outcomes.catImprovement.map((o, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-              <span style={{ fontWeight: 600, color: C.primary }}>{o.hn}</span>
-              <span>{o.before} → {o.after}</span>
-              <span style={{ color: o.delta > 0 ? C.low : C.high, fontWeight: 600 }}>({o.delta > 0 ? '-' : '+'}{Math.abs(o.delta)})</span>
-            </div>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {outcomes.catImprovement.map((o, i) => {
+            const good = o.delta > 0;
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                background: good ? '#F0FDF4' : C.bgAlt, borderRadius: 8,
+                border: `1px solid ${good ? C.lowBorder : C.border}`,
+              }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: C.primary, minWidth: 70 }}>{o.hn}</span>
+                <span style={{ fontSize: 12, color: C.textMuted }}>{o.before} → {o.after}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{
+                  fontSize: 12.5, fontWeight: 800, color: good ? '#059669' : '#DC2626',
+                  background: good ? '#DCFCE7' : '#FEF2F2', padding: '2px 9px', borderRadius: 20,
+                }}>{good ? '▼' : '▲'} {Math.abs(o.delta)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </Card>
@@ -11577,13 +11657,39 @@ const TechniqueMasteryCurve = ({ data }) => {
 const KPIsDashboard = ({ data }) => {
   const kpis = useMemo(() => calculateKPIs(data), [data]);
 
+  // จำนวน visit รายเดือน ย้อนหลัง 6 เดือน — สำหรับกราฟแนวโน้ม
+  const visitTrend = useMemo(() => {
+    const thMonth = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      return { y: d.getFullYear(), m: d.getMonth(), label: thMonth[d.getMonth()] };
+    });
+    return months.map(({ y, m, label }) => {
+      const count = (data.visits || []).filter(v => {
+        if (!v.visitDate) return false;
+        const d = new Date(v.visitDate);
+        return d.getFullYear() === y && d.getMonth() === m;
+      }).length;
+      return { label, value: count };
+    });
+  }, [data]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Metrics Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <MetricCard icon="💊" label="Adherence เฉลี่ย" value={kpis.avgAdherence} subtitle="คะแนนจาก 0-10" color={C.primary} />
-        <MetricCard icon="🚑" label="Exacerbation Rate" value={kpis.exacerbRate} subtitle="ครั้ง / ผู้ป่วย / ปี" color={C.high} />
-        <MetricCard icon="✅" label="DRP Resolution" value={kpis.drpResolutionRate === '—' ? '—' : `${kpis.drpResolutionRate}%`} subtitle="แก้ไขได้ / ทั้งหมด" color={C.low} />
+      {/* Hero Metrics Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+        <MetricCard icon="💊" label="Adherence เฉลี่ย" value={kpis.avgAdherence} subtitle="คะแนนจาก 0-10" color="#2563EB" />
+        <MetricCard icon="🚑" label="Exacerbation Rate" value={kpis.exacerbRate} subtitle="ครั้ง / ผู้ป่วย / ปี" color="#DC2626" />
+        <MetricCard icon="✅" label="DRP Resolution" value={kpis.drpResolutionRate === '—' ? '—' : kpis.drpResolutionRate} suffix={kpis.drpResolutionRate === '—' ? '' : '%'} subtitle="แก้ไขได้ / ทั้งหมด" color="#059669" />
+        <MetricCard icon="📆" label="Visit สัปดาห์นี้" value={kpis.recentVisits.length} subtitle="นับตั้งแต่วันอาทิตย์" color="#7C3AED" />
+      </div>
+
+      {/* Visit Volume Trend */}
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` }} className="rx-insight-card rx-reveal">
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.primary, marginBottom: 2 }}>📈 จำนวน Visit รายเดือน</div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>ย้อนหลัง 6 เดือนล่าสุด</div>
+        <TrendAreaChart points={visitTrend} color="#2563EB" />
       </div>
 
       {/* Weekly Calendar */}
