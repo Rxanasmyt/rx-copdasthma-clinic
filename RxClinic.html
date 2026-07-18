@@ -292,6 +292,7 @@
   .rx-bar-fill { animation: rxBarFill 0.85s cubic-bezier(0.16,1,0.3,1) both; }
   @keyframes rxRingFill { from { stroke-dashoffset: var(--rx-circ); } }
   @keyframes rxPopIn { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes rxLineDraw { to { stroke-dashoffset: 0; } }
   .rx-insight-card.rx-reveal { opacity: 0; transform: translateY(18px); }
   .rx-insight-card {
     animation: rxPopIn 0.5s cubic-bezier(0.16,1,0.3,1) backwards;
@@ -12010,7 +12011,7 @@ const calculateQualityKPIsTrend = (data, granularity, count, refDate) => {
 };
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
-const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick }) => {
+const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, denLabel }) => {
   const isPass = metric.status === 'pass';
   const passColor  = '#059669';
   const warnColor  = '#DC2626';
@@ -12050,8 +12051,9 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick }) => {
             <span style={{ fontSize: 14, color: '#6B7280', fontWeight: 600 }}>{metric.unit}</span>
           </div>
           {metric.den > 0 && (
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }} title={`${numLabel || 'ตัวเศษ'}: ${metric.num} · ${denLabel || 'ตัวส่วน'}: ${metric.den}`}>
               {metric.num} / {metric.den} {metric.unit.includes('%') ? 'ราย' : 'ครั้ง/ราย'}
+              {denLabel && <span style={{ display: 'block', fontSize: 10, marginTop: 1, color: '#B0B7C3' }}>{denLabel}</span>}
             </div>
           )}
         </div>
@@ -12102,7 +12104,7 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick }) => {
 };
 
 // ─── รายละเอียดตัวชี้วัดรายตัว (คลิกจากการ์ด) — เลขจริง + กราฟแนวโน้มรายเดือน ──
-const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc }) => {
+const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor }) => {
   const monthlyTrend = React.useMemo(() => {
     if (!open || !metricKey) return null;
     return calculateQualityKPIsTrend(data, 'month', 12);
@@ -12112,6 +12114,7 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
   const latest = monthlyTrend[monthlyTrend.length - 1].kpis[metricKey];
   const isPass = latest.status === 'pass';
   const color = isPass ? '#059669' : '#DC2626';
+  const chartColor = accentColor || '#2563EB';
 
   return (
     <Modal open={open} onClose={onClose} title={`${icon} ${latest.label}`} width={900}>
@@ -12136,7 +12139,11 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
               </span>
               <span style={{ fontSize: 16, fontWeight: 600, opacity: 0.9 }}>{latest.unit}</span>
             </div>
-            <div style={{ position: 'relative', fontSize: 12, opacity: 0.9, marginTop: 6 }}>{latest.num} / {latest.den} · เป้าหมาย {targetLabel}</div>
+            <div style={{ position: 'relative', fontSize: 12, opacity: 0.9, marginTop: 6, lineHeight: 1.6 }}>
+              {numLabel && <div>🔺 {numLabel}: <strong>{latest.num}</strong></div>}
+              {denLabel && <div>🔻 {denLabel}: <strong>{latest.den}</strong></div>}
+              <div style={{ marginTop: 3, opacity: 0.85 }}>เป้าหมาย {targetLabel}</div>
+            </div>
             <div style={{
               position: 'relative', display: 'inline-block', marginTop: 10, padding: '3px 12px', borderRadius: 20,
               background: 'rgba(255,255,255,0.22)', fontSize: 11, fontWeight: 700,
@@ -12165,7 +12172,8 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
         {/* ─── กราฟแนวโน้มรายเดือน (12 เดือนล่าสุด) ─── */}
         <div>
           <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📈 แนวโน้มรายเดือน (12 เดือนล่าสุด)</div>
-          <KPIComboChart trend={monthlyTrend} metricKey={metricKey} icon={icon} label={latest.label} />
+          <KPIComboChart trend={monthlyTrend} metricKey={metricKey} icon={icon} label={latest.label}
+            numColor={chartColor} denColor={`${chartColor}55`} lineColor={chartColor} numLabel={numLabel} denLabel={denLabel} />
         </div>
 
         {/* ─── ตารางข้อมูลจริงรายเดือน ─── */}
@@ -12175,8 +12183,8 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr style={{ background: C.bgAlt }}>
-                  {['เดือน','ค่าที่ได้','ตัวเศษ','ตัวส่วน','ผล'].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                  {['เดือน', 'ค่าที่ได้', numLabel || 'ตัวเศษ', denLabel || 'ตัวส่วน', 'ผล'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: C.textMuted, borderBottom: `1px solid ${C.border}`, minWidth: h.length > 10 ? 140 : undefined }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -12237,44 +12245,51 @@ const QualityKPIsDashboard = ({ data }) => {
 
   const metrics = [
     {
-      key: 'copdExacerbRate', icon: '💨',
+      key: 'copdExacerbRate', icon: '💨', color: '#EA580C',
       targetLabel: '< 110 /100 ผู้ป่วย',
+      numLabel: 'จำนวนครั้งที่กำเริบ (exacerbation)', denLabel: 'จำนวนผู้ป่วย COPD ที่ได้รับการบริบาล',
       desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง'
         + (kpis.copdExacerbApproxCount > 0
           ? ` · ⚠️ ${kpis.copdExacerbApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการซักประวัติแทน)`
           : ''),
     },
     {
-      key: 'asthmaErRate', icon: '🚑',
+      key: 'asthmaErRate', icon: '🚑', color: '#DC2626',
       targetLabel: '< 20 /100 ผู้ป่วย',
+      numLabel: 'จำนวนครั้งที่เข้า ER หรือนอนโรงพยาบาล', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล',
       desc: 'อัตราการกำเริบเฉียบพลันที่ได้รับการรักษาในห้องฉุกเฉิน ผู้ป่วยนอก หรือต้องนอนรักษาในโรงพยาบาลในผู้ป่วยโรคหืด'
         + (kpis.asthmaErApproxCount > 0
           ? ` · ⚠️ ${kpis.asthmaErApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการติ๊กในฟอร์มแทน)`
           : ''),
     },
     {
-      key: 'asthmaIcsPercent', icon: '💊',
+      key: 'asthmaIcsPercent', icon: '💊', color: '#7C3AED',
       targetLabel: '> 80%',
+      numLabel: 'จำนวนผู้ป่วยที่ได้รับยา ICS', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล',
       desc: 'ร้อยละผู้ป่วยคลินิกโรคหืดที่ได้รับการบริบาลเภสัชกรรมและได้รับยา Inhaled Corticosteroid (ICS)',
     },
     {
-      key: 'copdTherapyPercent', icon: '💉',
+      key: 'copdTherapyPercent', icon: '💉', color: '#059669',
       targetLabel: '> 80%',
+      numLabel: 'จำนวนผู้ป่วยที่ได้รับยาเหมาะสม (LABA/LAMA/Combo)', denLabel: 'จำนวนผู้ป่วย COPD ที่มีประวัติกำเริบ',
       desc: 'ร้อยละผู้ป่วย COPD ที่มีประวัติกำเริบ ได้รับยาที่มีส่วนประกอบของ LABA, LAMA, LABA/LAMA หรือ ICS/LABA, ICS/LABA/LAMA',
     },
     {
-      key: 'techniquePercent', icon: '🎯',
+      key: 'techniquePercent', icon: '🎯', color: '#D97706',
       targetLabel: '> 80%',
+      numLabel: 'จำนวนครั้งประเมินที่ผ่านเกณฑ์', denLabel: 'จำนวนครั้งที่ประเมินเทคนิคทั้งหมด',
       desc: 'ร้อยละผู้ป่วยในคลินิกหอบหืดและปอดอุดกั้นเรื้อรังที่ผ่านเกณฑ์การประเมินเทคนิคการใช้ยาพ่น MDI หรือ DPI',
     },
     {
-      key: 'carePercent', icon: '👨‍⚕️',
+      key: 'carePercent', icon: '👨‍⚕️', color: '#2563EB',
       targetLabel: '> 80%',
+      numLabel: 'จำนวนผู้ป่วยที่มาตามนัดจริง', denLabel: 'จำนวนผู้ป่วยที่มีนัดในช่วงเวลานี้',
       desc: 'ร้อยละผู้ป่วยที่มีนัดในช่วงเวลานี้ (คลินิกหอบหืด/ปอดอุดกั้นเรื้อรัง) ที่มาตามนัดและได้รับการบริบาลทางเภสัชกรรมจริง — ตัวหารคือผู้ป่วยที่มีนัด ไม่ใช่ผู้ป่วยทั้งหมดที่เคยลงทะเบียน',
     },
     {
-      key: 'adherenceGoodPercent', icon: '💊',
+      key: 'adherenceGoodPercent', icon: '💊', color: '#DB2777',
       targetLabel: '> 80%',
+      numLabel: 'จำนวนผู้ป่วยที่มี Adherence ระดับ "ดี"', denLabel: 'จำนวนผู้ป่วยที่ได้รับการบริบาลในช่วงนี้',
       desc: 'ร้อยละผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรมในช่วงนี้ ที่มีความร่วมมือในการใช้ยาพ่น (Adherence) อยู่ในระดับ "ดี" — ใช้ค่าจากการประเมิน Adherence ที่บันทึกในแบบฟอร์ม visit ล่าสุดของผู้ป่วยแต่ละคนอยู่แล้ว ไม่ต้องกรอกซ้ำ',
     },
   ];
@@ -12419,15 +12434,16 @@ const QualityKPIsDashboard = ({ data }) => {
 
           {/* ─── KPI Cards Grid ──────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-            {metrics.map(({ key, icon, targetLabel, desc }) => (
+            {metrics.map(({ key, icon, targetLabel, desc, numLabel, denLabel }) => (
               <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc}
-                onClick={() => setDetailKey(key)} />
+                numLabel={numLabel} denLabel={denLabel} onClick={() => setDetailKey(key)} />
             ))}
           </div>
 
           <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey}
             icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
-            desc={metrics.find(m => m.key === detailKey)?.desc} />
+            desc={metrics.find(m => m.key === detailKey)?.desc} color={metrics.find(m => m.key === detailKey)?.color}
+            numLabel={metrics.find(m => m.key === detailKey)?.numLabel} denLabel={metrics.find(m => m.key === detailKey)?.denLabel} />
 
           {/* ─── Summary Table ───────────────────── */}
           <Card>
@@ -12436,13 +12452,13 @@ const QualityKPIsDashboard = ({ data }) => {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: C.bgAlt }}>
-                    {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','ตัวเศษ/ส่วน','ผล'].map((h,i) => (
+                    {['ตัวชี้วัด','ค่าที่ได้','เป้าหมาย','จำนวน (เศษ / ส่วน)','ผล'].map((h,i) => (
                       <th key={i} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {metrics.map(({ key, icon, targetLabel }) => {
+                  {metrics.map(({ key, icon, targetLabel, numLabel, denLabel }) => {
                     const m = kpis[key];
                     const isPass = m.status === 'pass';
                     return (
@@ -12455,7 +12471,9 @@ const QualityKPIsDashboard = ({ data }) => {
                           {m.value}{m.unit}
                         </td>
                         <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{targetLabel}</td>
-                        <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{m.num} / {m.den}</td>
+                        <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }} title={`${numLabel || 'ตัวเศษ'}: ${m.num} · ${denLabel || 'ตัวส่วน'}: ${m.den}`}>
+                          {m.num} / {m.den}
+                        </td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{
                             display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
@@ -12504,7 +12522,8 @@ const QualityKPIsDashboard = ({ data }) => {
             </div>
             {trend && (trendChartKeys || metrics.map(m => m.key)).map(key => {
               const m = metrics.find(mm => mm.key === key);
-              return <KPIComboChart key={key} trend={trend} metricKey={key} icon={m.icon} label={kpis[key]?.label} />;
+              return <KPIComboChart key={key} trend={trend} metricKey={key} icon={m.icon} label={kpis[key]?.label}
+                numColor={m.color} denColor={`${m.color}55`} lineColor={m.color} numLabel={m.numLabel} denLabel={m.denLabel} />;
             })}
           </Card>
           <KPITrendTable trend={trend} metrics={metrics} />
@@ -12516,7 +12535,7 @@ const QualityKPIsDashboard = ({ data }) => {
 
 // ─── กราฟแท่ง + เส้น (Combo Chart) ต่อ 1 ตัวชี้วัด ตามช่วงเวลา (เดือน/ไตรมาส/ปีงบ) ──
 // แท่งแดง = ตัวเศษ (num), แท่งฟ้า = ตัวส่วน (den), เส้นดำ = ค่า % (หรืออัตรา), เส้นแดงแนวนอน = เป้าหมาย
-const KPIComboChart = ({ trend, metricKey, icon, label }) => {
+const KPIComboChart = ({ trend, metricKey, icon, label, numColor, denColor, lineColor, numLabel, denLabel }) => {
   if (!trend || trend.length === 0) return null;
   const points = trend.map(t => ({
     label: t.label,
@@ -12531,6 +12550,9 @@ const KPIComboChart = ({ trend, metricKey, icon, label }) => {
   const metricLabel = trend[0]?.kpis[metricKey]?.label || label;
   const target = points[0]?.target || 0;
   const unit = points[0]?.unit || '%';
+  const cNum  = numColor  || '#EF4444';
+  const cDen  = denColor  || '#60A5FA';
+  const cLine = lineColor || '#111827';
 
   // ── ขนาด/สเกล ──
   const W = Math.max(560, points.length * 92);
@@ -12573,35 +12595,36 @@ const KPIComboChart = ({ trend, metricKey, icon, label }) => {
             <text key={'lt' + i} x={W - padR + 8} y={yLine(t) + 4} fontSize={10} fill={C.textMuted} textAnchor="start">{t}</text>
           ))}
           {/* เส้นเป้าหมาย */}
-          <line x1={padL} x2={W - padR} y1={targetY} y2={targetY} stroke="#EF4444" strokeWidth={2} strokeDasharray="5,4" />
+          <line x1={padL} x2={W - padR} y1={targetY} y2={targetY} stroke="#F87171" strokeWidth={2} strokeDasharray="5,4" />
           {/* แท่ง num/den + label แกน x */}
           {points.map((p, i) => {
             const cx = xAt(i);
             return (
-              <g key={i}>
-                <rect x={cx - barW - 2} y={yBar(p.num)} width={barW} height={plotH - (yBar(p.num) - padT)} fill="#EF4444" rx={2} />
-                <text x={cx - barW - 2 + barW / 2} y={yBar(p.num) - 5} fontSize={10.5} fontWeight={700} fill="#7F1D1D" textAnchor="middle">{p.num}</text>
-                <rect x={cx + 2} y={yBar(p.den)} width={barW} height={plotH - (yBar(p.den) - padT)} fill="#60A5FA" rx={2} />
-                <text x={cx + 2 + barW / 2} y={yBar(p.den) - 5} fontSize={10.5} fontWeight={700} fill="#1E3A8A" textAnchor="middle">{p.den}</text>
+              <g key={i} style={{ animation: 'rxRiseSm 0.45s cubic-bezier(0.16,1,0.3,1)', animationDelay: `${i * 35}ms`, animationFillMode: 'both' }}>
+                <rect x={cx - barW - 2} y={yBar(p.num)} width={barW} height={plotH - (yBar(p.num) - padT)} fill={cNum} rx={3} />
+                <text x={cx - barW - 2 + barW / 2} y={yBar(p.num) - 5} fontSize={10.5} fontWeight={700} fill={cNum} textAnchor="middle">{p.num}</text>
+                <rect x={cx + 2} y={yBar(p.den)} width={barW} height={plotH - (yBar(p.den) - padT)} fill={cDen} rx={3} />
+                <text x={cx + 2 + barW / 2} y={yBar(p.den) - 5} fontSize={10.5} fontWeight={700} fill={cDen} textAnchor="middle">{p.den}</text>
                 <text x={cx} y={H - padB + 18} fontSize={10.5} fill={C.text} textAnchor="middle">{p.label}</text>
               </g>
             );
           })}
-          {/* เส้น % */}
-          <path d={linePath} fill="none" stroke="#111827" strokeWidth={2.5} />
+          {/* เส้น % — วาดเข้าจอด้วย stroke-dashoffset */}
+          <path d={linePath} fill="none" stroke={cLine} strokeWidth={2.75} strokeLinecap="round" strokeLinejoin="round"
+            style={{ strokeDasharray: 4000, strokeDashoffset: 4000, animation: 'rxLineDraw 1.1s cubic-bezier(0.16,1,0.3,1) forwards', animationDelay: '120ms' }} />
           {points.map((p, i) => (
-            <g key={'pt' + i}>
-              <circle cx={xAt(i)} cy={yLine(p.val)} r={4} fill={p.isPass ? '#059669' : '#DC2626'} stroke="#111827" strokeWidth={1.2} />
-              <text x={xAt(i)} y={yLine(p.val) - 10} fontSize={11.5} fontWeight={800} fill="#111827" textAnchor="middle">{p.val}</text>
+            <g key={'pt' + i} style={{ animation: 'rxPopIn 0.4s cubic-bezier(0.16,1,0.3,1)', animationDelay: `${380 + i * 35}ms`, animationFillMode: 'both' }}>
+              <circle cx={xAt(i)} cy={yLine(p.val)} r={4.5} fill={p.isPass ? '#059669' : '#DC2626'} stroke="#fff" strokeWidth={1.5} />
+              <text x={xAt(i)} y={yLine(p.val) - 11} fontSize={11.5} fontWeight={800} fill={cLine} textAnchor="middle">{p.val}</text>
             </g>
           ))}
         </svg>
       </div>
-      <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 11, color: C.textMuted, flexWrap: 'wrap' }}>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#EF4444', borderRadius: 2, marginRight: 4 }} />ตัวเศษ</span>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#60A5FA', borderRadius: 2, marginRight: 4 }} />ตัวส่วน</span>
-        <span><span style={{ display: 'inline-block', width: 10, height: 2, background: '#111827', marginRight: 4, verticalAlign: 'middle' }} />ค่า{unit === '%' ? '% รวม' : unit}</span>
-        <span><span style={{ display: 'inline-block', width: 10, height: 2, background: '#EF4444', borderTop: '2px dashed #EF4444', marginRight: 4, verticalAlign: 'middle' }} />เป้าหมาย</span>
+      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 11, color: C.textMuted, flexWrap: 'wrap' }}>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: cNum, borderRadius: 3, marginRight: 4 }} />{numLabel || 'ตัวเศษ'}</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: cDen, borderRadius: 3, marginRight: 4 }} />{denLabel || 'ตัวส่วน'}</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 2, background: cLine, marginRight: 4, verticalAlign: 'middle' }} />ค่า{unit === '%' ? '% รวม' : unit}</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 0, borderTop: '2px dashed #F87171', marginRight: 4, verticalAlign: 'middle' }} />เป้าหมาย</span>
       </div>
     </div>
   );
