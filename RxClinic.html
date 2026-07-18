@@ -11884,7 +11884,8 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   // (checkbox เดิมมักถูกกรอกแบบ recall เหมือน countThisYear ไม่ใช่เหตุการณ์ ณ วันที่ visit จริง
   //  และเป็น true/false ต่อ visit จึงนับจำนวนครั้งที่เข้า ER/นอนรพ.ซ้ำในช่วงเดียวกันไม่ได้)
   // ถ้ายังไม่มี event log fallback เป็นการนับ visit ที่ติ๊ก erVisit/hospitalized แบบเดิม
-  const srcVisits = periodVisits.length > 0 ? periodVisits : allVisits;
+  // หมายเหตุ: ใช้ periodVisits ตรงๆ (ไม่ fallback เป็น allVisits) — ถ้าช่วงเวลาที่เลือกไม่มี visit เลย
+  // ต้องแสดงเป็น 0 จริงๆ ไม่ใช่แอบไปนับข้อมูลย้อนหลังทั้งหมดมาแทน ซึ่งจะทำให้ตัวเลขไม่ตรงกับช่วงเวลาที่ดูอยู่
   let asthmaErCount = 0;
   let asthmaErApproxCount = 0;
   asthmaExacerbBasePts.forEach(p => {
@@ -11894,7 +11895,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
         e.date && e.date >= startDate && e.date <= endDate && (e.hospitalized || e.erVisit)
       ).length;
     } else {
-      asthmaErCount += srcVisits.filter(v =>
+      asthmaErCount += periodVisits.filter(v =>
         v.patientId === p.id && (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
       ).length;
       asthmaErApproxCount++;
@@ -11932,7 +11933,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
 
   // ─── KPI 5: ผู้ป่วยผ่านเกณฑ์เทคนิคยาพ่น MDI/DPI ≥ 80% ──────────────────────
   // "ผ่านเกณฑ์" = overallScore อยู่ใน RX_KPI_ENUMS.TECHNIQUE_PASS (single source of truth)
-  const techVisits  = srcVisits.filter(v => v.inhalerTechnique && v.inhalerTechnique.length > 0);
+  const techVisits  = periodVisits.filter(v => v.inhalerTechnique && v.inhalerTechnique.length > 0);
   const techPassed  = techVisits.filter(v =>
     v.inhalerTechnique.some(t => isTechniquePass(t.overallScore))
   ).length;
@@ -12060,7 +12061,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
     carePercent:       { value: carePct,           target: 80,  unit: '%',            status: careStatus,         label: 'ผู้ป่วยมาตามนัดได้รับบริบาลเภสัชกรรม', num: cameCount,        den: dueCount,      lowerBetter: false },
     adherenceGoodPercent: { value: adherenceGoodPct, target: 80, unit: '%',           status: adherenceStatus,    label: 'ผู้ป่วยมี Adherence ตามเกณฑ์', num: adherenceGoodCount, den: adherenceBase,     lowerBetter: false },
-    visitCount:  srcVisits.length,
+    visitCount:  periodVisits.length,
     patientCount: patients.length,
     copdExacerbApproxCount, // จำนวนผู้ป่วย COPD ที่ยังไม่มี event log — ค่า KPI1 ส่วนนี้เป็นค่าประมาณ
     asthmaErApproxCount,    // จำนวนผู้ป่วย Asthma ที่ยังไม่มี event log — ค่า KPI2 ส่วนนี้เป็นค่าประมาณ
