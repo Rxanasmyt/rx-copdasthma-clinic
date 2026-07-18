@@ -9166,13 +9166,32 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     const isAsthma = dx === 'Asthma' || dx === 'Both';
     const items = [];
 
-    if (isCopd) {
+    // อัตรากำเริบ (KPI1/KPI2) นับเฉพาะวินิจฉัยเดี่ยวตรงกับตัวชี้วัดนั้นเท่านั้น (ไม่รวม Both)
+    // เพราะการกำเริบของผู้ป่วย Both ระบุไม่ได้ว่ามาจาก COPD หรือ Asthma — ดูให้ตรงกับ calculateQualityKPIs จริง
+    if (dx === 'COPD') {
       const exacerbated = !!(f.exacerbation?.hospitalized || f.exacerbation?.erVisit);
       items.push({
         key: 'copdExacerbRate', icon: '💨', label: 'COPD Exacerbation Rate',
         status: exacerbated ? 'flag' : 'ok',
         detail: exacerbated ? 'visit นี้จะถูกนับเป็นตัวเศษ (มีกำเริบ)' : 'ไม่มีกำเริบใน visit นี้',
       });
+    }
+    if (dx === 'Asthma') {
+      const erOrAdmit = !!(f.exacerbation?.hospitalized || f.exacerbation?.erVisit);
+      items.push({
+        key: 'asthmaErRate', icon: '🚑', label: 'Asthma ER/Admit Rate',
+        status: erOrAdmit ? 'flag' : 'ok',
+        detail: erOrAdmit ? 'visit นี้จะถูกนับเป็นตัวเศษ (เข้า ER/นอนรพ.)' : 'ไม่มีเข้า ER/นอนรพ.',
+      });
+    }
+    if (dx === 'Both' && (f.exacerbation?.hospitalized || f.exacerbation?.erVisit)) {
+      items.push({
+        key: 'exacerbNote', icon: 'ℹ️', label: 'อัตรากำเริบ (COPD/Asthma)',
+        status: 'note',
+        detail: 'ผู้ป่วย Both ไม่ถูกนับในตัวชี้วัดอัตรากำเริบทั้งสองตัว เพราะระบุไม่ได้ว่ากำเริบจาก COPD หรือ Asthma',
+      });
+    }
+    if (isCopd) {
       const hasAppropriate = f.medications.some(m => { const c = AppStore.classifyRespiratoryMed(m.name); return c.LABA || c.LAMA; });
       items.push({
         key: 'copdTherapyPercent', icon: '💉', label: 'COPD LABA/LAMA/Combo',
@@ -9181,12 +9200,6 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       });
     }
     if (isAsthma) {
-      const erOrAdmit = !!(f.exacerbation?.hospitalized || f.exacerbation?.erVisit);
-      items.push({
-        key: 'asthmaErRate', icon: '🚑', label: 'Asthma ER/Admit Rate',
-        status: erOrAdmit ? 'flag' : 'ok',
-        detail: erOrAdmit ? 'visit นี้จะถูกนับเป็นตัวเศษ (เข้า ER/นอนรพ.)' : 'ไม่มีเข้า ER/นอนรพ.',
-      });
       const hasICS = f.medications.some(m => AppStore.classifyRespiratoryMed(m.name).ICS);
       items.push({
         key: 'asthmaIcsPercent', icon: '💊', label: 'Asthma + ICS',
@@ -9867,11 +9880,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   {impact.map(it => (
                     <div key={it.key} style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 8,
-                      background: it.status === 'ok' ? '#F0FDF4' : '#FFFBEB',
-                      border: `1px solid ${it.status === 'ok' ? '#BBF7D0' : '#FDE68A'}`,
+                      background: it.status === 'ok' ? '#F0FDF4' : it.status === 'note' ? '#EFF6FF' : '#FFFBEB',
+                      border: `1px solid ${it.status === 'ok' ? '#BBF7D0' : it.status === 'note' ? '#BFDBFE' : '#FDE68A'}`,
                     }}>
-                      <span style={{ fontSize: 15 }}>{it.status === 'ok' ? '✅' : '⚠️'}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text, flexShrink: 0 }}>{it.icon} {it.label}</span>
+                      <span style={{ fontSize: 15 }}>{it.status === 'ok' ? '✅' : it.status === 'note' ? 'ℹ️' : '⚠️'}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text, flexShrink: 0 }}>{it.icon === 'ℹ️' ? '' : it.icon} {it.label}</span>
                       <span style={{ fontSize: 11.5, color: C.textMuted }}>{it.detail}</span>
                     </div>
                   ))}
@@ -11837,6 +11850,13 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const asthmaCaredPts = asthmaPts.filter(p => !!latestVisit[p.id]);
   const asthmaCaredIds = new Set(asthmaCaredPts.map(p => p.id));
 
+  // ฐานเฉพาะ KPI1/KPI2 (อัตรากำเริบ) — นับเฉพาะผู้ป่วยที่วินิจฉัย "เดี่ยว" ตรงกับตัวชี้วัดนั้นเท่านั้น
+  // ไม่รวมผู้ป่วย "Both" เพราะการกำเริบครั้งหนึ่งของผู้ป่วย Both ระบุไม่ได้ว่าเกิดจาก COPD หรือ Asthma
+  // (ถ้ารวม Both ไว้ในทั้งสองฐาน จะทำให้เหตุการณ์กำเริบเดียวกันถูกนับซ้ำเข้าทั้ง 2 ตัวชี้วัด)
+  // ตัวชี้วัดยา (KPI3 ICS / KPI4 LABA-LAMA) ยังคงรวม Both ตามเดิม เพราะไม่มีปัญหาความกำกวมแบบนี้
+  const copdExacerbBasePts   = copdCaredPts.filter(p => p.diagnosis === 'COPD');
+  const asthmaExacerbBasePts = asthmaCaredPts.filter(p => p.diagnosis === 'Asthma');
+
   // ─── KPI 1: COPD Exacerbation Rate (เป้า < 110 /100 ผู้ป่วย) ─────────────────
   // ถ้าผู้ป่วยมี "ประวัติวันที่กำเริบ" (exacerbationEvents) แล้ว ใช้นับเฉพาะ event ที่มีวันที่
   // ตกอยู่ในช่วงเวลาที่เลือกจริง (แม่นยำ ไม่ซ้ำซ้อน ไม่มีปัญหา recall window ทับซ้อนกัน)
@@ -11844,7 +11864,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   // จาก visit ล่าสุด (ค่าประมาณแบบเดิม) เพื่อไม่ให้ตัวเลขหายไปทั้งหมดระหว่างเปลี่ยนผ่าน
   let copdExacerbCount = 0;
   let copdExacerbApproxCount = 0; // จำนวนผู้ป่วยที่ยังใช้ค่าประมาณ (ไม่มี event log) — ไว้แจ้งเตือนความแม่นยำ
-  copdCaredPts.forEach(p => {
+  copdExacerbBasePts.forEach(p => {
     const events = p.exacerbationEvents || [];
     if (events.length > 0) {
       copdExacerbCount += events.filter(e => e.date && e.date >= startDate && e.date <= endDate).length;
@@ -11854,8 +11874,8 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       copdExacerbApproxCount++;
     }
   });
-  const copdExacerbRate = copdCaredPts.length > 0
-    ? ((copdExacerbCount / copdCaredPts.length) * 100).toFixed(1) : '0';
+  const copdExacerbRate = copdExacerbBasePts.length > 0
+    ? ((copdExacerbCount / copdExacerbBasePts.length) * 100).toFixed(1) : '0';
   const copdExacerbStatus = parseFloat(copdExacerbRate) < 110 ? 'pass' : 'warn';
 
   // ─── KPI 2: Asthma ER/OPD/Hospitalized Rate (เป้า < 20 /100 ผู้ป่วย) ──────────
@@ -11867,7 +11887,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const srcVisits = periodVisits.length > 0 ? periodVisits : allVisits;
   let asthmaErCount = 0;
   let asthmaErApproxCount = 0;
-  asthmaCaredPts.forEach(p => {
+  asthmaExacerbBasePts.forEach(p => {
     const events = p.exacerbationEvents || [];
     if (events.length > 0) {
       asthmaErCount += events.filter(e =>
@@ -11880,8 +11900,8 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       asthmaErApproxCount++;
     }
   });
-  const asthmaErRate  = asthmaCaredPts.length > 0
-    ? ((asthmaErCount / asthmaCaredPts.length) * 100).toFixed(1) : '0';
+  const asthmaErRate  = asthmaExacerbBasePts.length > 0
+    ? ((asthmaErCount / asthmaExacerbBasePts.length) * 100).toFixed(1) : '0';
   const asthmaErStatus = parseFloat(asthmaErRate) < 20 ? 'pass' : 'warn';
 
   // ─── KPI 3: Asthma + ICS ≥ 80% (เฉพาะผู้ป่วยที่ได้รับการบริบาลแล้ว) ─────────
@@ -12021,9 +12041,10 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
       diagnosis: p.diagnosis,
       lastVisitDate: v?.visitDate || null,
-      exacerbationCount: isCopd ? exacerbCountInPeriod : null,
-      exacerbationIsApprox: isCopd ? !usesEventLog : null, // true = ยังไม่มี event log ใช้ค่าประมาณจาก recall
-      erOrAdmit: isAsthma ? erOrAdmitInPeriod : null,
+      // exacerbationCount/erOrAdmit: เฉพาะวินิจฉัยเดี่ยวตรงกับตัวชี้วัดนั้น (ไม่รวม Both) ให้ตรงกับฐานที่ใช้คิด KPI1/KPI2 จริง
+      exacerbationCount: p.diagnosis === 'COPD' ? exacerbCountInPeriod : null,
+      exacerbationIsApprox: p.diagnosis === 'COPD' ? !usesEventLog : null, // true = ยังไม่มี event log ใช้ค่าประมาณจาก recall
+      erOrAdmit: p.diagnosis === 'Asthma' ? erOrAdmitInPeriod : null,
       hasICS: isAsthma ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
       techniquePass: techs.length > 0 ? techs.some(t => isTechniquePass(t.overallScore)) : null,
@@ -12032,8 +12053,8 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 
   return {
-    copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdCaredPts.length,   lowerBetter: true  },
-    asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaCaredPts.length, lowerBetter: true  },
+    copdExacerbRate:   { value: copdExacerbRate,  target: 110, unit: '/100 ผู้ป่วย', status: copdExacerbStatus,  label: 'COPD Exacerbation Rate',      num: copdExacerbCount,  den: copdExacerbBasePts.length,   lowerBetter: true  },
+    asthmaErRate:      { value: asthmaErRate,      target: 20,  unit: '/100 ผู้ป่วย', status: asthmaErStatus,     label: 'Asthma ER/Admit Rate',         num: asthmaErCount,     den: asthmaExacerbBasePts.length, lowerBetter: true  },
     asthmaIcsPercent:  { value: asthmaIcsPct,      target: 80,  unit: '%',            status: asthmaIcsStatus,    label: 'Asthma + ICS',                 num: asthmaWithICS,     den: asthmaCaredPts.length, lowerBetter: false },
     copdTherapyPercent:{ value: copdTherapyPct,    target: 80,  unit: '%',            status: copdTherapyStatus,  label: 'COPD LABA/LAMA/Combo',         num: copdAppropriate,   den: copdExacerbBase,      lowerBetter: false },
     techniquePercent:  { value: techniquePct,      target: 80,  unit: '%',            status: techniqueStatus,    label: 'Inhaler Technique ผ่านเกณฑ์',  num: techPassed,        den: techVisits.length,    lowerBetter: false },
@@ -12236,11 +12257,13 @@ const getProblemPatients = (metricKey, roster, noShowRoster) => {
   roster = roster || []; noShowRoster = noShowRoster || [];
   switch (metricKey) {
     case 'copdExacerbRate':
-      return roster.filter(r => (r.diagnosis === 'COPD' || r.diagnosis === 'Both') && r.exacerbationCount > 0)
+      // เฉพาะวินิจฉัย COPD เดี่ยว (ไม่รวม Both) ให้ตรงกับฐานที่ใช้คิดตัวชี้วัดนี้จริง
+      return roster.filter(r => r.diagnosis === 'COPD' && r.exacerbationCount > 0)
         .map(r => ({ ...r, reason: `กำเริบ ${r.exacerbationCount} ครั้ง${r.exacerbationIsApprox ? ' (ค่าประมาณจากการซักประวัติ)' : ''}` }))
         .sort((a, b) => b.exacerbationCount - a.exacerbationCount);
     case 'asthmaErRate':
-      return roster.filter(r => (r.diagnosis === 'Asthma' || r.diagnosis === 'Both') && r.erOrAdmit === true)
+      // เฉพาะวินิจฉัย Asthma เดี่ยว (ไม่รวม Both) ให้ตรงกับฐานที่ใช้คิดตัวชี้วัดนี้จริง
+      return roster.filter(r => r.diagnosis === 'Asthma' && r.erOrAdmit === true)
         .map(r => ({ ...r, reason: 'เข้าห้องฉุกเฉินหรือนอนโรงพยาบาลจากอาการกำเริบ' }));
     case 'asthmaIcsPercent':
       return roster.filter(r => (r.diagnosis === 'Asthma' || r.diagnosis === 'Both') && r.hasICS === false)
@@ -12579,8 +12602,9 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
     {
       key: 'copdExacerbRate', icon: '💨', color: '#EA580C',
       targetLabel: '< 110 /100 ผู้ป่วย',
-      numLabel: 'จำนวนครั้งที่กำเริบ (exacerbation)', denLabel: 'จำนวนผู้ป่วย COPD ที่ได้รับการบริบาล',
+      numLabel: 'จำนวนครั้งที่กำเริบ (exacerbation)', denLabel: 'จำนวนผู้ป่วย COPD ที่ได้รับการบริบาล (เฉพาะวินิจฉัย COPD ไม่รวม Both)',
       desc: 'อัตราการกำเริบเฉียบพลันในผู้ป่วย COPD ที่ได้รับการบริบาลทางเภสัชกรรมในคลินิกปอดอุดกั้นเรื้อรัง'
+        + ' · นับเฉพาะผู้ป่วยที่วินิจฉัย COPD เดี่ยว ไม่รวมผู้ป่วย Both เพราะระบุไม่ได้ว่าการกำเริบเกิดจาก COPD หรือ Asthma'
         + (kpis.copdExacerbApproxCount > 0
           ? ` · ⚠️ ${kpis.copdExacerbApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการซักประวัติแทน)`
           : ''),
@@ -12588,8 +12612,9 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
     {
       key: 'asthmaErRate', icon: '🚑', color: '#DC2626',
       targetLabel: '< 20 /100 ผู้ป่วย',
-      numLabel: 'จำนวนครั้งที่เข้า ER หรือนอนโรงพยาบาล', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล',
+      numLabel: 'จำนวนครั้งที่เข้า ER หรือนอนโรงพยาบาล', denLabel: 'จำนวนผู้ป่วย Asthma ที่ได้รับการบริบาล (เฉพาะวินิจฉัย Asthma ไม่รวม Both)',
       desc: 'อัตราการกำเริบเฉียบพลันที่ได้รับการรักษาในห้องฉุกเฉิน ผู้ป่วยนอก หรือต้องนอนรักษาในโรงพยาบาลในผู้ป่วยโรคหืด'
+        + ' · นับเฉพาะผู้ป่วยที่วินิจฉัย Asthma เดี่ยว ไม่รวมผู้ป่วย Both เพราะระบุไม่ได้ว่าการกำเริบเกิดจาก COPD หรือ Asthma'
         + (kpis.asthmaErApproxCount > 0
           ? ` · ⚠️ ${kpis.asthmaErApproxCount} คนยังไม่มีบันทึกวันที่กำเริบละเอียด (ใช้ค่าประมาณจากการติ๊กในฟอร์มแทน)`
           : ''),
