@@ -995,6 +995,21 @@ const classifyRespiratoryMed = (name) => {
   return result;
 };
 
+// ── ค่า enum ที่ตัวชี้วัดคุณภาพ (Quality KPI) ใช้ตัดสิน "ผ่าน/ไม่ผ่าน" — แหล่งความจริงเดียว (single source of truth) ──
+// ทุกจุดที่ต้องเช็คว่า adherence/technique อยู่ระดับไหน ควรอ้างอิงชุดนี้แทนพิมพ์ string ('Good','Acceptable',...) ซ้ำเอง
+// เพื่อกันบั๊กแบบที่เจอมาก่อน (ลืมนับ 'Acceptable' เป็นเทคนิคที่ผ่านเกณฑ์ ทำให้ Technique Mastery Curve ขึ้น NaN)
+const RX_KPI_ENUMS = {
+  ADHERENCE_LEVELS: ['Good', 'Fair', 'Poor'],
+  ADHERENCE_GOOD: 'Good',
+  ADHERENCE_RANK: { Poor: 0, Fair: 1, Good: 2 },
+  TECHNIQUE_SCORES: ['Good', 'Acceptable', 'Poor'],
+  TECHNIQUE_PASS: ['Good', 'Acceptable'],
+  DIAGNOSES: ['COPD', 'Asthma', 'Both'],
+  RISK_LEVELS: ['Low', 'Medium', 'High'],
+};
+const isTechniquePass = (score) => RX_KPI_ENUMS.TECHNIQUE_PASS.includes(score);
+const isAdherenceGood = (level) => level === RX_KPI_ENUMS.ADHERENCE_GOOD;
+
 // ── Drug Dosing Guide (Thai community hospital formulary) ──
 // ข้อมูลอ้างอิง: MIMS Thailand, Lexicomp, Micromedex
 const DRUG_DOSE_GUIDE = {
@@ -1640,6 +1655,9 @@ const AppStore = {
   INHALER_CHECKLISTS,
   COMMON_MEDICATIONS,
   classifyRespiratoryMed,
+  RX_KPI_ENUMS,
+  isTechniquePass,
+  isAdherenceGood,
   TRIGGER_OPTIONS,
   COMORBIDITY_OPTIONS,
   INSURANCE_OPTIONS,
@@ -9139,6 +9157,62 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     return warnings;
   };
 
+  // ── ตัวชี้วัดคุณภาพ (KPI) ที่ข้อมูลใน visit นี้จะถูกนับเข้า — อัปเดตสด ระหว่างกรอกฟอร์ม ──
+  // ให้เภสัชกรเห็นทันทีว่ากำลังกรอกอะไรอยู่ กระทบตัวชี้วัดตัวไหนบ้าง แทนที่จะไปเจอทีหลังใน Analytics
+  // ใช้ classifyRespiratoryMed ตัวเดียวกับที่ calculateQualityKPIs ใช้จริง เพื่อไม่ให้ผลลัพธ์เพี้ยนไปจากที่แสดงในหน้ารายงาน
+  const kpiImpact = () => {
+    const dx = patient?.diagnosis;
+    const isCopd = dx === 'COPD' || dx === 'Both';
+    const isAsthma = dx === 'Asthma' || dx === 'Both';
+    const items = [];
+
+    if (isCopd) {
+      const exacerbated = !!(f.exacerbation?.hospitalized || f.exacerbation?.erVisit);
+      items.push({
+        key: 'copdExacerbRate', icon: '💨', label: 'COPD Exacerbation Rate',
+        status: exacerbated ? 'flag' : 'ok',
+        detail: exacerbated ? 'visit นี้จะถูกนับเป็นตัวเศษ (มีกำเริบ)' : 'ไม่มีกำเริบใน visit นี้',
+      });
+      const hasAppropriate = f.medications.some(m => { const c = AppStore.classifyRespiratoryMed(m.name); return c.LABA || c.LAMA; });
+      items.push({
+        key: 'copdTherapyPercent', icon: '💉', label: 'COPD LABA/LAMA/Combo',
+        status: hasAppropriate ? 'ok' : 'flag',
+        detail: hasAppropriate ? 'มียา LABA/LAMA แล้ว — นับเป็นผ่าน' : 'ยังไม่มียา LABA/LAMA/Combo ในรายการยา',
+      });
+    }
+    if (isAsthma) {
+      const erOrAdmit = !!(f.exacerbation?.hospitalized || f.exacerbation?.erVisit);
+      items.push({
+        key: 'asthmaErRate', icon: '🚑', label: 'Asthma ER/Admit Rate',
+        status: erOrAdmit ? 'flag' : 'ok',
+        detail: erOrAdmit ? 'visit นี้จะถูกนับเป็นตัวเศษ (เข้า ER/นอนรพ.)' : 'ไม่มีเข้า ER/นอนรพ.',
+      });
+      const hasICS = f.medications.some(m => AppStore.classifyRespiratoryMed(m.name).ICS);
+      items.push({
+        key: 'asthmaIcsPercent', icon: '💊', label: 'Asthma + ICS',
+        status: hasICS ? 'ok' : 'flag',
+        detail: hasICS ? 'มียา ICS แล้ว — นับเป็นผ่าน' : 'ยังไม่มียา ICS ในรายการยา',
+      });
+    }
+    if (f.inhalerTechnique.length > 0) {
+      const anyPass = f.inhalerTechnique.some(t => AppStore.isTechniquePass(t.overallScore));
+      items.push({
+        key: 'techniquePercent', icon: '🎯', label: 'Inhaler Technique',
+        status: anyPass ? 'ok' : 'flag',
+        detail: anyPass ? 'มีเทคนิคที่ประเมินผ่านเกณฑ์' : `ประเมินแล้ว ${f.inhalerTechnique.length} ครั้ง แต่ยังไม่ผ่านเกณฑ์เลยสักครั้ง`,
+      });
+    }
+    if (f.adherence?.level) {
+      const good = AppStore.isAdherenceGood(f.adherence.level);
+      items.push({
+        key: 'adherenceGoodPercent', icon: '🤝', label: 'Adherence ตามเกณฑ์',
+        status: good ? 'ok' : 'flag',
+        detail: good ? 'Adherence ระดับดี — นับเป็นผ่าน' : `Adherence ระดับ "${f.adherence.level}" — ไม่นับเป็นผ่าน`,
+      });
+    }
+    return items;
+  };
+
   const handleSave = (skipValidation) => {
     if (saving) return;
     if (!skipValidation) {
@@ -9779,6 +9853,32 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               </div>
             </label>
           </Card>
+
+          {/* ── ตัวชี้วัดคุณภาพที่ visit นี้จะกระทบ — อัปเดตสดระหว่างกรอก ── */}
+          {(() => {
+            const impact = kpiImpact();
+            if (impact.length === 0) return null;
+            return (
+              <Card style={{ padding: '14px 18px', marginTop: 16 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.primary, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🏆 ตัวชี้วัดคุณภาพที่ข้อมูลนี้จะถูกนับเข้า
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {impact.map(it => (
+                    <div key={it.key} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 8,
+                      background: it.status === 'ok' ? '#F0FDF4' : '#FFFBEB',
+                      border: `1px solid ${it.status === 'ok' ? '#BBF7D0' : '#FDE68A'}`,
+                    }}>
+                      <span style={{ fontSize: 15 }}>{it.status === 'ok' ? '✅' : '⚠️'}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text, flexShrink: 0 }}>{it.icon} {it.label}</span>
+                      <span style={{ fontSize: 11.5, color: C.textMuted }}>{it.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })()}
 
           {/* Inline validation summary — appears after a save attempt, updates live as fields are fixed */}
           {attemptedSave && (() => {
@@ -11811,10 +11911,10 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const copdTherapyStatus = parseFloat(copdTherapyPct) >= 80 ? 'pass' : 'warn';
 
   // ─── KPI 5: ผู้ป่วยผ่านเกณฑ์เทคนิคยาพ่น MDI/DPI ≥ 80% ──────────────────────
-  // "ผ่านเกณฑ์" = overallScore เป็น 'Good' หรือ 'Acceptable'
+  // "ผ่านเกณฑ์" = overallScore อยู่ใน RX_KPI_ENUMS.TECHNIQUE_PASS (single source of truth)
   const techVisits  = srcVisits.filter(v => v.inhalerTechnique && v.inhalerTechnique.length > 0);
   const techPassed  = techVisits.filter(v =>
-    v.inhalerTechnique.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable')
+    v.inhalerTechnique.some(t => isTechniquePass(t.overallScore))
   ).length;
   const techniquePct   = techVisits.length > 0
     ? ((techPassed / techVisits.length) * 100).toFixed(1) : '0';
@@ -11893,7 +11993,7 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   const adherenceBase = rosterIdsForAdherence.size;
   let adherenceGoodCount = 0;
   rosterIdsForAdherence.forEach(pid => {
-    if (latestVisit[pid]?.adherence?.level === 'Good') adherenceGoodCount++;
+    if (isAdherenceGood(latestVisit[pid]?.adherence?.level)) adherenceGoodCount++;
   });
   const adherenceGoodPct = adherenceBase > 0 ? ((adherenceGoodCount / adherenceBase) * 100).toFixed(1) : '0';
   const adherenceStatus = parseFloat(adherenceGoodPct) >= 80 ? 'pass' : 'warn';
@@ -11926,8 +12026,8 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       erOrAdmit: isAsthma ? erOrAdmitInPeriod : null,
       hasICS: isAsthma ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (isCopd && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
-      techniquePass: techs.length > 0 ? techs.some(t => t.overallScore === 'Good' || t.overallScore === 'Acceptable') : null,
-      adherenceGood: rosterIds.has(p.id) ? (v?.adherence?.level === 'Good') : null,
+      techniquePass: techs.length > 0 ? techs.some(t => isTechniquePass(t.overallScore)) : null,
+      adherenceGood: rosterIds.has(p.id) ? isAdherenceGood(v?.adherence?.level) : null,
     };
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 
@@ -13234,7 +13334,7 @@ const computeInsights = (data) => {
   // Technique improvement: among patients with ≥2 visits, % whose latest technique improved from first Poor
   let techImproved = 0, techEligible = 0;
   let adhImproved = 0, adhEligible = 0;
-  const adhRank = { Poor: 0, Fair: 1, Good: 2 };
+  const adhRank = AppStore.RX_KPI_ENUMS.ADHERENCE_RANK;
   patients.forEach(p => {
     const pv = visits.filter(v => v.patientId === p.id);
     if (pv.length < 2) return;
