@@ -298,6 +298,8 @@
     transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s;
   }
   .rx-insight-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(15,23,42,0.12); }
+  .rx-kpi-card-click:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(15,23,42,0.16) !important; }
+  .rx-kpi-row-click:hover { background: var(--c-bgAlt); }
   .rx-bar-grow { transform-origin: left center; animation: rxBarGrow 0.9s cubic-bezier(0.16,1,0.3,1) backwards; }
   .rx-hero-shimmer {
     background: linear-gradient(110deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 70%);
@@ -12008,7 +12010,7 @@ const calculateQualityKPIsTrend = (data, granularity, count, refDate) => {
 };
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
-const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
+const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick }) => {
   const isPass = metric.status === 'pass';
   const passColor  = '#059669';
   const warnColor  = '#DC2626';
@@ -12029,12 +12031,13 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
   const barColor = isPass ? passColor : warnColor;
 
   return (
-    <div style={{
+    <div onClick={onClick} className="rx-kpi-card-click" style={{
       background: bgGrad, border: `2px solid ${borderColor}30`,
       borderLeft: `5px solid ${borderColor}`,
       borderRadius: 12, padding: '16px 18px',
       display: 'flex', flexDirection: 'column', gap: 12,
       boxShadow: isPass ? '0 2px 8px rgba(5,150,105,0.12)' : '0 2px 8px rgba(220,38,38,0.12)',
+      cursor: onClick ? 'pointer' : 'default', transition: 'transform 0.15s, box-shadow 0.15s',
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
@@ -12085,7 +12088,123 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel }) => {
           {desc}
         </div>
       )}
+
+      {onClick && (
+        <div style={{
+          fontSize: 11, fontWeight: 700, color: borderColor,
+          display: 'flex', alignItems: 'center', gap: 4, marginTop: -4,
+        }}>
+          📈 ดูแนวโน้มรายเดือน & รายละเอียด →
+        </div>
+      )}
     </div>
+  );
+};
+
+// ─── รายละเอียดตัวชี้วัดรายตัว (คลิกจากการ์ด) — เลขจริง + กราฟแนวโน้มรายเดือน ──
+const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc }) => {
+  const monthlyTrend = React.useMemo(() => {
+    if (!open || !metricKey) return null;
+    return calculateQualityKPIsTrend(data, 'month', 12);
+  }, [open, metricKey, data]);
+
+  if (!open || !metricKey || !monthlyTrend) return null;
+  const latest = monthlyTrend[monthlyTrend.length - 1].kpis[metricKey];
+  const isPass = latest.status === 'pass';
+  const color = isPass ? '#059669' : '#DC2626';
+
+  return (
+    <Modal open={open} onClose={onClose} title={`${icon} ${latest.label}`} width={900}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+        {/* ─── Hero: ค่าปัจจุบัน (เดือนล่าสุด) ─── */}
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch',
+        }}>
+          <div style={{
+            flex: '1 1 220px', position: 'relative', overflow: 'hidden',
+            background: `linear-gradient(135deg, ${color} 0%, ${color}cc 100%)`,
+            borderRadius: 16, padding: '20px 22px', color: '#fff',
+            boxShadow: `0 8px 24px ${color}40`,
+          }} className="rx-insight-card">
+            <div className="rx-hero-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+            <div style={{ position: 'relative', fontSize: 11, fontWeight: 700, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              เดือนล่าสุด: {monthlyTrend[monthlyTrend.length - 1].label}
+            </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>
+                <AnimatedNumber value={parseFloat(latest.value) || 0} decimals={String(latest.value).includes('.') ? 1 : 0} />
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 600, opacity: 0.9 }}>{latest.unit}</span>
+            </div>
+            <div style={{ position: 'relative', fontSize: 12, opacity: 0.9, marginTop: 6 }}>{latest.num} / {latest.den} · เป้าหมาย {targetLabel}</div>
+            <div style={{
+              position: 'relative', display: 'inline-block', marginTop: 10, padding: '3px 12px', borderRadius: 20,
+              background: 'rgba(255,255,255,0.22)', fontSize: 11, fontWeight: 700,
+            }}>{isPass ? '✅ ผ่านเกณฑ์' : '⚠ ต้องปรับปรุง'}</div>
+          </div>
+          <div style={{ flex: '2 1 320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
+            {desc && <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.7 }}>{desc}</div>}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+              {monthlyTrend.slice(-3).map(t => {
+                const m = t.kpis[metricKey];
+                const p = m.status === 'pass';
+                return (
+                  <div key={t.label} style={{
+                    flex: '1 1 90px', textAlign: 'center', padding: '8px 10px', borderRadius: 10,
+                    background: p ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${p ? '#BBF7D0' : '#FECACA'}`,
+                  }}>
+                    <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600 }}>{t.label}</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: p ? '#059669' : '#DC2626' }}>{m.value}{m.unit === '%' ? '%' : ''}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── กราฟแนวโน้มรายเดือน (12 เดือนล่าสุด) ─── */}
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📈 แนวโน้มรายเดือน (12 เดือนล่าสุด)</div>
+          <KPIComboChart trend={monthlyTrend} metricKey={metricKey} icon={icon} label={latest.label} />
+        </div>
+
+        {/* ─── ตารางข้อมูลจริงรายเดือน ─── */}
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📋 ข้อมูลรายเดือน</div>
+          <div className="rx-scroll-x" style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 10 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: C.bgAlt }}>
+                  {['เดือน','ค่าที่ได้','ตัวเศษ','ตัวส่วน','ผล'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...monthlyTrend].reverse().map(t => {
+                  const m = t.kpis[metricKey];
+                  const p = m.status === 'pass';
+                  return (
+                    <tr key={t.label} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: '7px 12px', fontWeight: 600 }}>{t.label}</td>
+                      <td style={{ padding: '7px 12px', fontWeight: 700, color: p ? '#059669' : '#DC2626' }}>{m.value}{m.unit === '%' ? '%' : ` ${m.unit}`}</td>
+                      <td style={{ padding: '7px 12px', color: C.textMuted }}>{m.num}</td>
+                      <td style={{ padding: '7px 12px', color: C.textMuted }}>{m.den}</td>
+                      <td style={{ padding: '7px 12px' }}>
+                        <span style={{
+                          padding: '2px 9px', borderRadius: 20, fontSize: 10.5, fontWeight: 700,
+                          background: p ? '#F0FDF4' : '#FEF2F2', color: p ? '#059669' : '#DC2626',
+                        }}>{p ? '✅ ผ่าน' : '⚠ ไม่ผ่าน'}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 };
 
@@ -12095,6 +12214,7 @@ const QualityKPIsDashboard = ({ data }) => {
   const [trendGranularity, setTrendGranularity] = React.useState('month'); // 'month' | 'quarter' | 'fiscalYear' | 'year'
   const [trendCount, setTrendCount] = React.useState(12);
   const [trendChartKeys, setTrendChartKeys] = React.useState(null); // null = แสดงกราฟทุกตัวชี้วัด
+  const [detailKey, setDetailKey] = React.useState(null); // metric key ที่กำลังดูรายละเอียด (คลิกจากการ์ด)
   const TREND_DEFAULT_COUNT = { month: 12, quarter: 4, fiscalYear: 3, year: 3 };
   const setTrendGranularityAndResetCount = (g) => { setTrendGranularity(g); setTrendCount(TREND_DEFAULT_COUNT[g] || 3); };
 
@@ -12300,9 +12420,14 @@ const QualityKPIsDashboard = ({ data }) => {
           {/* ─── KPI Cards Grid ──────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
             {metrics.map(({ key, icon, targetLabel, desc }) => (
-              <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc} />
+              <QualityKPICard key={key} metric={kpis[key]} icon={icon} targetLabel={targetLabel} desc={desc}
+                onClick={() => setDetailKey(key)} />
             ))}
           </div>
+
+          <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey}
+            icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
+            desc={metrics.find(m => m.key === detailKey)?.desc} />
 
           {/* ─── Summary Table ───────────────────── */}
           <Card>
@@ -12321,7 +12446,8 @@ const QualityKPIsDashboard = ({ data }) => {
                     const m = kpis[key];
                     const isPass = m.status === 'pass';
                     return (
-                      <tr key={key} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <tr key={key} onClick={() => setDetailKey(key)} style={{ borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}
+                        className="rx-kpi-row-click">
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
                           {icon} {m.label}
                         </td>
