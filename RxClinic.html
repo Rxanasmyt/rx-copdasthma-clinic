@@ -7477,6 +7477,298 @@ function PatientAICard({ patient, visits }) {
   );
 }
 
+// ── รายละเอียด Visit แบบอ่านอย่างเดียว (ไม่ต้องกด "แก้ไข" เพื่อดูข้อมูลเต็ม) ──
+function VisitDetailModal({ open, patient, visit, onClose, onEdit }) {
+  if (!open || !visit) return null;
+  const Section = ({ icon, title, children, color }) => (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: color || C.primary, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {icon} {title}
+      </div>
+      {children}
+    </div>
+  );
+  const catScore = visit.assessments?.cat?.allAnswered ? visit.assessments.cat.score : null;
+  const catInterp = catScore != null ? AppStore.interpretCAT(catScore) : null;
+  const actScore = visit.assessments?.act?.allAnswered ? visit.assessments.act.score : null;
+  const mmrcGrade = visit.assessments?.mmrc?.grade;
+  const mmrc = mmrcGrade != null ? AppStore.MMRC_LEVELS.find(m => m.grade === mmrcGrade) : null;
+  const vitals = visit.vitals || {};
+  const hasVitals = vitals.spO2 || vitals.rr || vitals.bp || vitals.fev1 || vitals.peakFlow;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`📋 รายละเอียด Visit — ${visit.visitDate}`} width={860}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, visit)}>🖨️ พิมพ์ SOAP</Btn>
+          {onEdit && <Btn size="sm" variant="accent" onClick={() => { onClose(); onEdit(visit.id); }}>✏️ แก้ไข Visit นี้</Btn>}
+        </div>
+      }>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <RiskBadge level={visit.riskLevel || 'Low'} />
+        <span style={{ fontSize: 12.5, color: C.textMuted }}>เภสัชกร: <strong style={{ color: C.text }}>{visit.pharmacist || '—'}</strong></span>
+        {visit.nextVisit && <span style={{ fontSize: 12.5, color: C.textMuted }}>· นัดครั้งถัดไป: <strong style={{ color: C.primary }}>{visit.nextVisit}</strong></span>}
+        <span style={{ fontSize: 12.5, color: visit.informedConsent ? C.low : C.high, marginLeft: 'auto' }}>
+          {visit.informedConsent ? '✅ Informed Consent' : '⚠ ไม่มี Informed Consent'}
+        </span>
+      </div>
+
+      {visit.chiefComplaint && (
+        <Section icon="💬" title="Chief Complaint">
+          <div style={{ fontSize: 13, color: C.text, background: C.bgAlt, borderRadius: 8, padding: '9px 13px' }}>{visit.chiefComplaint}</div>
+        </Section>
+      )}
+
+      {hasVitals && (
+        <Section icon="🩺" title="สัญญาณชีพ & Spirometry">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+            {[
+              { l: 'SpO₂', v: vitals.spO2, u: '%' }, { l: 'RR', v: vitals.rr, u: '/min' },
+              { l: 'BP', v: vitals.bp, u: '' }, { l: 'FEV1', v: vitals.fev1, u: '%pred' },
+              { l: 'Peak Flow', v: vitals.peakFlow, u: 'L/min' },
+            ].filter(x => x.v).map(x => (
+              <div key={x.l} style={{ background: C.bgAlt, borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600 }}>{x.l}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{x.v}<span style={{ fontSize: 10, fontWeight: 500, color: C.textMuted }}> {x.u}</span></div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section icon="🚑" title="Exacerbation">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+          <span>{visit.exacerbation?.countThisYear ?? 0} ครั้ง (6 เดือนล่าสุด)</span>
+          {visit.exacerbation?.severity && visit.exacerbation.severity !== 'None' && <RiskBadge level={visit.exacerbation.severity === 'Severe' ? 'High' : 'Medium'} />}
+          {visit.exacerbation?.hospitalized && <span style={{ fontSize: 11, fontWeight: 700, color: C.high, background: C.highBg, padding: '2px 9px', borderRadius: 20 }}>🏥 นอนโรงพยาบาล</span>}
+          {visit.exacerbation?.erVisit && <span style={{ fontSize: 11, fontWeight: 700, color: C.high, background: C.highBg, padding: '2px 9px', borderRadius: 20 }}>🚑 เข้า ER</span>}
+        </div>
+        {visit.exacerbation?.triggers?.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 12, color: C.textMuted }}>ปัจจัยกระตุ้น: {visit.exacerbation.triggers.join(', ')}</div>
+        )}
+        {visit.exacerbation?.rescueMedUse && (
+          <div style={{ marginTop: 3, fontSize: 12, color: C.textMuted }}>ความถี่การใช้ยา Rescue: {visit.exacerbation.rescueMedUse}</div>
+        )}
+      </Section>
+
+      {(visit.soap?.s || visit.soap?.o || visit.soap?.a || visit.soap?.p) && (
+        <Section icon="📝" title="SOAP Note">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {visit.soap?.s && <div style={{ background: C.bgAlt, borderRadius: 7, padding: '9px 13px', fontSize: 13, borderLeft: `3px solid ${C.accent}`, whiteSpace: 'pre-wrap' }}><strong style={{ color: C.primary }}>S:</strong> {visit.soap.s}</div>}
+            {visit.soap?.o && <div style={{ background: C.bgAlt, borderRadius: 7, padding: '9px 13px', fontSize: 13, borderLeft: `3px solid ${C.low}`, whiteSpace: 'pre-wrap' }}><strong style={{ color: C.low }}>O:</strong> {visit.soap.o}</div>}
+            {visit.soap?.a && <div style={{ background: C.bgAlt, borderRadius: 7, padding: '9px 13px', fontSize: 13, borderLeft: '3px solid #7C3AED', whiteSpace: 'pre-wrap' }}><strong style={{ color: '#7C3AED' }}>A:</strong> {visit.soap.a}</div>}
+            {visit.soap?.p && <div style={{ background: '#F0FDF4', borderRadius: 7, padding: '9px 13px', fontSize: 13, borderLeft: `3px solid ${C.low}`, whiteSpace: 'pre-wrap' }}><strong style={{ color: C.low }}>P:</strong> {visit.soap.p}</div>}
+          </div>
+        </Section>
+      )}
+
+      {(visit.medications || []).length > 0 && (
+        <Section icon="💊" title={`รายการยา (${visit.medications.length})`}>
+          <div className="rx-scroll-x" style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: C.bgAlt }}>
+                  {['ยา', 'ขนาด', 'ความถี่', 'Adherence'].map(h => (
+                    <th key={h} style={{ padding: '7px 11px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: C.textMuted }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visit.medications.map((m, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={{ padding: '7px 11px', fontWeight: 600 }}>{m.name || '—'}</td>
+                    <td style={{ padding: '7px 11px', color: C.textMuted }}>{m.dose || '—'}</td>
+                    <td style={{ padding: '7px 11px', color: C.textMuted }}>{m.frequency || '—'}</td>
+                    <td style={{ padding: '7px 11px' }}>{m.adherence ? <AdherenceBadge level={m.adherence} /> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+
+      {(visit.inhalerTechnique || []).length > 0 && (
+        <Section icon="🎯" title="เทคนิคการใช้ยาพ่น">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {visit.inhalerTechnique.map((t, i) => (
+              <div key={i} style={{ background: C.bgAlt, borderRadius: 8, padding: '9px 13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: t.errors?.length ? 5 : 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{AppStore.INHALER_CHECKLISTS?.[t.device]?.label || t.device}</span>
+                  <TechniqueBadge score={t.overallScore} />
+                </div>
+                {t.errors?.length > 0 && (
+                  <div style={{ fontSize: 12, color: C.high, lineHeight: 1.6 }}>
+                    {t.errors.map((e, j) => <div key={j}>✕ {e}</div>)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {(visit.adherence?.score != null || visit.adherence?.level) && (
+        <Section icon="🔁" title="ความร่วมมือในการใช้ยา (Adherence)">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <AdherenceBadge level={visit.adherence.level} />
+            {visit.adherence.score != null && <span style={{ fontSize: 12, color: C.textMuted }}>คะแนน: {visit.adherence.score}</span>}
+          </div>
+        </Section>
+      )}
+
+      {(catScore != null || actScore != null || mmrc) && (
+        <Section icon="📊" title="แบบประเมินมาตรฐาน">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+            {catScore != null && (
+              <div style={{ background: C.bgAlt, borderRadius: 8, padding: '9px 13px' }}>
+                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700 }}>CAT SCORE</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: catInterp?.color }}>{catScore}/40</div>
+                <div style={{ fontSize: 11, color: catInterp?.color }}>{catInterp?.label}</div>
+              </div>
+            )}
+            {mmrc && (
+              <div style={{ background: C.bgAlt, borderRadius: 8, padding: '9px 13px' }}>
+                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700 }}>mMRC</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>{mmrc.label}</div>
+                <div style={{ fontSize: 10.5, color: C.textMuted, lineHeight: 1.4 }}>{mmrc.desc}</div>
+              </div>
+            )}
+            {actScore != null && (
+              <div style={{ background: C.bgAlt, borderRadius: 8, padding: '9px 13px' }}>
+                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 700 }}>ACT SCORE</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: actScore < 20 ? C.high : C.low }}>{actScore}/25</div>
+                <div style={{ fontSize: 11, color: actScore < 20 ? C.high : C.low }}>{actScore < 20 ? 'ควบคุมไม่ได้ดี' : 'ควบคุมได้ดี'}</div>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {visit.drp?.noDRP === false && (visit.drp?.items?.length > 0 || visit.drp?.note) && (
+        <Section icon="⚠️" title="ปัญหาที่เกี่ยวข้องกับยา (DRP)" color={C.high}>
+          {(visit.drp.items || []).map((d, i) => (
+            <div key={i} style={{ fontSize: 12.5, color: C.text, background: C.highBg, borderLeft: `3px solid ${C.high}`, borderRadius: 6, padding: '7px 11px', marginBottom: 4 }}>⚠ {d}</div>
+          ))}
+          {visit.drp.note && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4, whiteSpace: 'pre-wrap' }}>{visit.drp.note}</div>}
+        </Section>
+      )}
+
+      {(visit.riskFlags?.length > 0 || visit.counselingTopics?.length > 0) && (
+        <Section icon="🏷️" title="ปัจจัยเสี่ยง & หัวข้อให้คำแนะนำ">
+          {visit.riskFlags?.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: visit.counselingTopics?.length ? 8 : 0 }}>
+              {visit.riskFlags.map((f, i) => (
+                <span key={i} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 20, background: C.highBg, color: C.high, border: `1px solid ${C.highBorder}` }}>⚠ {f}</span>
+              ))}
+            </div>
+          )}
+          {visit.counselingTopics?.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {visit.counselingTopics.map((t, i) => (
+                <span key={i} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 20, background: C.primaryBg, color: C.primary, border: `1px solid ${C.primaryBorder}` }}>💬 {t}</span>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {visit.pharmacistNote && (
+        <Section icon="🗒️" title="บันทึกเภสัชกร">
+          <div style={{ background: '#F0F9FF', borderLeft: '3px solid #0369A1', borderRadius: '0 8px 8px 0', padding: '9px 13px', fontSize: 12.5, whiteSpace: 'pre-wrap' }}>{visit.pharmacistNote}</div>
+        </Section>
+      )}
+    </Modal>
+  );
+}
+
+// ── เปรียบเทียบ 2 Visit เคียงข้างกัน — เห็นว่าอะไรเปลี่ยนไปบ้าง (CC/PE/ยา/การประเมิน) ──
+function VisitCompareModal({ open, patient, visitA, visitB, onClose }) {
+  if (!open || !visitA || !visitB) return null;
+  // เรียงให้ A = เก่ากว่าเสมอ (ซ้าย), B = ใหม่กว่า (ขวา) ไม่ว่าจะติ๊กเลือกลำดับไหนมา
+  const [older, newer] = visitA.visitDate <= visitB.visitDate ? [visitA, visitB] : [visitB, visitA];
+
+  const Delta = ({ oldV, newV, unit, lowerBetter, decimals = 0 }) => {
+    const a = parseFloat(oldV), b = parseFloat(newV);
+    if (isNaN(a) || isNaN(b)) return null;
+    const diff = +(b - a).toFixed(decimals);
+    if (diff === 0) return <span style={{ fontSize: 11, color: C.textMuted, marginLeft: 6 }}>ไม่เปลี่ยนแปลง</span>;
+    const isGood = lowerBetter ? diff < 0 : diff > 0;
+    const color = isGood ? '#059669' : '#DC2626';
+    return <span style={{ fontSize: 11, fontWeight: 700, color, marginLeft: 6 }}>{diff > 0 ? '▲' : '▼'} {Math.abs(diff)}{unit || ''}</span>;
+  };
+
+  const Row = ({ label, oldChild, newChild }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 12, padding: '10px 0', borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: C.textMuted, alignSelf: 'center' }}>{label}</div>
+      <div style={{ fontSize: 12.5, color: C.text }}>{oldChild ?? <span style={{ color: '#C7CDD6' }}>—</span>}</div>
+      <div style={{ fontSize: 12.5, color: C.text }}>{newChild ?? <span style={{ color: '#C7CDD6' }}>—</span>}</div>
+    </div>
+  );
+
+  const medNamesOld = new Set((older.medications || []).map(m => m.name));
+  const medNamesNew = new Set((newer.medications || []).map(m => m.name));
+  const medRow = (m, isOldSide) => {
+    const inOther = isOldSide ? medNamesNew.has(m.name) : medNamesOld.has(m.name);
+    const tagColor = inOther ? C.text : (isOldSide ? '#DC2626' : '#059669');
+    const tag = inOther ? '' : (isOldSide ? ' (หยุดแล้ว)' : ' (เพิ่มใหม่)');
+    return <div key={m.name} style={{ color: tagColor, fontWeight: inOther ? 400 : 700 }}>{m.name}{tag}</div>;
+  };
+
+  const catOld = older.assessments?.cat?.allAnswered ? older.assessments.cat.score : null;
+  const catNew = newer.assessments?.cat?.allAnswered ? newer.assessments.cat.score : null;
+  const actOld = older.assessments?.act?.allAnswered ? older.assessments.act.score : null;
+  const actNew = newer.assessments?.act?.allAnswered ? newer.assessments.act.score : null;
+
+  return (
+    <Modal open={open} onClose={onClose} title="⚖️ เปรียบเทียบ Visit" width={980}>
+      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 12, marginBottom: 6 }}>
+        <div />
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.textMuted }}>📅 {older.visitDate} <span style={{ fontSize: 11, fontWeight: 600 }}>(เก่ากว่า)</span></div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>📅 {newer.visitDate} <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>(ใหม่กว่า)</span></div>
+      </div>
+
+      <Row label="เภสัชกร" oldChild={older.pharmacist} newChild={newer.pharmacist} />
+      <Row label="Chief Complaint" oldChild={older.chiefComplaint} newChild={newer.chiefComplaint} />
+      <Row label="SpO₂"
+        oldChild={older.vitals?.spO2 && `${older.vitals.spO2}%`}
+        newChild={newer.vitals?.spO2 && <>{newer.vitals.spO2}%<Delta oldV={older.vitals?.spO2} newV={newer.vitals?.spO2} unit="%" /></>} />
+      <Row label="FEV1"
+        oldChild={older.vitals?.fev1 && `${older.vitals.fev1}%`}
+        newChild={newer.vitals?.fev1 && <>{newer.vitals.fev1}%<Delta oldV={older.vitals?.fev1} newV={newer.vitals?.fev1} unit="%" /></>} />
+      <Row label="Peak Flow"
+        oldChild={older.vitals?.peakFlow}
+        newChild={newer.vitals?.peakFlow && <>{newer.vitals.peakFlow}<Delta oldV={older.vitals?.peakFlow} newV={newer.vitals?.peakFlow} /></>} />
+      <Row label="Exacerbation"
+        oldChild={`${older.exacerbation?.countThisYear ?? 0} ครั้ง`}
+        newChild={<>{newer.exacerbation?.countThisYear ?? 0} ครั้ง<Delta oldV={older.exacerbation?.countThisYear ?? 0} newV={newer.exacerbation?.countThisYear ?? 0} lowerBetter /></>} />
+      <Row label="CAT Score"
+        oldChild={catOld != null && `${catOld}/40`}
+        newChild={catNew != null && <>{catNew}/40<Delta oldV={catOld} newV={catNew} lowerBetter /></>} />
+      <Row label="ACT Score"
+        oldChild={actOld != null && `${actOld}/25`}
+        newChild={actNew != null && <>{actNew}/25<Delta oldV={actOld} newV={actNew} /></>} />
+      <Row label="Adherence" oldChild={<AdherenceBadge level={older.adherence?.level} />} newChild={<AdherenceBadge level={newer.adherence?.level} />} />
+      <Row label="เทคนิคยาพ่น"
+        oldChild={(older.inhalerTechnique || []).map((t, i) => <div key={i}><TechniqueBadge score={t.overallScore} /></div>)}
+        newChild={(newer.inhalerTechnique || []).map((t, i) => <div key={i}><TechniqueBadge score={t.overallScore} /></div>)} />
+      <Row label="ยาทั้งหมด"
+        oldChild={(older.medications || []).map(m => medRow(m, true))}
+        newChild={(newer.medications || []).map(m => medRow(m, false))} />
+      <Row label="Assessment (A)" oldChild={older.soap?.a} newChild={newer.soap?.a} />
+      <Row label="Plan (P)" oldChild={older.soap?.p} newChild={newer.soap?.p} />
+      <Row label="DRP"
+        oldChild={older.drp?.noDRP === false ? `${older.drp.items?.length || 0} รายการ` : 'ไม่มี'}
+        newChild={newer.drp?.noDRP === false ? `${newer.drp.items?.length || 0} รายการ` : 'ไม่มี'} />
+
+      <div style={{ marginTop: 14, fontSize: 11, color: C.textMuted, display: 'flex', gap: 14 }}>
+        <span><span style={{ color: '#059669', fontWeight: 700 }}>เขียว</span> = ดีขึ้น/เพิ่มใหม่</span>
+        <span><span style={{ color: '#DC2626', fontWeight: 700 }}>แดง</span> = แย่ลง/หยุดยา</span>
+      </div>
+    </Modal>
+  );
+}
+
 function VisitHistory({ data, patientId, navigate, onEditVisit }) {
   const patient = data.patients.find(p => p.id === patientId);
   const visits  = data.visits.filter(v => v.patientId === patientId)
@@ -7487,6 +7779,10 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
   const [tab, setTab]       = pvState('visits');
   const [visitFilter, setVF] = pvState('all');
   const [visitSearch, setVisitSearch] = pvState('');
+  const [viewingVisitId, setViewingVisitId] = pvState(null); // visit ที่กำลังดูรายละเอียดแบบ read-only
+  const [compareMode, setCompareMode] = pvState(false);       // โหมดเลือก 2 visit มาเปรียบเทียบ
+  const [compareIds, setCompareIds]   = pvState([]);          // id ของ visit ที่เลือกไว้ (สูงสุด 2)
+  const [comparing, setComparing]     = pvState(false);       // เปิด VisitCompareModal อยู่หรือไม่
 
   if (!patient) return (
     <EmptyState icon="❓" title="ไม่พบข้อมูลผู้ป่วย" subtitle="กลับไปที่ทะเบียนผู้ป่วย" />
@@ -7606,7 +7902,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
           )}
           {/* Filter bar */}
           {visits.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               {[
                 { v: 'all',          l: `ทั้งหมด (${visits.length})` },
                 { v: 'drp',          l: `มี DRP (${visits.filter(x => x.drp?.noDRP === false).length})` },
@@ -7620,6 +7916,25 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                   color: visitFilter === v ? '#fff' : C.text, cursor: 'pointer', fontFamily: 'inherit',
                 }}>{l}</button>
               ))}
+              {visits.length >= 2 && (
+                <button onClick={() => { setCompareMode(m => !m); setCompareIds([]); }} style={{
+                  marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  border: `1.5px solid ${compareMode ? '#7C3AED' : C.border}`,
+                  background: compareMode ? '#7C3AED' : '#fff',
+                  color: compareMode ? '#fff' : C.text, cursor: 'pointer', fontFamily: 'inherit',
+                }}>⚖️ {compareMode ? 'ยกเลิกเปรียบเทียบ' : 'เปรียบเทียบ Visit'}</button>
+              )}
+            </div>
+          )}
+          {compareMode && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '9px 14px',
+              background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, fontSize: 12.5, color: '#5B21B6',
+            }}>
+              <span>เลือก 2 visit ที่ต้องการเปรียบเทียบ ({compareIds.length}/2)</span>
+              {compareIds.length === 2 && (
+                <Btn size="sm" variant="accent" onClick={() => setComparing(true)} style={{ marginLeft: 'auto' }}>⚖️ เปรียบเทียบเลย</Btn>
+              )}
             </div>
           )}
           {/* List */}
@@ -7643,14 +7958,22 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {fv.map(v => (
-                <Card key={v.id} style={{ padding: '16px 20px' }}>
+                <Card key={v.id} style={{ padding: '16px 20px', border: compareIds.includes(v.id) ? '2px solid #7C3AED' : undefined }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>{v.visitDate}</span>
-                      <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>{v.pharmacist}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {compareMode && (
+                        <input type="checkbox" checked={compareIds.includes(v.id)}
+                          onChange={() => setCompareIds(prev => prev.includes(v.id)
+                            ? prev.filter(id => id !== v.id)
+                            : prev.length < 2 ? [...prev, v.id] : prev)}
+                          style={{ width: 17, height: 17, accentColor: '#7C3AED', cursor: 'pointer' }} />
+                      )}
+                      <span onClick={() => !compareMode && setViewingVisitId(v.id)} style={{ fontSize: 14, fontWeight: 700, color: C.primary, cursor: compareMode ? 'default' : 'pointer' }}>{v.visitDate}</span>
+                      <span style={{ fontSize: 12, color: C.textMuted }}>{v.pharmacist}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <RiskBadge level={v.riskLevel} />
+                      <Btn size="sm" variant="ghost" onClick={() => setViewingVisitId(v.id)} title="ดูรายละเอียดแบบเต็ม">👁️ ดูรายละเอียด</Btn>
                       <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, v)} title="พิมพ์ SOAP note">🖨️</Btn>
                       <Btn size="sm" variant="ghost" onClick={() => onEditVisit && onEditVisit(v.id)}>✏️ แก้ไข</Btn>
                     </div>
@@ -8038,6 +8361,15 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
               })}
             </div>
       )}
+
+      <VisitDetailModal open={!!viewingVisitId} patient={patient}
+        visit={visits.find(v => v.id === viewingVisitId)}
+        onClose={() => setViewingVisitId(null)} onEdit={onEditVisit} />
+
+      <VisitCompareModal open={comparing} patient={patient}
+        visitA={visits.find(v => v.id === compareIds[0])}
+        visitB={visits.find(v => v.id === compareIds[1])}
+        onClose={() => setComparing(false)} />
     </div>
   );
 }
