@@ -1018,6 +1018,14 @@ const RX_KPI_ENUMS = {
 const isTechniquePass = (score) => RX_KPI_ENUMS.TECHNIQUE_PASS.includes(score);
 const isAdherenceGood = (level) => level === RX_KPI_ENUMS.ADHERENCE_GOOD;
 
+// ── Role-based access control ──────────────────────────────────────────
+// 'admin' = หัวหน้า/ผู้ดูแลระบบ (ทุกสิทธิ์) · 'pharmacist' = เภสัชกร (ดู/แก้/ลบข้อมูลทางคลินิกได้ แต่เข้า Settings ไม่ได้)
+// 'assistant' = ผู้ช่วยเภสัชกร (ดูข้อมูลได้อย่างเดียว บันทึก/แก้ไข/ลบไม่ได้)
+// ค่าเก่า 'user' หรือไม่มี role เลย (บัญชีที่สร้างก่อนมีระบบนี้) ถือเป็น 'pharmacist' เพื่อไม่ให้สิทธิ์ผู้ใช้เดิมเปลี่ยนไปโดยไม่ตั้งใจ
+const ROLE_LABELS = { admin: 'ผู้ดูแลระบบ (Admin)', pharmacist: 'เภสัชกร', assistant: 'ผู้ช่วยเภสัชกร', user: 'เภสัชกร' };
+const canEditClinical = (user) => user?.role !== 'assistant'; // สิทธิ์เพิ่ม/แก้/ลบข้อมูลผู้ป่วย, visit, telepharmacy ฯลฯ
+const isAdminRole = (user) => user?.role === 'admin';
+
 // ── Drug Dosing Guide (Thai community hospital formulary) ──
 // ข้อมูลอ้างอิง: MIMS Thailand, Lexicomp, Micromedex
 const DRUG_DOSE_GUIDE = {
@@ -1666,6 +1674,9 @@ const AppStore = {
   RX_KPI_ENUMS,
   isTechniquePass,
   isAdherenceGood,
+  ROLE_LABELS,
+  canEditClinical,
+  isAdminRole,
   TRIGGER_OPTIONS,
   COMORBIDITY_OPTIONS,
   INSURANCE_OPTIONS,
@@ -4665,7 +4676,7 @@ function ProfileSetup({ firebaseUser, data, onDataChange, onProfileCreated }) {
 
   const [pfx,  setPfx]  = stState('ภก.');
   const [name, setName] = stState('');
-  const [role, setRole] = stState(isFirst ? 'admin' : 'user');
+  const [role, setRole] = stState(isFirst ? 'admin' : 'pharmacist');
   const [err,  setErr]  = stState('');
   const [busy, setBusy] = stState(false);
 
@@ -4736,15 +4747,20 @@ function ProfileSetup({ firebaseUser, data, onDataChange, onProfileCreated }) {
             <>
               <label style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginBottom:6, display:'block' }}>บทบาท</label>
               <div style={{ display:'flex', gap:8, marginBottom:12 }}>
-                {[['user','ผู้ใช้ทั่วไป'],['admin','ผู้ดูแล (Admin)']].map(([v,l]) => (
+                {[['pharmacist','เภสัชกร'],['assistant','ผู้ช่วยเภสัชกร'],['admin','Admin']].map(([v,l]) => (
                   <button key={v} onClick={() => setRole(v)} style={{
                     flex:1, padding:'9px', borderRadius:10,
                     border: role===v ? '2px solid #3B82F6' : '1px solid rgba(255,255,255,0.15)',
                     background: role===v ? 'rgba(59,130,246,0.25)' : 'rgba(255,255,255,0.06)',
-                    color:'#fff', fontFamily:'Sarabun,sans-serif', fontSize:13, fontWeight:600, cursor:'pointer',
+                    color:'#fff', fontFamily:'Sarabun,sans-serif', fontSize:12.5, fontWeight:600, cursor:'pointer',
                   }}>{l}</button>
                 ))}
               </div>
+              {role === 'assistant' && (
+                <div style={{ fontSize:11, color:'#FCD34D', marginTop:-4, marginBottom:10 }}>
+                  ⚠ ผู้ช่วยเภสัชกรจะดูข้อมูลได้อย่างเดียว บันทึก/แก้ไข/ลบไม่ได้
+                </div>
+              )}
             </>
           )}
           <ErrBadge msg={err} />
@@ -5008,7 +5024,7 @@ function UserManager({ data, onDataChange, currentUser }) {
   const [newNm,    setNewNm]    = stState('');
   const [newEmail, setNewEmail] = stState('');
   const [newPw,    setNewPw]    = stState('');
-  const [newRole,  setNewRole]  = stState('user');
+  const [newRole,  setNewRole]  = stState('pharmacist');
   const [resetPwId, setResetPwId] = stState(null);
   const [msg,      setMsg]      = stState('');
   const [busy,     setBusy]     = stState(false);
@@ -5041,7 +5057,7 @@ function UserManager({ data, onDataChange, currentUser }) {
         role: newRole,
       };
       onDataChange({ ...data, users: [...users, nu] });
-      setNewNm(''); setNewEmail(''); setNewPw(''); setNewRole('user'); setAdding(false);
+      setNewNm(''); setNewEmail(''); setNewPw(''); setNewRole('pharmacist'); setAdding(false);
       window.rxToast?.(`สร้างบัญชี ${nu.prefix}${nu.name} สำเร็จ`, 'success');
     } catch(e) {
       const code = e.code || '';
@@ -5097,14 +5113,19 @@ function UserManager({ data, onDataChange, currentUser }) {
               <Input value={newPw} onChange={v => { setNewPw(v); setMsg(''); }} placeholder="รหัสผ่านเริ่มต้น (อย่างน้อย 6 ตัว)" type="password" />
             </div>
             <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-              {[['user','ผู้ใช้'],['admin','Admin']].map(([v,l]) => (
+              {[['pharmacist','เภสัชกร'],['assistant','ผู้ช่วยเภสัชกร'],['admin','Admin']].map(([v,l]) => (
                 <button key={v} onClick={() => setNewRole(v)} style={{
-                  flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:12, fontFamily:'Sarabun,sans-serif',
+                  flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:11.5, fontFamily:'Sarabun,sans-serif',
                   border: newRole===v ? `2px solid ${C.primary}` : `1px solid ${C.border}`,
                   background: newRole===v ? C.primaryBg : C.surface, color: newRole===v ? C.primary : C.text, fontWeight:600,
                 }}>{l}</button>
               ))}
             </div>
+            {newRole === 'assistant' && (
+              <div style={{ fontSize:11, color: C.medium, marginTop:-4, marginBottom:10 }}>
+                ⚠ ผู้ช่วยเภสัชกรจะดูข้อมูลได้อย่างเดียว บันทึก/แก้ไข/ลบไม่ได้
+              </div>
+            )}
             {msg && <p style={{ color: C.high, fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
             <div style={{ display: 'flex', gap: 8 }}>
               <Btn size="sm" variant="primary" onClick={handleAdd} disabled={busy}>{busy ? '⏳...' : 'สร้างบัญชี'}</Btn>
@@ -5129,7 +5150,12 @@ function UserManager({ data, onDataChange, currentUser }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                     <span style={{ fontWeight: 600, fontSize: 13 }}>{u.prefix}{u.name}</span>
-                    {u.role === 'admin' && <span style={{ fontSize:9, fontWeight:700, background:C.primaryBg, color: C.primary, padding:'2px 8px', borderRadius:20, border:'1px solid #BFDBFE' }}>ADMIN</span>}
+                    <span style={{
+                      fontSize:9, fontWeight:700, padding:'2px 8px', borderRadius:20,
+                      background: u.role === 'admin' ? C.primaryBg : u.role === 'assistant' ? C.mediumBg : C.lowBg,
+                      color: u.role === 'admin' ? C.primary : u.role === 'assistant' ? C.medium : C.low,
+                      border: `1px solid ${u.role === 'admin' ? '#BFDBFE' : u.role === 'assistant' ? C.mediumBorder : C.lowBorder}`,
+                    }}>{(AppStore.ROLE_LABELS[u.role] || AppStore.ROLE_LABELS.pharmacist).toUpperCase()}</span>
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
                     {u.email || `@${u.username}`} &nbsp;·&nbsp; {u.uid ? '🔐 Firebase Auth' : '⚠️ ยังไม่ได้ link'}
@@ -5137,7 +5163,14 @@ function UserManager({ data, onDataChange, currentUser }) {
                   </div>
                 </div>
                 {isAdmin && (
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <Select value={u.role === 'user' ? 'pharmacist' : (u.role || 'pharmacist')}
+                    onChange={v => {
+                      onDataChange({ ...data, users: users.map(x => x.id === u.id ? { ...x, role: v } : x) });
+                      window.rxToast?.(`เปลี่ยนบทบาท ${u.prefix}${u.name} เป็น ${AppStore.ROLE_LABELS[v]} แล้ว`, 'success');
+                    }}
+                    options={[{ value:'pharmacist', label:'เภสัชกร' }, { value:'assistant', label:'ผู้ช่วยเภสัชกร' }, { value:'admin', label:'Admin' }]}
+                    style={{ width: 130, padding: '5px 8px', fontSize: 11 }} />
                   {u.email && <Btn size="sm" variant="ghost" onClick={() => handleSendResetEmail(u.email)}>รีเซ็ตรหัสผ่าน</Btn>}
                   {(!u.uid || (currentUser?.id !== u.id && u.role !== 'admin')) && <Btn size="sm" variant="danger" onClick={() => setConfirmDeleteUser(u)}>ลบ</Btn>}
                 </div>
@@ -5560,6 +5593,44 @@ function exportVisits(visits, patients) {
   );
 }
 
+// ── Export: 43 แฟ้ม / HDC — ร่างแฟ้ม CHRONICFU เฉพาะการบริบาลเภสัชกรรม COPD/Asthma ──
+// หมายเหตุสำคัญ: ระบบนี้ไม่มีเลขบัตรประชาชน (PID) ของผู้ป่วยเก็บไว้ (ใช้ HN เป็นตัวระบุหลักภายในคลินิก)
+// จึงส่งออกเป็น "ร่างข้อมูล" ที่กรอกฟิลด์ทางคลินิกที่ระบบมีให้ครบ ส่วน PID/HOSPCODE ต้องกรอก/ตรวจสอบ
+// ให้ตรงกับที่ขึ้นทะเบียนไว้กับ HDC ก่อนนำเข้าระบบจริงเสมอ — ห้ามนำไฟล์นี้ส่งขึ้น HDC โดยไม่ตรวจสอบก่อน
+function export43CHRONICFU(visits, patients, clinicCode, startDate, endDate) {
+  const getPt = id => patients.find(p => p.id === id);
+  // รหัส ICD-10 มาตรฐานตามกลุ่มโรคที่คลินิกนี้ดูแล (ใช้ค่าทั่วไปที่พบบ่อยสุด — ควรตรวจสอบกับแพทย์ผู้วินิจฉัยจริงอีกครั้ง)
+  const chronicCode = (dx) => dx === 'COPD' ? 'J449' : dx === 'Asthma' ? 'J45' : dx === 'Both' ? 'J449,J45' : '';
+  const smokeCode = (s) => s === 'Current' ? '2' : s === 'Former' ? '3' : s === 'Never' ? '1' : '';
+  const scoped = visits.filter(v => {
+    const pt = getPt(v.patientId);
+    if (!pt || !['COPD', 'Asthma', 'Both'].includes(pt.diagnosis)) return false;
+    if (startDate && v.visitDate < startDate) return false;
+    if (endDate && v.visitDate > endDate) return false;
+    return true;
+  }).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+
+  downloadCSV(
+    `43แฟม_CHRONICFU_รางเบืองตน_COPD-Asthma_${new Date().toISOString().slice(0,10)}.csv`,
+    ['HOSPCODE', 'PID(กรอกเลขบัตรประชาชนเอง)', 'HN', 'SEQ', 'DATE_SERV', 'CHRONIC(ICD10)',
+     'SBP', 'DBP', 'SMOKE', 'DRUG_USE', 'DRUG_ALLERGY', 'PROVIDER', 'D_UPDATE'],
+    scoped.map((v, i) => {
+      const pt = getPt(v.patientId);
+      const bp = (v.vitals?.bp || '').split('/');
+      return [
+        clinicCode || '', '', pt?.hn || '', i + 1, v.visitDate.replace(/-/g, ''),
+        chronicCode(pt?.diagnosis),
+        bp[0]?.trim() || '', bp[1]?.trim() || '',
+        smokeCode(pt?.smokingStatus),
+        (v.medications || []).map(m => m.name).join(';'),
+        (pt?.allergies || []).join(';'),
+        v.pharmacist || '',
+        new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      ];
+    })
+  );
+}
+
 // ── Export: Telepharmacy ──────────────────────────────
 function exportTelepharmacy(tele, patients) {
   const getPt = id => patients.find(p => p.id === id);
@@ -5872,6 +5943,32 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
           <Btn size="sm" variant="ghost" onClick={() => exportTelepharmacy(data.telepharmacy, data.patients)}>
             📞 Telepharmacy
           </Btn>
+        </div>
+      </div>
+
+      <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '0 0 18px' }} />
+
+      {/* 43 แฟ้ม / HDC */}
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          📤 43 แฟ้ม / HDC (เฉพาะการบริบาลเภสัชกรรม COPD/Asthma)
+        </p>
+        <div style={{
+          background: C.mediumBg, border: `1px solid ${C.mediumBorder}`, borderRadius: 8,
+          padding: '10px 14px', fontSize: 11.5, color: '#92400E', lineHeight: 1.6, marginBottom: 10,
+        }}>
+          ⚠️ ไฟล์นี้เป็น <strong>ร่างข้อมูลเบื้องต้น</strong> (แฟ้ม CHRONICFU) — ระบบนี้ยังไม่มีเลขบัตรประชาชน (PID) ของผู้ป่วย
+          จึงเว้นช่องไว้ให้กรอกเอง และต้องตรวจสอบรหัส HOSPCODE/รหัสโรคให้ตรงกับที่ขึ้นทะเบียนไว้กับ HDC ก่อนนำเข้าระบบจริงทุกครั้ง
+          ห้ามส่งไฟล์นี้ขึ้น HDC โดยไม่ตรวจสอบก่อน
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Select value={selMonth} onChange={setSelMonth}
+            options={months.map(m => ({ value: m, label: m }))} style={{ width: 140 }} />
+          <Btn size="sm" variant="ghost" onClick={() => {
+            const start = selMonth + '-01';
+            const end = selMonth + '-31';
+            export43CHRONICFU(data.visits, data.patients, data.clinicCode, start, end);
+          }}>📤 Export ร่าง 43 แฟ้ม (เดือนที่เลือก)</Btn>
         </div>
       </div>
 
@@ -7054,7 +7151,8 @@ function PatientTrendChart({ visits, diagnosis }) {
 }
 
 // ── PatientList ───────────────────────────────────────
-function PatientList({ data, onDataChange, navigate }) {
+function PatientList({ data, onDataChange, navigate, currentUser }) {
+  const canEdit = AppStore.canEditClinical(currentUser);
   const [search, setSearch]     = pvState('');
   const [filterDx, setFilterDx] = pvState('');
   const [filterRisk, setFilterRisk] = pvState('');
@@ -7267,16 +7365,20 @@ function PatientList({ data, onDataChange, navigate }) {
       key: 'actions', label: '', width: 200, align: 'right',
       render: p => (
         <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', alignItems: 'center' }}>
-          <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>+ บันทึก</Btn>
+          {canEdit && <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>+ บันทึก</Btn>}
           <Btn size="sm" variant="ghost"  onClick={() => navigate('history', p.id)}>ประวัติ</Btn>
-          <button title="แก้ไขข้อมูลผู้ป่วย" onClick={() => setEditPt(p)}
-            style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
-            onMouseEnter={e=>{e.currentTarget.style.background=C.bgAlt;e.currentTarget.style.color=C.primary;e.currentTarget.style.borderColor=C.primary;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>✏️</button>
-          <button title="ลบผู้ป่วย" onClick={() => setDelId(p.id)}
-            style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
-            onMouseEnter={e=>{e.currentTarget.style.background=C.highBg;e.currentTarget.style.color=C.high;e.currentTarget.style.borderColor=C.highBorder;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>🗑️</button>
+          {canEdit && (
+            <button title="แก้ไขข้อมูลผู้ป่วย" onClick={() => setEditPt(p)}
+              style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.background=C.bgAlt;e.currentTarget.style.color=C.primary;e.currentTarget.style.borderColor=C.primary;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>✏️</button>
+          )}
+          {canEdit && (
+            <button title="ลบผู้ป่วย" onClick={() => setDelId(p.id)}
+              style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.background=C.highBg;e.currentTarget.style.color=C.high;e.currentTarget.style.borderColor=C.highBorder;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>🗑️</button>
+          )}
         </div>
       ),
     },
@@ -7291,10 +7393,14 @@ function PatientList({ data, onDataChange, navigate }) {
       <SectionHeader
         title="ทะเบียนผู้ป่วย"
         subtitle={`ผู้ป่วยทั้งหมด ${data.patients.length} ราย · High Risk ${highRiskCount} ราย · Medium Risk ${mediumRiskCount} ราย`}
-        action={<div style={{ display: 'flex', gap: 8 }}>
+        action={canEdit ? <div style={{ display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={() => setCsvOpen(true)}>📥 Import CSV</Btn>
           <Btn variant="primary" onClick={() => setAddOpen(true)}>+ เพิ่มผู้ป่วย</Btn>
-        </div>}
+        </div> : (
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.medium, background: C.mediumBg, border: `1px solid ${C.mediumBorder}`, padding: '5px 12px', borderRadius: 20 }}>
+            👁️ โหมดดูอย่างเดียว (ผู้ช่วยเภสัชกร)
+          </span>
+        )}
       />
 
       {/* Filters */}
@@ -7900,7 +8006,8 @@ function VisitCompareModal({ open, patient, visitA, visitB, onClose }) {
   );
 }
 
-function VisitHistory({ data, patientId, navigate, onEditVisit }) {
+function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
+  const canEdit = AppStore.canEditClinical(currentUser);
   const patient = data.patients.find(p => p.id === patientId);
   const visits  = data.visits.filter(v => v.patientId === patientId)
     .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
@@ -7940,7 +8047,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <DiagBadge diagnosis={patient.diagnosis} />
           <RiskBadge level={patient.riskLevel || 'Low'} />
-          <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', patientId)}>+ บันทึกการเยี่ยมใหม่</Btn>
+          {canEdit && <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', patientId)}>+ บันทึกการเยี่ยมใหม่</Btn>}
           <Btn size="sm" variant="ghost" onClick={() => printPatientReport(patient, data.visits, data.telepharmacy)}>
             🖨️ สรุปผู้ป่วย
           </Btn>
@@ -8111,7 +8218,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
                       <RiskBadge level={v.riskLevel} />
                       <Btn size="sm" variant="ghost" onClick={() => setViewingVisitId(v.id)} title="ดูรายละเอียดแบบเต็ม">👁️ ดูรายละเอียด</Btn>
                       <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, v)} title="พิมพ์ SOAP note">🖨️</Btn>
-                      <Btn size="sm" variant="ghost" onClick={() => onEditVisit && onEditVisit(v.id)}>✏️ แก้ไข</Btn>
+                      {canEdit && <Btn size="sm" variant="ghost" onClick={() => onEditVisit && onEditVisit(v.id)}>✏️ แก้ไข</Btn>}
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 12 }}>
@@ -8500,7 +8607,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
 
       <VisitDetailModal open={!!viewingVisitId} patient={patient}
         visit={visits.find(v => v.id === viewingVisitId)}
-        onClose={() => setViewingVisitId(null)} onEdit={onEditVisit} auditLog={data.auditLog} />
+        onClose={() => setViewingVisitId(null)} onEdit={canEdit ? onEditVisit : null} auditLog={data.auditLog} />
 
       <VisitCompareModal open={comparing} patient={patient}
         visitA={visits.find(v => v.id === compareIds[0])}
@@ -10765,7 +10872,8 @@ function RiskScreeningView({ data, navigate }) {
 }
 
 // ── TelepharmacyView ──────────────────────────────────
-function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
+function TelepharmacyView({ data, onDataChange, navigate, initPatientId, currentUser }) {
+  const canEdit = AppStore.canEditClinical(currentUser);
   const [schedOpen,  setSchedOpen]  = trState(!!initPatientId);
   const [recordOpen, setRecordOpen] = trState(false);
   const [selectedId, setSelectedId] = trState(null);
@@ -11133,10 +11241,10 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
             <Btn size="sm" variant="ghost" title="คัดลอกข้อความนัด LINE"
               onClick={() => window.copyLineMessage?.(window.buildLineAppointment(getPatient(r.patientId), r, data.clinicCode))}>💬</Btn>
           )}
-          {r.status === 'Pending' && (
+          {canEdit && r.status === 'Pending' && (
             <Btn size="sm" variant="primary" onClick={() => { setSelectedId(r.id); setRecordOpen(true); }}>บันทึกผล</Btn>
           )}
-          {r.status !== 'Pending' && (
+          {canEdit && r.status !== 'Pending' && (
             <Btn size="sm" variant="ghost" onClick={() => { setSelectedId(r.id); setRecordOpen(true); }}>แก้ไข</Btn>
           )}
         </div>
@@ -11223,8 +11331,8 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId }) {
               <button key={v} onClick={() => setCalView(v)} style={{ padding: '5px 12px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: calView === v ? C.surface : 'transparent', color: calView === v ? C.primary : C.textMuted, boxShadow: calView === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>{lbl}</button>
             ))}
           </div>
-          <Btn variant="ghost" onClick={() => setBatchOpen(true)}>📋 นัดหมู่</Btn>
-          <Btn variant="primary" onClick={() => setSchedOpen(true)}>+ นัด Telepharmacy</Btn>
+          {canEdit && <Btn variant="ghost" onClick={() => setBatchOpen(true)}>📋 นัดหมู่</Btn>}
+          {canEdit && <Btn variant="primary" onClick={() => setSchedOpen(true)}>+ นัด Telepharmacy</Btn>}
         </div>}
       />
 
@@ -17658,9 +17766,11 @@ function AIInsightsPanel({ data, navigate }) {
 // ค่านี้ใช้เป็นตัวหาร KPI6 แทนการอนุมานจาก nextVisit เพียงอย่างเดียว เพราะ nextVisit
 // เป็นแค่นัดที่เภสัชกรตั้งเอง ไม่ครอบคลุมผู้ป่วยทุกคนที่แพทย์นัดมาคลินิกวันนั้นจริง
 function ClinicDayRosterCard({ data, onDataChange, todayStr, scheduledToday, currentUser }) {
+  const canEdit = AppStore.canEditClinical(currentUser);
   const rosters = data.clinicDayRosters || [];
   const existing = rosters.find(r => r.date === todayStr);
-  const [editing, setEditing] = useState(!existing);
+  const [editing, setEditing] = useState(!existing && canEdit);
+  if (!existing && !canEdit) return null; // ผู้ช่วยเภสัชกร: ไม่มีอะไรให้ดูถ้ายังไม่มีใครบันทึกไว้ ไม่ต้องแสดงฟอร์มกรอก
   const [checkedIds, setCheckedIds] = useState(() =>
     existing ? new Set(existing.patientIds || []) : new Set(scheduledToday.map(x => x.patient.id)));
   const [extraCount, setExtraCount] = useState(existing ? (existing.extraCount || 0) : 0);
@@ -17677,7 +17787,7 @@ function ClinicDayRosterCard({ data, onDataChange, todayStr, scheduledToday, cur
             {existing.enteredBy && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>บันทึกโดย {existing.enteredBy} · {existing.enteredAt ? new Date(existing.enteredAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}</div>}
             {existing.note && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{existing.note}</div>}
           </div>
-          <Btn size="sm" variant="ghost" onClick={() => setEditing(true)}>✎ แก้ไข</Btn>
+          {canEdit && <Btn size="sm" variant="ghost" onClick={() => setEditing(true)}>✎ แก้ไข</Btn>}
         </div>
       </Card>
     );
@@ -18445,6 +18555,25 @@ function App() {
       let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], clinicDayRosters:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
+
+      // กู้คืน draft ที่ค้างจากครั้งก่อน (แท็บถูกปิด/แครชตอนออฟไลน์ ก่อน sync ขึ้น cloud สำเร็จ)
+      // ต้องทำหลัง setData(remote) เพื่อให้ signature เทียบกับข้อมูลจาก cloud ล่าสุดจริงๆ
+      try {
+        const raw = localStorage.getItem('rx_offline_draft');
+        if (raw) {
+          const draft = JSON.parse(raw);
+          if (draft?.data && dataSig(draft.data) !== dataSig(remote)) {
+            setData(draft.data);
+            pendingData.current = draft.data;
+            setPendingSync(true);
+            window.rxToast?.('พบข้อมูลที่ยังไม่ได้ซิงค์จากครั้งก่อน — กำลังกู้คืนและซิงค์ให้อัตโนมัติ', 'info');
+            flushToCloud(draft.data);
+          } else {
+            localStorage.removeItem('rx_offline_draft');
+          }
+        }
+      } catch { /* draft เสีย/อ่านไม่ได้ ก็ข้ามไปใช้ remote ตามปกติ */ }
+
       setCurrentUser(prev => {
         if (!prev) return prev;
         const fresh = remote.users?.find(u => u.id === prev.id);
@@ -18504,7 +18633,14 @@ function App() {
 
   const flushToCloud = useCallback((nd) => {
     const sig = dataSig(nd);
-    if (sig === lastRemoteSig.current) { pendingData.current = null; setPendingSync(false); return; }
+    if (sig === lastRemoteSig.current) {
+      pendingData.current = null; setPendingSync(false);
+      try { localStorage.removeItem('rx_offline_draft'); } catch {}
+      return;
+    }
+    // สำรองไว้ที่เครื่อง (localStorage) ก่อนพยายามส่งขึ้น cloud เสมอ — กันข้อมูลหายถ้าแท็บถูกปิด/แครช
+    // ระหว่างที่ยังส่งไม่สำเร็จ (Firestore persistence คุ้มครองเฉพาะ write ที่เริ่มส่งไปแล้วเท่านั้น)
+    try { localStorage.setItem('rx_offline_draft', JSON.stringify({ data: nd, ts: Date.now() })); } catch { /* เต็ม/ปิด localStorage ก็ข้ามได้ ไม่ critical */ }
     setSyncStatus('syncing');
     const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
     dbRef.current.collection('clinic').doc('main').set(payload)
@@ -18512,17 +18648,23 @@ function App() {
         lastRemoteSig.current = dataSig(nd);
         pendingData.current = null; setPendingSync(false);
         setSyncStatus('synced');
+        try { localStorage.removeItem('rx_offline_draft'); } catch {}
         maybeAutoBackup(dbRef.current, payload);
       })
       .catch(err => {
         console.error('Firebase save error:', err);
-        pendingData.current = nd; setPendingSync(true);  // เก็บไว้รอ retry เมื่อกลับมาออนไลน์
+        pendingData.current = nd; setPendingSync(true);  // เก็บไว้รอ retry เมื่อกลับมาออนไลน์ (draft ใน localStorage ยังอยู่)
         setSyncStatus('error');
       });
   }, [maybeAutoBackup]);
 
   const handleDataChange = useCallback((nd) => {
     setData(nd);
+    // เก็บสถานะล่าสุดที่ยังไม่ได้ยืนยันว่า sync สำเร็จไว้เสมอ (ไม่ใช่แค่ตอน error เหมือนเดิม) —
+    // กันข้อมูลหายถ้าปิดแท็บ/ออฟไลน์ก่อนตัว debounce (600ms) จะยิง .set() ขึ้น Firestore ทัน
+    // onBeforeUnload / auto-retry ตอนกลับมาออนไลน์ จะได้มีข้อมูลล่าสุดให้ flush เสมอ ไม่ใช่แค่ตอนเจอ error เท่านั้น
+    pendingData.current = nd;
+    setPendingSync(true);
     if (!dbRef.current || !fbReady) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => flushToCloud(nd), 600);
@@ -18594,6 +18736,11 @@ function App() {
   }, []);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
+    // ผู้ช่วยเภสัชกร (assistant) ดูข้อมูลได้อย่างเดียว — กันไม่ให้เข้าหน้าที่ใช้บันทึก/แก้ไขข้อมูลได้
+    if (['visit-form', 'visit-form-edit', 'telepharmacy-add'].includes(target) && !AppStore.canEditClinical(currentUser)) {
+      window.rxToast?.('บทบาทผู้ช่วยเภสัชกรดูข้อมูลได้อย่างเดียว ไม่สามารถบันทึก/แก้ไขได้', 'error');
+      return;
+    }
     window.rxProgress?.show();
     if (target === 'telepharmacy-add') {
       setTeleAddPtId(patientId); setView('telepharmacy');
@@ -18609,7 +18756,7 @@ function App() {
     const ms = document.getElementById('main-scroll');
     ms?.scrollTo({ top: 0 });
     requestAnimationFrame(() => window.rxScrollReveal?.observe(ms));
-  }, []);
+  }, [currentUser]);
 
   // Expose navigate globally for components that can't receive it via props (e.g. NotificationCenter)
   useEffect(() => { window.AppNavigate = (t, pid) => { navigate(t, pid); setNotifOpen(false); }; return () => { delete window.AppNavigate; }; }, [navigate]);
@@ -18749,22 +18896,22 @@ function App() {
       case 'dashboard':
         return <Dashboard data={data} navigate={navigate} onDataChange={handleDataChange} currentUser={currentUser} />;
       case 'patients':
-        return <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} />;
+        return <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'history':
         return selectedPtId
-          ? <VisitHistory data={data} patientId={selectedPtId} navigate={navigate}
+          ? <VisitHistory data={data} patientId={selectedPtId} navigate={navigate} currentUser={currentUser}
               onEditVisit={(vid) => navigate('visit-form-edit', selectedPtId, vid)} />
-          : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} />;
+          : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'visit-form':
         return selectedPtId
           ? <VisitForm data={data} patientId={selectedPtId}
               editingVisit={editVisitId ? data.visits.find(v => v.id === editVisitId) : null}
               onSave={handleDataChange} navigate={navigate} currentUser={currentUser} />
-          : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} />;
+          : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'risk':
         return <RiskScreeningView data={data} navigate={navigate} />;
       case 'telepharmacy':
-        return <TelepharmacyView data={data} onDataChange={handleDataChange} navigate={navigate} initPatientId={teleAddPtId} />;
+        return <TelepharmacyView data={data} onDataChange={handleDataChange} navigate={navigate} initPatientId={teleAddPtId} currentUser={currentUser} />;
       case 'reports':
         return <ReportsView data={data} navigate={navigate} onDataChange={handleDataChange} onForceBackup={forceBackup} onLoadBackupSlots={loadBackupSlots} />;
       case 'analytics':
