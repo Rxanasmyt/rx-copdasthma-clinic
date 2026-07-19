@@ -4,23 +4,43 @@ rules_version = '2';
 // Firestore Security Rules — Rx-COPD/Asthma Clinic
 // Firebase Authentication เปิดใช้แล้ว — require auth ทุก request
 // Deploy: firebase deploy --only firestore:rules
+//
+// ⚠️ ข้อจำกัดสำคัญที่ต้องรู้ (ยังไม่แก้ในรอบนี้ — ต้องวางแผนแยก):
+// ระบบ RBAC (admin / pharmacist / assistant) ปัจจุบัน enforce เฉพาะฝั่ง
+// client (ปุ่ม/หน้าจอซ่อนตาม role) เท่านั้น เพราะ role ของผู้ใช้แต่ละคน
+// ถูกเก็บอยู่ "ภายใน" เอกสารเดียวกัน (/clinic/main -> data.users[]) ที่
+// ทุกคนต้องเขียนร่วมกัน กฎด้านล่างจึงยังไม่สามารถบล็อก assistant ไม่ให้
+// เขียนข้อมูล clinical โดยตรงผ่าน API ได้ (จะต้องดู role จากที่อื่นที่
+// เขียนไม่ได้ด้วยตัวเอง เช่น Firebase custom claims หรือ users
+// subcollection แยกต่างหาก — เป็นงานที่ผูกกับการย้ายโครงสร้างข้อมูลจาก
+// เอกสารเดียวไปเป็น subcollections ซึ่งมีความเสี่ยงสูงต่อระบบที่มีข้อมูล
+// ผู้ป่วยจริงอยู่ จึงตั้งใจแยกเป็นงานวางแผนต่างหาก ไม่ทำแบบเร่งด่วนในรอบนี้)
+//
+// สิ่งที่กฎด้านล่างทำได้จริงตอนนี้: ปฏิเสธผู้ใช้ที่ไม่ auth ทั้งหมด,
+// จำกัดขนาดเอกสารกันการยัดข้อมูลขยะ/DoS แบบ document เดียวโป่ง, และ
+// ตรวจรูปร่างพื้นฐาน (ต้องมี field "patients"/"visits" เป็น list) กัน
+// การเขียนพังโครงสร้างเอกสารทั้งหมดโดยไม่ตั้งใจ
 // ════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── ข้อมูลคลินิกหลัก (/clinic/main) ──
-    // อนุญาตเฉพาะผู้ใช้ที่ผ่าน Firebase Authentication เท่านั้น
     match /clinic/{docId} {
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size() < 900000  // กันเกิน Firestore 1MB doc limit ล่วงหน้า
+        && ('patients' in request.resource.data ? request.resource.data.patients is list : true)
+        && ('visits' in request.resource.data ? request.resource.data.visits is list : true)
+        && ('users' in request.resource.data ? request.resource.data.users is list : true);
       allow delete: if false;
     }
 
     // ── Auto-backup slots (หมุนเวียน 10 ช่อง) ──
     match /clinic_backups/{slot} {
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size() < 900000;
       allow delete: if false;
     }
 
