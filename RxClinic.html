@@ -2398,6 +2398,32 @@ function appendAudit(data, entry) {
   return { ...data, auditLog: trimmed };
 }
 
+// ── หา field ที่เปลี่ยนไประหว่างแก้ไข visit — ใช้แปะในสรุป audit log ให้รู้ว่า "แก้อะไร" ไม่ใช่แค่ "แก้แล้ว" ──
+function diffVisitFields(before, after) {
+  if (!before || !after) return [];
+  const groups = [
+    { key: 'chiefComplaint', label: 'Chief Complaint' },
+    { key: 'vitals', label: 'สัญญาณชีพ' },
+    { key: 'exacerbation', label: 'Exacerbation' },
+    { key: 'medications', label: 'รายการยา' },
+    { key: 'inhalerTechnique', label: 'เทคนิคการใช้ยาพ่น' },
+    { key: 'adherence', label: 'Adherence' },
+    { key: 'assessments', label: 'แบบประเมิน (CAT/mMRC/ACT)' },
+    { key: 'soap', label: 'SOAP Note' },
+    { key: 'drp', label: 'DRP' },
+    { key: 'pharmacistNote', label: 'บันทึกเภสัชกร' },
+    { key: 'nextVisit', label: 'นัดครั้งถัดไป' },
+    { key: 'riskLevel', label: 'ระดับความเสี่ยง' },
+  ];
+  const changed = [];
+  groups.forEach(g => {
+    try {
+      if (JSON.stringify(before[g.key]) !== JSON.stringify(after[g.key])) changed.push(g.label);
+    } catch { /* ข้าม field ที่ stringify ไม่ได้ */ }
+  });
+  return changed;
+}
+
 // ── Beep (Web Audio API) ────────────────────────────
 let _beepCtx = null;
 function beep(freq = 880, duration = 150, volume = 0.1) {
@@ -7478,7 +7504,81 @@ function PatientAICard({ patient, visits }) {
 }
 
 // ── รายละเอียด Visit แบบอ่านอย่างเดียว (ไม่ต้องกด "แก้ไข" เพื่อดูข้อมูลเต็ม) ──
-function VisitDetailModal({ open, patient, visit, onClose, onEdit }) {
+// ── Unified Patient Timeline — รวม visit + telepharmacy + ประวัติกำเริบ เป็นสายเวลาเดียว ──
+// แทนที่จะแยกดูทีละแท็บ (visit / telepharmacy / exacerbation) ให้เห็น "เรื่องราว" ของผู้ป่วยรวดเดียว
+function PatientTimeline({ patient, visits, telepharmacy, onViewVisit }) {
+  const items = React.useMemo(() => {
+    const list = [];
+    visits.forEach(v => {
+      const hasExacerb = v.exacerbation?.hospitalized || v.exacerbation?.erVisit;
+      list.push({
+        type: 'visit', date: v.visitDate, sortKey: v.visitDate + 'C', data: v,
+        icon: hasExacerb ? '🚨' : '📋',
+        color: hasExacerb ? '#DC2626' : '#2563EB',
+        title: hasExacerb ? 'Visit — มีอาการกำเริบ' : 'Visit บริบาลเภสัชกรรม',
+        summary: v.soap?.a || v.chiefComplaint || '—',
+      });
+    });
+    telepharmacy.forEach(t => {
+      const d = t.actualDate || t.scheduledDate;
+      if (!d) return;
+      list.push({
+        type: 'tele', date: d, sortKey: d + 'B', data: t,
+        icon: t.status === 'Success' ? '📞' : t.status === 'Pending' ? '⏳' : '📵',
+        color: t.status === 'Success' ? '#0D9488' : t.status === 'Pending' ? '#D97706' : '#9CA3AF',
+        title: `Telepharmacy — ${{ Success: 'สำเร็จ', Pending: 'รอดำเนินการ' }[t.status] || t.status}`,
+        summary: t.symptoms || t.counseling || '—',
+      });
+    });
+    // ประวัติกำเริบที่กรอกเองแยกจาก visit (ไม่ใช่ auto-linked จาก visit ด้านบน) — กันไม่ให้ซ้ำ
+    (patient.exacerbationEvents || []).filter(e => !e.autoLinked).forEach(e => {
+      list.push({
+        type: 'exacerb', date: e.date, sortKey: e.date + 'A', data: e,
+        icon: '⚠️', color: '#DC2626',
+        title: `บันทึกอาการกำเริบ${e.severity && e.severity !== 'None' ? ` (${e.severity})` : ''}`,
+        summary: [e.hospitalized && 'นอนโรงพยาบาล', e.erVisit && 'เข้าห้องฉุกเฉิน'].filter(Boolean).join(' · ') || '—',
+      });
+    });
+    return list.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+  }, [visits, telepharmacy, patient]);
+
+  if (items.length === 0) return <EmptyState icon="🕐" title="ยังไม่มีเหตุการณ์" subtitle="บันทึก Visit หรือ Telepharmacy เพื่อเริ่มสายเวลาผู้ป่วย" />;
+
+  return (
+    <div style={{ position: 'relative', paddingLeft: 6 }}>
+      <div style={{ position: 'absolute', left: 17, top: 8, bottom: 8, width: 2, background: C.border }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', gap: 14, position: 'relative', animation: 'rxRiseSm 0.3s ease backwards', animationDelay: `${Math.min(i, 20) * 25}ms` }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: '50%', flexShrink: 0, zIndex: 1,
+              background: '#fff', border: `2.5px solid ${it.color}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
+              boxShadow: '0 0 0 4px #fff',
+            }}>{it.icon}</div>
+            <div onClick={() => it.type === 'visit' && onViewVisit && onViewVisit(it.data.id)} style={{
+              flex: 1, marginBottom: 14, padding: '10px 14px', borderRadius: 10,
+              background: it.type === 'exacerb' || (it.type === 'visit' && it.color === '#DC2626') ? '#FEF2F2' : C.bgAlt,
+              border: `1px solid ${it.type === 'exacerb' || (it.type === 'visit' && it.color === '#DC2626') ? '#FECACA' : C.border}`,
+              cursor: it.type === 'visit' ? 'pointer' : 'default',
+            }} className={it.type === 'visit' ? 'rx-kpi-row-click' : ''}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: it.color }}>{it.title}</span>
+                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: 'nowrap' }}>{it.date}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.5 }}>{it.summary}</div>
+              {it.type === 'visit' && it.data.medications?.length > 0 && (
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>💊 {it.data.medications.length} รายการยา</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VisitDetailModal({ open, patient, visit, onClose, onEdit, auditLog }) {
   if (!open || !visit) return null;
   const Section = ({ icon, title, children, color }) => (
     <div style={{ marginBottom: 18 }}>
@@ -7678,6 +7778,37 @@ function VisitDetailModal({ open, patient, visit, onClose, onEdit }) {
           <div style={{ background: '#F0F9FF', borderLeft: '3px solid #0369A1', borderRadius: '0 8px 8px 0', padding: '9px 13px', fontSize: 12.5, whiteSpace: 'pre-wrap' }}>{visit.pharmacistNote}</div>
         </Section>
       )}
+
+      {(() => {
+        const entries = (auditLog || []).filter(e => e.visitId === visit.id).sort((a, b) => b.ts - a.ts);
+        if (entries.length === 0) return null;
+        const actionMeta = {
+          'create-visit': { icon: '➕', label: 'สร้าง', color: C.low },
+          'edit-visit':   { icon: '✏️', label: 'แก้ไข', color: C.primary },
+          'delete-visit': { icon: '🗑️', label: 'ลบ',   color: C.high },
+        };
+        return (
+          <Section icon="🛡️" title={`ประวัติการแก้ไข (${entries.length})`} color={C.textMuted}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {entries.map(e => {
+                const m = actionMeta[e.action] || { icon: '•', label: e.action, color: C.textMuted };
+                return (
+                  <div key={e.id} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12, padding: '6px 10px', background: C.bgAlt, borderRadius: 7 }}>
+                    <span>{m.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 700, color: m.color }}>{m.label}</span>
+                      <span style={{ color: C.textMuted }}> โดย {e.user || 'unknown'} · {new Date(e.ts).toLocaleString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      {e.changedFields?.length > 0 && (
+                        <div style={{ marginTop: 2, color: C.text }}>เปลี่ยน: {e.changedFields.join(', ')}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+        );
+      })()}
     </Modal>
   );
 }
@@ -7776,7 +7907,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
   const tele    = data.telepharmacy.filter(t => t.patientId === patientId)
     .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
 
-  const [tab, setTab]       = pvState('visits');
+  const [tab, setTab]       = pvState('timeline');
   const [visitFilter, setVF] = pvState('all');
   const [visitSearch, setVisitSearch] = pvState('');
   const [viewingVisitId, setViewingVisitId] = pvState(null); // visit ที่กำลังดูรายละเอียดแบบ read-only
@@ -7883,6 +8014,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
       {/* Tabs */}
       <Tabs
         tabs={[
+          { id: 'timeline', label: '🕐 Timeline รวม' },
           { id: 'visits',   label: `บันทึกการเยี่ยม (${visits.length})` },
           { id: 'outcomes', label: '📊 ผลลัพธ์' },
           { id: 'medtimeline', label: '💊 Timeline ยา' },
@@ -7890,6 +8022,10 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
         ]}
         active={tab} onChange={setTab}
       />
+
+      {tab === 'timeline' && (
+        <PatientTimeline patient={patient} visits={visits} telepharmacy={tele} onViewVisit={setViewingVisitId} />
+      )}
 
       {tab === 'visits' && (
         <>
@@ -8364,7 +8500,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit }) {
 
       <VisitDetailModal open={!!viewingVisitId} patient={patient}
         visit={visits.find(v => v.id === viewingVisitId)}
-        onClose={() => setViewingVisitId(null)} onEdit={onEditVisit} />
+        onClose={() => setViewingVisitId(null)} onEdit={onEditVisit} auditLog={data.auditLog} />
 
       <VisitCompareModal open={comparing} patient={patient}
         visitA={visits.find(v => v.id === compareIds[0])}
@@ -9596,12 +9732,15 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High', exacerbationEvents: exacEvents }
       : p);
     let newData = { ...data, visits: updatedVisits, patients: updatedPatients };
-    // Audit log
+    // Audit log — แปะรายชื่อ field ที่เปลี่ยนไปด้วย เพื่อให้รู้ว่า "แก้อะไร" ไม่ใช่แค่ "มีการแก้"
+    const changedFields = isEditing ? diffVisitFields(editingVisit, visit) : [];
     newData = appendAudit(newData, {
       user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
       action: isEditing ? 'edit-visit' : 'create-visit',
       patientId, visitId: visit.id,
-      summary: `${isEditing ? 'แก้ไข' : 'สร้าง'} Visit ${visit.visitDate} (${patient.prefix}${patient.firstName} ${patient.lastName})`,
+      summary: `${isEditing ? 'แก้ไข' : 'สร้าง'} Visit ${visit.visitDate} (${patient.prefix}${patient.firstName} ${patient.lastName})`
+        + (changedFields.length ? ` — เปลี่ยน: ${changedFields.join(', ')}` : ''),
+      changedFields,
     });
     // Clear draft on successful save
     clearDraft(patientId, isEditing ? editingVisit.id : null);
@@ -9992,13 +10131,19 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             )}
             <Btn size="sm" variant="ghost" onClick={addMed}>+ เพิ่มยา</Btn>
 
-            {/* ── Real-time alerts ── */}
+            {/* ── Real-time alerts: DDI + Beers + Renal + DRP (ยาซ้ำซ้อน/ต้องการยาเพิ่ม/ADR) รวมจุดเดียว ── */}
             {f.medications.length > 0 && (() => {
               const ixAlerts = checkInteractions(f.medications, patient);
               const beers    = patient.age >= 65 ? checkBeers(patient, f.medications) : [];
               const renal    = getRenalCategory(patient?.eGFR);
               const renalWarn= renal && renal.sev !== 'ok';
-              const total    = ixAlerts.length + beers.length + (renalWarn ? 1 : 0);
+              // เรียก detectDRP ทันทีขณะกรอกฟอร์ม (ไม่ต้องรอบันทึกแล้วไปเจอทีหลังในหัวข้อ DRP)
+              // ตัด category 'Drug interaction' ออกเพราะแสดงซ้ำกับ ixAlerts ด้านบนแล้ว (engine เดียวกัน)
+              const liveDrp = (typeof detectDRP === 'function'
+                ? detectDRP({ medications: f.medications, inhalerTechnique: f.inhalerTechnique, adherence: f.adherence,
+                    exacerbation: f.exacerbation, assessments: f.assessments, counselingTopics: f.counselingTopics }, patient)
+                : []).filter(d => d.categoryEn !== 'Drug interaction');
+              const total    = ixAlerts.length + beers.length + (renalWarn ? 1 : 0) + liveDrp.length;
               if (total === 0) return null;
               return (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -10048,6 +10193,23 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                       </div>
                     </div>
                   )}
+                  {liveDrp.map((d, i) => {
+                    const sevColor = { High: C.high, Medium: C.medium, Low: C.low }[d.severity] || C.medium;
+                    const sevBg    = { High: C.highBg, Medium: C.mediumBg, Low: C.lowBg }[d.severity] || C.mediumBg;
+                    const sevBorder= { High: C.highBorder, Medium: C.mediumBorder, Low: C.lowBorder }[d.severity] || C.mediumBorder;
+                    return (
+                      <div key={'drp' + i} style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 13px',
+                        borderRadius: 9, background: sevBg, border: `1.5px solid ${sevBorder}`,
+                      }}>
+                        <span style={{ fontSize: 16, flexShrink: 0 }}>🔍</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: sevColor }}>{d.categoryTh} — {d.problemTh}</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: sevColor, marginTop: 2 }}>→ {d.actionTh}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })()}
