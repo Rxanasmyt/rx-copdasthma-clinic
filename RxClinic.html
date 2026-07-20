@@ -1705,6 +1705,7 @@ const AppStore = {
       visits: [...SAMPLE_VISITS],
       telepharmacy: [...SAMPLE_TELEPHARMACY],
       clinicDayRosters: [],
+      queueWalkIns: [],
       haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
       _savedAt: 0,      // ข้อมูลตัวอย่าง — เก่าที่สุดเสมอ เพื่อให้ข้อมูลจริงจาก Firebase ชนะตอน merge
       _isSample: true,  // ธงบอกว่าเป็นข้อมูลตัวอย่าง ยังไม่เคยถูกผู้ใช้แก้ไข
@@ -7707,6 +7708,9 @@ function VisitDetailModal({ open, patient, visit, onClose, onEdit, auditLog }) {
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, visit)}>🖨️ พิมพ์ SOAP</Btn>
+          {visit.inhalerTechnique?.[0]?.device && (
+            <Btn size="sm" variant="ghost" onClick={() => window.printPatientHandout?.(patient, visit, visit.inhalerTechnique[0].device)}>📄 คู่มือกลับบ้าน</Btn>
+          )}
           {onEdit && <Btn size="sm" variant="accent" onClick={() => { onClose(); onEdit(visit.id); }}>✏️ แก้ไข Visit นี้</Btn>}
         </div>
       }>
@@ -8059,6 +8063,11 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
           <Btn size="sm" variant="ghost" onClick={() => typeof window.printDRPReport === 'function' && window.printDRPReport(patient, data.visits)}>
             📊 DRP Report
           </Btn>
+          {visits[0] && (
+            <Btn size="sm" variant="ghost" onClick={() => window.printReferralLetter?.(patient, visits[0])}>
+              📨 หนังสือส่งตัว
+            </Btn>
+          )}
           {visits[0] && (
             <Btn size="sm" variant="ghost" onClick={() => window.copyLineMessage?.(window.buildLineFollowup(patient, visits[0], data.clinicCode))}>
               💬 LINE สรุป
@@ -17864,20 +17873,51 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const pts = data.patients;
   const vis = data.visits;
   const tel = data.telepharmacy;
+  const canEditQueue = AppStore.canEditClinical(currentUser);
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const [walkInQuery, setWalkInQuery] = useState('');
+  const [showWalkInSearch, setShowWalkInSearch] = useState(false);
 
-  // วันคลินิกวันนี้: scheduled visits today (from previous visits' nextVisit field)
+  const walkInMatches = useMemo(() => {
+    const q = walkInQuery.trim().toLowerCase();
+    if (!q) return [];
+    return pts.filter(p =>
+      (p.hn || '').toLowerCase().includes(q) ||
+      `${p.firstName || ''} ${p.lastName || ''}`.toLowerCase().includes(q)
+    ).slice(0, 6);
+  }, [walkInQuery, pts]);
+
+  const addWalkIn = (patientId) => {
+    const entry = { date: todayStr, patientId, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '' };
+    onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), entry] });
+    setWalkInQuery(''); setShowWalkInSearch(false);
+  };
+  const removeWalkIn = (patientId) => {
+    onDataChange({ ...data, queueWalkIns: (data.queueWalkIns || []).filter(w => !(w.date === todayStr && w.patientId === patientId)) });
+  };
+
+  // วันคลินิกวันนี้: scheduled visits today (from previous visits' nextVisit field) + walk-in ที่เพิ่มเข้าคิวเอง
+  const walkInsToday = (data.queueWalkIns || []).filter(w => w.date === todayStr);
   const scheduledToday = useMemo(() => {
-    return pts.filter(p => {
+    const scheduled = pts.filter(p => {
       const ptVisits = vis.filter(v => v.patientId === p.id);
       // Latest scheduled "nextVisit" for any past visit equals today
       return ptVisits.some(v => v.nextVisit === todayStr);
     }).map(p => ({
       patient: p,
       checkedIn: vis.some(v => v.patientId === p.id && v.visitDate === todayStr),
+      walkIn: false,
     }));
-  }, [pts, vis, todayStr]);
+    const scheduledIds = new Set(scheduled.map(x => x.patient.id));
+    const walkIns = walkInsToday
+      .filter(w => !scheduledIds.has(w.patientId))
+      .map(w => {
+        const p = pts.find(pp => pp.id === w.patientId);
+        return p ? { patient: p, checkedIn: vis.some(v => v.patientId === p.id && v.visitDate === todayStr), walkIn: true } : null;
+      }).filter(Boolean);
+    return [...scheduled, ...walkIns];
+  }, [pts, vis, todayStr, walkInsToday.length]);
 
   const checkedInCount = scheduledToday.filter(x => x.checkedIn).length;
   const waitingCount   = scheduledToday.length - checkedInCount;
@@ -18078,7 +18118,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
             </div>
           </div>
           <div style={{ padding:'12px 18px', display:'flex', flexDirection:'column', gap:6 }}>
-            {scheduledToday.map(({ patient: p, checkedIn }) => (
+            {scheduledToday.map(({ patient: p, checkedIn, walkIn }, idx) => (
               <div key={p.id} style={{
                 display:'flex', alignItems:'center', gap:12, padding:'10px 14px',
                 background: checkedIn ? 'rgba(5,150,105,0.08)' : C.surface,
@@ -18090,23 +18130,75 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                   background: checkedIn ? C.low : p.riskLevel==='High' ? C.high : C.primaryLight,
                   color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
                   fontSize:14, fontWeight:700, boxShadow:`0 3px 10px ${checkedIn?C.low:p.riskLevel==='High'?C.high:C.primaryLight}44`,
-                }}>{checkedIn ? '✓' : p.firstName.charAt(0)}</div>
+                }}>{checkedIn ? '✓' : (idx + 1)}</div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                     <span style={{ fontWeight:700, fontSize:13 }}>{p.prefix}{p.firstName} {p.lastName}</span>
                     <DiagBadge diagnosis={p.diagnosis} />
                     <RiskBadge level={p.riskLevel||'Low'} />
+                    {walkIn && <span style={{ fontSize:10, fontWeight:700, color:'#7C3AED', background:'#F3E8FF', padding:'1px 7px', borderRadius:12, border:'1px solid #E9D5FF' }}>🚶 Walk-in</span>}
                     {(p.allergies||[]).filter(a=>!a.startsWith('NKDA')).length > 0 &&
                       <span style={{ fontSize:10, fontWeight:700, color:C.high, background:C.highBg, padding:'1px 7px', borderRadius:12, border:`1px solid ${C.highBorder}` }}>⚠ แพ้ยา</span>}
                   </div>
                   <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>HN: {p.hn} · {p.phone}</div>
                 </div>
+                {walkIn && !checkedIn && canEditQueue && (
+                  <Btn size="sm" variant="ghost" onClick={e => { e.stopPropagation(); removeWalkIn(p.id); }}>✕ ลบออกจากคิว</Btn>
+                )}
                 <Btn size="sm" variant={checkedIn?'ghost':'accent'} onClick={e => { e.stopPropagation(); navigate(checkedIn?'history':'visit-form', p.id); }}>
                   {checkedIn ? 'ดูประวัติ' : '📥 เช็คอิน'}
                 </Btn>
               </div>
             ))}
           </div>
+          {canEditQueue && (
+            <div style={{ padding:'0 18px 16px' }}>
+              {!showWalkInSearch ? (
+                <Btn size="sm" variant="ghost" onClick={() => setShowWalkInSearch(true)}>🚶 + เพิ่มผู้ป่วย Walk-in เข้าคิววันนี้</Btn>
+              ) : (
+                <div style={{ position:'relative' }}>
+                  <Input placeholder="ค้นหาชื่อหรือ HN ผู้ป่วย…" value={walkInQuery} onChange={v => setWalkInQuery(v)} />
+                  {walkInQuery.trim() && (
+                    <div style={{ position:'absolute', zIndex:20, top:'100%', left:0, right:0, marginTop:4, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:220, overflowY:'auto' }}>
+                      {walkInMatches.length === 0 ? (
+                        <div style={{ padding:'10px 14px', fontSize:12, color:C.textMuted }}>ไม่พบผู้ป่วย</div>
+                      ) : walkInMatches.map(p => (
+                        <div key={p.id} onClick={() => addWalkIn(p.id)} style={{ padding:'8px 14px', fontSize:13, cursor:'pointer', borderBottom:`1px solid ${C.border}` }}
+                          onMouseEnter={e => e.currentTarget.style.background = C.bgAlt} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          {p.prefix}{p.firstName} {p.lastName} <span style={{ color:C.textMuted, fontSize:11 }}>(HN {p.hn})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <Btn size="sm" variant="ghost" style={{ marginTop:8 }} onClick={() => { setShowWalkInSearch(false); setWalkInQuery(''); }}>ยกเลิก</Btn>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {scheduledToday.length === 0 && canEditQueue && (
+        <div style={{ marginBottom:20 }}>
+          {!showWalkInSearch ? (
+            <Btn size="sm" variant="ghost" onClick={() => setShowWalkInSearch(true)}>🚶 + เพิ่มผู้ป่วย Walk-in เข้าคิววันนี้</Btn>
+          ) : (
+            <div style={{ position:'relative', maxWidth:360 }}>
+              <Input placeholder="ค้นหาชื่อหรือ HN ผู้ป่วย…" value={walkInQuery} onChange={v => setWalkInQuery(v)} />
+              {walkInQuery.trim() && (
+                <div style={{ position:'absolute', zIndex:20, top:'100%', left:0, right:0, marginTop:4, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:220, overflowY:'auto' }}>
+                  {walkInMatches.length === 0 ? (
+                    <div style={{ padding:'10px 14px', fontSize:12, color:C.textMuted }}>ไม่พบผู้ป่วย</div>
+                  ) : walkInMatches.map(p => (
+                    <div key={p.id} onClick={() => addWalkIn(p.id)} style={{ padding:'8px 14px', fontSize:13, cursor:'pointer', borderBottom:`1px solid ${C.border}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.bgAlt} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {p.prefix}{p.firstName} {p.lastName} <span style={{ color:C.textMuted, fontSize:11 }}>(HN {p.hn})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Btn size="sm" variant="ghost" style={{ marginTop:8 }} onClick={() => { setShowWalkInSearch(false); setWalkInQuery(''); }}>ยกเลิก</Btn>
+            </div>
+          )}
         </div>
       )}
 
@@ -18552,7 +18644,7 @@ function App() {
 
       // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
-      let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], clinicDayRosters:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
+      let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], clinicDayRosters:[], queueWalkIns:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
       lastRemoteSig.current = dataSig(remote);
       setData(remote);
 
