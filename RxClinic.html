@@ -6795,10 +6795,16 @@ function PatientForm({ patient, onSave, onClose }) {
   const validate = () => {
     const e = {};
     if (!f.hn.trim())        e.hn        = 'กรุณากรอก HN';
+    else if (!/^\d{4,10}$/.test(f.hn.trim())) e.hn = 'HN ควรเป็นตัวเลข 4-10 หลัก';
     if (!f.firstName.trim()) e.firstName = 'กรุณากรอกชื่อ';
     if (!f.lastName.trim())  e.lastName  = 'กรุณากรอกนามสกุล';
     if (!f.age || isNaN(f.age) || f.age < 1) e.age = 'กรุณากรอกอายุ';
+    else if (Number(f.age) > 120) e.age = 'อายุเกิน 120 ปี — ตรวจสอบความถูกต้อง';
     if (!f.phone.trim())     e.phone     = 'กรุณากรอกเบอร์โทร';
+    else if (!/^0\d{8,9}$/.test(f.phone.trim().replace(/[-\s]/g, ''))) e.phone = 'เบอร์โทรควรขึ้นต้นด้วย 0 และมี 9-10 หลัก';
+    if (f.eGFR !== '' && (isNaN(f.eGFR) || Number(f.eGFR) < 0 || Number(f.eGFR) > 200)) e.eGFR = 'eGFR ควรอยู่ระหว่าง 0-200';
+    if (f.weight !== '' && (isNaN(f.weight) || Number(f.weight) <= 0 || Number(f.weight) > 300)) e.weight = 'น้ำหนักควรอยู่ระหว่าง 0-300 กก.';
+    if (f.packYears !== '' && (isNaN(f.packYears) || Number(f.packYears) < 0)) e.packYears = 'Pack-years ต้องไม่ติดลบ';
     setErr(e);
     return Object.keys(e).length === 0;
   };
@@ -6957,11 +6963,11 @@ function PatientForm({ patient, onSave, onClose }) {
         </FormField>
       )}
       <div style={row3}>
-        <FormField label="eGFR (mL/min/1.73m²)" hint="ถ้ามีค่า lab ล่าสุด">
-          <Input value={f.eGFR} onChange={v => set('eGFR', v)} type="number" placeholder="เช่น 75" />
+        <FormField label="eGFR (mL/min/1.73m²)" hint="ถ้ามีค่า lab ล่าสุด" error={err.eGFR}>
+          <Input value={f.eGFR} onChange={v => set('eGFR', v)} type="number" placeholder="เช่น 75" error={err.eGFR} />
         </FormField>
-        <FormField label="น้ำหนัก (kg)" hint={ocrHint('weight')}>
-          <Input value={f.weight} onChange={v => set('weight', v)} type="number" placeholder="เช่น 65" />
+        <FormField label="น้ำหนัก (kg)" hint={ocrHint('weight')} error={err.weight}>
+          <Input value={f.weight} onChange={v => set('weight', v)} type="number" placeholder="เช่น 65" error={err.weight} />
         </FormField>
       </div>
 
@@ -6974,8 +6980,8 @@ function PatientForm({ patient, onSave, onClose }) {
             options={AppStore.SMOKING_OPTIONS} />
         </FormField>
         {(f.smokingStatus === 'Current' || f.smokingStatus === 'Ex') && (
-          <FormField label="Pack-Years" hint="จำนวนซองที่สูบต่อวัน × ปีที่สูบ">
-            <Input value={f.packYears} onChange={v => set('packYears', v)} type="number" placeholder="เช่น 20" />
+          <FormField label="Pack-Years" hint="จำนวนซองที่สูบต่อวัน × ปีที่สูบ" error={err.packYears}>
+            <Input value={f.packYears} onChange={v => set('packYears', v)} type="number" placeholder="เช่น 20" error={err.packYears} />
           </FormField>
         )}
       </div>
@@ -9455,6 +9461,32 @@ function SOAPField({ label, fieldKey, value, onChange, placeholder, rows }) {
   );
 }
 
+// ── ตรวจค่า vitals ที่กรอกอยู่ในช่วงที่เป็นไปได้จริงทางสรีรวิทยา — กันพิมพ์ผิด/พิมพ์เกินหลัก ──
+function validateVitalsRange(vitals) {
+  const e = {};
+  const v = vitals || {};
+  if (v.spO2 !== '' && v.spO2 != null) {
+    const n = Number(v.spO2);
+    if (isNaN(n) || n < 0 || n > 100) e.spO2 = 'SpO₂ ต้องอยู่ระหว่าง 0-100%';
+  }
+  if (v.rr !== '' && v.rr != null) {
+    const n = Number(v.rr);
+    if (isNaN(n) || n < 0 || n > 60) e.rr = 'RR ต้องอยู่ระหว่าง 0-60 ครั้ง/นาที';
+  }
+  if (v.fev1 !== '' && v.fev1 != null) {
+    const n = Number(v.fev1);
+    if (isNaN(n) || n < 0 || n > 150) e.fev1 = 'FEV₁ ต้องอยู่ระหว่าง 0-150 %predicted';
+  }
+  if (v.peakFlow !== '' && v.peakFlow != null) {
+    const n = Number(v.peakFlow);
+    if (isNaN(n) || n < 0 || n > 800) e.peakFlow = 'Peak Flow ต้องอยู่ระหว่าง 0-800 L/min';
+  }
+  if (v.bp && v.bp.trim() !== '' && !/^\d{2,3}\s*\/\s*\d{2,3}$/.test(v.bp.trim())) {
+    e.bp = 'รูปแบบ BP ควรเป็น systolic/diastolic เช่น 130/80';
+  }
+  return e;
+}
+
 // ── Main VisitForm (with edit support) ────────────────
 function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, currentUser }) {
   const patient = data.patients.find(p => p.id === patientId);
@@ -9648,6 +9680,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setEx = (k, v) => setF(prev => ({ ...prev, exacerbation: { ...prev.exacerbation, [k]: v } }));
   const setVital = (k, v) => setF(prev => ({ ...prev, vitals: { ...(prev.vitals || {}), [k]: v } }));
+  const vitalsErr = validateVitalsRange(f.vitals);
   const setSOAP = (k, v) => setF(prev => ({ ...prev, soap: { ...prev.soap, [k]: v } }));
   const setAssessment = (k, v) => setF(prev => ({
     ...prev,
@@ -9821,6 +9854,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   const handleSave = (skipValidation) => {
     if (saving) return;
+    if (Object.keys(vitalsErr).length > 0) {
+      window.rxToast?.('⚠ ค่าสัญญาณชีพที่กรอกอยู่นอกช่วงที่เป็นไปได้ — กรุณาแก้ไขก่อนบันทึก', 'error', 4500);
+      setAttemptedSave(true);
+      return;
+    }
     if (!skipValidation) {
       const warnings = validate();
       if (warnings.length > 0) {
@@ -10161,20 +10199,20 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
             onClear={() => set('vitals', { spO2: '', rr: '', bp: '', fev1: '', peakFlow: '' })}
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-              <FormField label="SpO₂ (%)">
-                <Input type="number" value={f.vitals?.spO2 ?? ''} onChange={v => setVital('spO2', v)} placeholder="เช่น 96" />
+              <FormField label="SpO₂ (%)" error={vitalsErr.spO2}>
+                <Input type="number" value={f.vitals?.spO2 ?? ''} onChange={v => setVital('spO2', v)} placeholder="เช่น 96" error={vitalsErr.spO2} />
               </FormField>
-              <FormField label="RR (/min)">
-                <Input type="number" value={f.vitals?.rr ?? ''} onChange={v => setVital('rr', v)} placeholder="เช่น 18" />
+              <FormField label="RR (/min)" error={vitalsErr.rr}>
+                <Input type="number" value={f.vitals?.rr ?? ''} onChange={v => setVital('rr', v)} placeholder="เช่น 18" error={vitalsErr.rr} />
               </FormField>
-              <FormField label="BP (mmHg)">
-                <Input value={f.vitals?.bp ?? ''} onChange={v => setVital('bp', v)} placeholder="เช่น 130/80" />
+              <FormField label="BP (mmHg)" error={vitalsErr.bp}>
+                <Input value={f.vitals?.bp ?? ''} onChange={v => setVital('bp', v)} placeholder="เช่น 130/80" error={vitalsErr.bp} />
               </FormField>
-              <FormField label="FEV₁ (% predicted)">
-                <Input type="number" value={f.vitals?.fev1 ?? ''} onChange={v => setVital('fev1', v)} placeholder="เช่น 65" />
+              <FormField label="FEV₁ (% predicted)" error={vitalsErr.fev1}>
+                <Input type="number" value={f.vitals?.fev1 ?? ''} onChange={v => setVital('fev1', v)} placeholder="เช่น 65" error={vitalsErr.fev1} />
               </FormField>
-              <FormField label="Peak Flow (L/min)">
-                <Input type="number" value={f.vitals?.peakFlow ?? ''} onChange={v => setVital('peakFlow', v)} placeholder="เช่น 350" />
+              <FormField label="Peak Flow (L/min)" error={vitalsErr.peakFlow}>
+                <Input type="number" value={f.vitals?.peakFlow ?? ''} onChange={v => setVital('peakFlow', v)} placeholder="เช่น 350" error={vitalsErr.peakFlow} />
               </FormField>
             </div>
             {f.vitals?.spO2 && Number(f.vitals.spO2) < 92 && (
