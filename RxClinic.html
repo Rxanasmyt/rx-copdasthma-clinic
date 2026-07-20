@@ -751,6 +751,8 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<!-- SheetJS: อ่านไฟล์ Excel (.xls/.xlsx) เช่นรายงานนัดหมายจาก HOSxP -->
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -17770,6 +17772,177 @@ function AIInsightsPanel({ data, navigate }) {
   );
 }
 
+// ── นำเข้ารายชื่อนัดวันนี้จากไฟล์ Excel HOSxP (ใบสรุปการนัดหมาย) ─────────────
+// รูปแบบไฟล์: 10 คอลัมน์ ไม่มีหัวตาราง — No, HN, ชื่อ-นามสกุล, ที่อยู่, เบอร์ติดต่อ,
+// วันที่มาครั้งล่าสุด (พ.ศ. dd/mm/yy), วันที่นัด (พ.ศ. dd/mm/yy), มาตามนัด, ไม่มาตามนัด, หมายเหตุ
+const THAI_NAME_PREFIXES = ['นางสาว', 'น.ส.', 'นาย', 'นาง', 'ด.ช.', 'ด.ญ.', 'คุณ'];
+
+function convertBEDateToISO(s) {
+  // แปลง "dd /mm /yy" พ.ศ. (เช่น "20 /07 /69" = 2569 พ.ศ. = 2026 ค.ศ.) เป็น "yyyy-mm-dd"
+  if (!s || typeof s !== 'string') return '';
+  const m = s.match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{2,4})/);
+  if (!m) return '';
+  const day = parseInt(m[1], 10), month = parseInt(m[2], 10);
+  let yy = parseInt(m[3], 10);
+  const beYear = yy < 100 ? 2500 + yy : yy; // ปี 2 หลักในรายงาน HOSxP หมายถึง 25xx เสมอ
+  const ceYear = beYear - 543;
+  if (!day || !month || !ceYear) return '';
+  return `${ceYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function splitThaiPatientName(raw) {
+  const full = (raw || '').trim();
+  const prefix = THAI_NAME_PREFIXES.find(p => full.startsWith(p)) || '';
+  const rest = full.slice(prefix.length).trim();
+  // ชื่อ-นามสกุลจาก HOSxP คั่นด้วยช่องว่าง 2 ตัวขึ้นไประหว่างชื่อกับนามสกุล
+  const parts = rest.split(/\s{2,}/).filter(Boolean);
+  return {
+    prefix: prefix || 'นาย',
+    firstName: parts[0] || rest || '',
+    lastName: parts.slice(1).join(' ') || '',
+  };
+}
+
+// อ่านไฟล์ .xls/.xlsx (ต้องมี window.XLSX จาก SheetJS) แล้วคืนแถวที่ parse แล้ว
+function parseHOSxPAppointmentFile(arrayBuffer) {
+  if (typeof window.XLSX === 'undefined') throw new Error('ไม่พบไลบรารีอ่านไฟล์ Excel (XLSX) — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต');
+  const wb = window.XLSX.read(arrayBuffer, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+  const out = [];
+  for (const r of rows) {
+    const hn = String(r[1] || '').trim();
+    if (!/^\d{4,10}$/.test(hn)) continue; // ข้ามแถวหัวตาราง/แถวว่าง — HN ต้องเป็นตัวเลขล้วน
+    const nameParsed = splitThaiPatientName(r[2]);
+    out.push({
+      hn,
+      rawName: String(r[2] || '').trim(),
+      ...nameParsed,
+      address: String(r[3] || '').trim(),
+      phone: String(r[4] || '').replace(/\*$/, '').trim(),
+      lastVisitISO: convertBEDateToISO(r[5]),
+      apptDateISO: convertBEDateToISO(r[6]),
+      note: String(r[9] || '').trim(),
+    });
+  }
+  return out;
+}
+
+function matchImportedPatient(patients, hn) {
+  const stripLead = s => (s || '').replace(/^0+/, '');
+  return patients.find(p => (p.hn || '').trim() === hn)
+    || patients.find(p => stripLead((p.hn || '').trim()) === stripLead(hn));
+}
+
+function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, currentUser }) {
+  const [fileName, setFileName] = useState('');
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (!open) return null;
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(''); setRows(null); setFileName(file.name); setBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseHOSxPAppointmentFile(buf);
+      if (parsed.length === 0) setError('ไม่พบข้อมูลผู้ป่วยในไฟล์ — ตรวจสอบว่าเป็นรายงานนัดหมายจาก HOSxP');
+      setRows(parsed);
+    } catch (err) {
+      setError('อ่านไฟล์ไม่สำเร็จ: ' + (err.message || err));
+    }
+    setBusy(false);
+  };
+
+  const matched = rows ? rows.map(r => ({ row: r, patient: matchImportedPatient(data.patients, r.hn) })) : [];
+  const matchedRows = matched.filter(x => x.patient);
+  const unmatchedRows = matched.filter(x => !x.patient);
+
+  const confirmImport = () => {
+    const matchedIds = matchedRows.map(x => x.patient.id);
+    // เติมเข้าคิว walk-in วันนี้ (กันซ้ำกับที่มีอยู่แล้ว)
+    const existingWalkInIds = new Set((data.queueWalkIns || []).filter(w => w.date === todayStr).map(w => w.patientId));
+    const newWalkIns = matchedIds
+      .filter(id => !existingWalkInIds.has(id))
+      .map(id => ({ date: todayStr, patientId: id, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '', source: 'hosxp_import' }));
+
+    // อัปเดต/สร้าง clinicDayRosters ของวันนี้ ให้ scheduledCount ตรงกับไฟล์ที่นำเข้า (ใช้เป็นตัวหาร KPI6)
+    const rosters = data.clinicDayRosters || [];
+    const existingRoster = rosters.find(r => r.date === todayStr);
+    const rosterPatientIds = Array.from(new Set([...(existingRoster?.patientIds || []), ...matchedIds]));
+    const rosterEntry = {
+      id: existingRoster?.id || AppStore.generateId(),
+      date: todayStr,
+      patientIds: rosterPatientIds,
+      extraCount: unmatchedRows.length,
+      scheduledCount: rosterPatientIds.length + unmatchedRows.length,
+      note: `นำเข้าจากไฟล์ HOSxP (${fileName}) — พบในระบบ ${matchedRows.length} ราย, ไม่พบ ${unmatchedRows.length} ราย`,
+      enteredBy: currentUser?.name || currentUser?.username || '',
+      enteredAt: Date.now(),
+    };
+    const nextRosters = existingRoster ? rosters.map(r => r.id === existingRoster.id ? rosterEntry : r) : [...rosters, rosterEntry];
+
+    onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), ...newWalkIns], clinicDayRosters: nextRosters });
+    window.rxToast?.(`✅ นำเข้าคิววันนี้: พบในระบบ ${matchedRows.length} ราย${unmatchedRows.length ? `, ไม่พบ ${unmatchedRows.length} ราย (ต้องเพิ่มผู้ป่วยใหม่)` : ''}`, 'success', 5000);
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="📥 นำเข้ารายชื่อนัดวันนี้จาก HOSxP (Excel)" width={720}
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Btn size="sm" variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+          {rows && rows.length > 0 && (
+            <Btn size="sm" variant="accent" onClick={confirmImport}>✅ นำเข้าเข้าคิว {matchedRows.length} ราย</Btn>
+          )}
+        </div>
+      }>
+      <p style={{ fontSize: 12.5, color: C.textMuted, marginBottom: 14 }}>
+        เลือกไฟล์ "ใบสรุปการนัดหมาย" (.xls/.xlsx) ที่ export จาก HOSxP — ระบบจะจับคู่ HN กับผู้ป่วยที่มีอยู่แล้ว
+        แล้วเติมเข้าคิว OPD วันนี้ให้อัตโนมัติ ผู้ป่วยที่ยังไม่มี HN ในระบบจะแสดงแยกไว้ให้เพิ่มเอง
+      </p>
+      <input type="file" accept=".xls,.xlsx" onChange={handleFile} disabled={busy} />
+      {fileName && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>📄 {fileName}</div>}
+      {busy && <div style={{ fontSize: 12.5, color: C.primary, marginTop: 10 }}>⏳ กำลังอ่านไฟล์...</div>}
+      {error && (
+        <div style={{ marginTop: 12, padding: '10px 14px', background: C.highBg, border: `1px solid ${C.highBorder}`, borderRadius: 8, fontSize: 12.5, color: C.high }}>
+          ⚠ {error}
+        </div>
+      )}
+      {rows && rows.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', gap: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.low }}>✅ พบในระบบ {matchedRows.length} ราย</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.high }}>⚠ ไม่พบ {unmatchedRows.length} ราย</div>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 10 }}>
+            {matched.map(({ row, patient }, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                borderBottom: i < matched.length - 1 ? `1px solid ${C.border}` : 'none',
+                background: patient ? 'transparent' : C.highBg,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: patient ? C.low : C.high, width: 18 }}>{patient ? '✓' : '✕'}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1 }}>{row.prefix}{row.firstName} {row.lastName}</span>
+                <span style={{ fontSize: 11.5, color: C.textMuted }}>HN {row.hn}</span>
+                {!patient && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.high, background: '#fff', padding: '1px 7px', borderRadius: 10, border: `1px solid ${C.highBorder}` }}>ไม่พบในระบบ</span>}
+              </div>
+            ))}
+          </div>
+          {unmatchedRows.length > 0 && (
+            <p style={{ fontSize: 11.5, color: C.textMuted, marginTop: 8 }}>
+              รายชื่อที่ไม่พบในระบบจะไม่ถูกเพิ่มเข้าคิวอัตโนมัติ — กรุณาไปที่หน้า "ผู้ป่วย" เพื่อเพิ่มผู้ป่วยใหม่ด้วย HN ข้างต้น แล้วนำเข้าไฟล์นี้ซ้ำอีกครั้ง
+            </p>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ── บันทึกจำนวนนัดวันคลินิก (Clinic Day Roster) ─────────────────────────────
 // ทุกเช้าวันคลินิก เภสัชกรรีวิวรายชื่อนัดจากแพทย์ แล้วบันทึกจำนวน/รายชื่อที่นัดไว้ที่นี่
 // ค่านี้ใช้เป็นตัวหาร KPI6 แทนการอนุมานจาก nextVisit เพียงอย่างเดียว เพราะ nextVisit
@@ -17878,6 +18051,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const [walkInQuery, setWalkInQuery] = useState('');
   const [showWalkInSearch, setShowWalkInSearch] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const walkInMatches = useMemo(() => {
     const q = walkInQuery.trim().toLowerCase();
@@ -18108,7 +18282,12 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
               <div style={{ fontSize:11, fontWeight:700, opacity:0.85, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:2 }}>📅 วันคลินิกวันนี้</div>
               <div style={{ fontSize:18, fontWeight:800 }}>ผู้ป่วยนัด {scheduledToday.length} คน</div>
             </div>
-            <div style={{ display:'flex', gap:14 }}>
+            <div style={{ display:'flex', gap:14, alignItems:'center' }}>
+              {canEditQueue && (
+                <Btn size="sm" variant="ghost" onClick={() => setShowImportModal(true)} style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'1px solid rgba(255,255,255,0.3)' }}>
+                  📥 นำเข้าจาก HOSxP
+                </Btn>
+              )}
               {[{n:checkedInCount,l:'มาแล้ว',c:'#4ADE80'},{n:waitingCount,l:'รอ',c:'#FDE68A'}].map(x => (
                 <div key={x.l} style={{ background:'rgba(255,255,255,0.15)', borderRadius:10, padding:'8px 16px', textAlign:'center' }}>
                   <div style={{ fontSize:22, fontWeight:800, color:x.c }}>{x.n}</div>
@@ -18178,7 +18357,8 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
         </div>
       )}
       {scheduledToday.length === 0 && canEditQueue && (
-        <div style={{ marginBottom:20 }}>
+        <div style={{ marginBottom:20, display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-start' }}>
+          <Btn size="sm" variant="ghost" onClick={() => setShowImportModal(true)}>📥 นำเข้ารายชื่อนัดจาก HOSxP</Btn>
           {!showWalkInSearch ? (
             <Btn size="sm" variant="ghost" onClick={() => setShowWalkInSearch(true)}>🚶 + เพิ่มผู้ป่วย Walk-in เข้าคิววันนี้</Btn>
           ) : (
@@ -18205,6 +18385,9 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       {/* ── บันทึกจำนวนนัดวันคลินิก (ใช้เป็นตัวหาร KPI6) ── */}
       <ClinicDayRosterCard data={data} onDataChange={onDataChange} todayStr={todayStr}
         scheduledToday={scheduledToday} currentUser={currentUser} />
+
+      <ImportHOSxPQueueModal open={showImportModal} onClose={() => setShowImportModal(false)}
+        data={data} onDataChange={onDataChange} todayStr={todayStr} currentUser={currentUser} />
 
       {/* Upcoming visit reminders */}
       {overdueFollowups.length > 0 && (
