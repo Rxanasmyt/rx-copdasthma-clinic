@@ -7367,7 +7367,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     {
       key: 'actions', label: '', width: 200, align: 'right',
       render: p => (
-        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
           {canEdit && <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>+ บันทึก</Btn>}
           <Btn size="sm" variant="ghost"  onClick={() => navigate('history', p.id)}>ประวัติ</Btn>
           {canEdit && (
@@ -7456,7 +7456,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
 
       {/* Table */}
       <Card padding={0}>
-        <Table cols={cols} rows={paginated}
+        <Table cols={cols} rows={paginated} onRowClick={p => navigate('history', p.id)}
           emptyIcon="👤" emptyTitle={search || filterDx || filterRisk ? 'ไม่พบผู้ป่วยที่ตรงกับตัวกรอง' : 'ยังไม่มีผู้ป่วยในระบบ'}
           emptySubtitle={search || filterDx || filterRisk ? 'ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง' : 'เริ่มต้นโดยเพิ่มผู้ป่วยรายแรกของคุณ'}
           emptyAction={search || filterDx || filterRisk
