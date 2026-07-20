@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// ════════════════════════════════════════════════════════════
+// Firestore Security Rules — โครงสร้างเป้าหมายหลัง migration (multi-collection)
+//
+// ⚠️ ไฟล์นี้ยังไม่ใช้งานจริง — เป็นแบบร่างสำหรับหลังย้ายโครงสร้างข้อมูลเท่านั้น
+// ห้าม deploy ทับ firestore.rules ปัจจุบันจนกว่า:
+//   1. รัน migration/migrate.js --commit สำเร็จแล้ว (ข้อมูลอยู่ใน collection ใหม่ครบ)
+//   2. แก้โค้ด RxClinic.html ให้อ่าน/เขียน collection ใหม่แทน clinic/main เรียบร้อยแล้ว
+//   3. ทดสอบกับข้อมูลจริงในสภาพแวดล้อมทดสอบ (ไม่ใช่ production) จนมั่นใจ
+//
+// จุดต่างจาก firestore.rules เดิม: role ของผู้ใช้อ่านจาก /users/{uid} ซึ่งเขียนได้เฉพาะ
+// admin เท่านั้น (ไม่ใช่เอกสารเดียวกับที่ทุกคนเขียนร่วมกันแบบเดิม) จึงบังคับ RBAC ได้จริงที่
+// ระดับฐานข้อมูล ไม่ใช่แค่ซ่อนปุ่มฝั่ง client เหมือนก่อนหน้านี้
+// ════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myRole() {
+      // อ่าน role จากเอกสารผู้ใช้ของตัวเอง — ถ้าไม่มีเอกสาร (ยังไม่ได้ setup profile) ถือว่าไม่มีสิทธิ์อะไร
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    function isAdmin()      { return myRole() == 'admin'; }
+    function canEditClinical() { return myRole() == 'admin' || myRole() == 'pharmacist'; }
+    // 'assistant' และผู้ที่ยังไม่มี role ได้แค่อ่าน — ตรงกับ AppStore.canEditClinical() ฝั่ง client เป๊ะ
+
+    // ── ผู้ป่วย ──
+    match /patients/{patientId} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical()
+        && request.resource.size() < 900000;
+      allow delete: if isAdmin(); // ลบผู้ป่วยเป็นการกระทำที่กระทบมาก — admin เท่านั้น
+
+      // ── บันทึกการเยี่ยม (subcollection ต่อผู้ป่วย) ──
+      match /visits/{visitId} {
+        allow read: if isSignedIn();
+        allow create, update: if canEditClinical()
+          && request.resource.size() < 900000;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ── Telepharmacy ──
+    match /telepharmacy/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical();
+      allow delete: if isAdmin();
+    }
+
+    // ── ผู้ใช้งานระบบ / RBAC ──
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      // แก้ไขข้อมูลตัวเอง (เช่นชื่อ) ได้ แต่เปลี่ยน role ตัวเองไม่ได้ — ต้องเป็น admin เท่านั้นที่เปลี่ยน role ใครก็ได้
+      allow create: if isSignedIn() && request.auth.uid == uid && request.resource.data.role == 'assistant';
+      // ผู้ใช้คนแรกของระบบ (ยังไม่มีใครเป็น admin เลย) อนุญาตให้ตั้งตัวเองเป็น admin ได้ครั้งเดียว
+      // (คงพฤติกรรมเดิมของ ProfileSetup ที่ "คนแรกเป็น admin อัตโนมัติ") — ตรวจสอบฝั่ง client ก่อนแล้วว่า users ว่างเปล่า
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == uid && request.resource.data.role == resource.data.role); // แก้ field อื่นได้ แต่ห้ามเปลี่ยน role ตัวเอง
+      allow delete: if isAdmin();
+    }
+
+    // ── คิว/นัดวันคลินิก ──
+    match /clinicDayRosters/{date} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical();
+      allow delete: if isAdmin();
+    }
+    match /queueWalkIns/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical();
+      allow delete: if canEditClinical();
+    }
+
+    // ── HA Compliance (เอกสารเดียว ขนาดเล็ก) ──
+    match /haCompliance/{doc} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical();
+      allow delete: if false;
+    }
+
+    // ── Auto-backup slots (คงพฤติกรรมเดิม) ──
+    match /clinic_backups/{slot} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.resource.size() < 900000;
+      allow delete: if false;
+    }
+
+    // ── เอกสารเดิม (clinic/main) — คงไว้ให้อ่านได้ระหว่างช่วงเปลี่ยนผ่าน จนกว่าจะย้ายแอพเสร็จสมบูรณ์ ──
+    match /clinic/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.resource.size() < 900000;
+      allow delete: if false;
+    }
+
+    // ปฏิเสธทุกอย่างที่เหลือ
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

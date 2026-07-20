@@ -27,23 +27,29 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-for (const f of files) {
-  const mod = require(path.join(dir, f));
-  if (typeof mod.run !== 'function') {
-    console.log(`ข้าม ${f}: ไม่ export ฟังก์ชัน run(t)`);
-    continue;
+async function main() {
+  for (const f of files) {
+    const mod = require(path.join(dir, f));
+    if (typeof mod.run !== 'function') {
+      console.log(`ข้าม ${f}: ไม่ export ฟังก์ชัน run(t)`);
+      continue;
+    }
+    try {
+      // รองรับทั้ง run(t) แบบ sync และ async function run(t) — await เสมอเพื่อไม่ให้ assertion
+      // ที่อยู่หลัง await ในเทสต์หลุดไปทำงานหลัง process.exit() แล้วนับผลไม่ครบ
+      await mod.run(makeT(f));
+    } catch (e) {
+      fail++;
+      failures.push(`${f}: threw ${e.message}`);
+    }
   }
-  try {
-    mod.run(makeT(f));
-  } catch (e) {
-    fail++;
-    failures.push(`${f}: threw ${e.message}`);
+
+  console.log(`\n=== rx-copdasthma-clinic test suite: ${pass} passed, ${fail} failed (${files.length} files) ===`);
+  if (failures.length) {
+    console.log('\nFAILED:');
+    failures.forEach(f => console.log('  - ' + f));
   }
+  process.exit(fail ? 1 : 0);
 }
 
-console.log(`\n=== rx-copdasthma-clinic test suite: ${pass} passed, ${fail} failed (${files.length} files) ===`);
-if (failures.length) {
-  console.log('\nFAILED:');
-  failures.forEach(f => console.log('  - ' + f));
-}
-process.exit(fail ? 1 : 0);
+main();

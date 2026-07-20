@@ -1,0 +1,12 @@
+{
+  "name": "rx-copdasthma-clinic-migration",
+  "private": true,
+  "description": "สคริปต์ย้ายข้อมูลจาก clinic/main เอกสารเดียว ไปเป็นหลาย collection — แยก dependency จากตัวแอพหลัก (แอพหลักไม่มี build step)",
+  "scripts": {
+    "dry-run": "node migrate.js",
+    "commit": "node migrate.js --commit"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
