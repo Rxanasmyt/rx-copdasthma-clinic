@@ -5512,6 +5512,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
         { id: 'competency', label: '🎓 Competency Log' },
         { id: 'audit',      label: '🛡️ Audit Log' },
         { id: 'firebase',   label: '☁️ Firebase Cloud Sync' },
+        { id: 'datamode',   label: '🧪 โครงสร้างข้อมูลใหม่' },
       ]} active={tab} onChange={setTab} />
       {tab === 'users' && (
         <UserManager data={data} onDataChange={onDataChange} currentUser={currentUser} />
@@ -5522,12 +5523,70 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
       {tab === 'firebase' && (
         <FirebaseSetup onConfigSave={onConfigSave} syncStatus={syncStatus} />
       )}
+      {tab === 'datamode' && <DataModePanel />}
     </div>
   );
 }
 
+// ── โหมดโครงสร้างข้อมูลใหม่แบบ multi-collection (ทดลอง, opt-in) — ดู migration/README.md ──
+function DataModePanel() {
+  const [mode, setMode] = stState(() => (typeof getDataMode === 'function' ? getDataMode() : 'legacy'));
+  const [confirming, setConfirming] = stState(false);
+
+  const switchMode = (target) => {
+    if (typeof setDataMode === 'function') setDataMode(target);
+    window.location.reload();
+  };
+
+  return (
+    <Card>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.primary, marginBottom: 8 }}>🧪 โครงสร้างข้อมูลใหม่ (ทดลอง)</div>
+      <p style={{ fontSize: 12.5, color: C.textMuted, marginBottom: 14, lineHeight: 1.7 }}>
+        โหมดทดลองสำหรับย้ายจากเอกสาร Firestore เดียว ไปเป็นแยก collection ต่อผู้ป่วย/visit เพื่อให้โหลดเร็วขึ้นและ
+        บังคับสิทธิ์ (RBAC) ได้จริงในอนาคต — <strong>ต้องรัน migration/migrate.js --commit ให้สำเร็จก่อน</strong> ไม่งั้นจะเห็น
+        ข้อมูลว่างเปล่าทันทีที่สลับโหมด ดูรายละเอียดเต็มที่ migration/README.md ในซอร์สโค้ดของระบบ
+      </p>
+      <div style={{
+        padding: '10px 14px', borderRadius: 10, marginBottom: 14,
+        background: mode === 'collections' ? C.mediumBg : C.bgAlt,
+        border: `1px solid ${mode === 'collections' ? C.mediumBorder : C.border}`,
+      }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+          โหมดปัจจุบัน: {mode === 'collections' ? '🧪 Collections (ทดลอง)' : '✅ Legacy (เอกสารเดียว — ค่าเริ่มต้นของทุกคน)'}
+        </div>
+        {mode === 'collections' && (
+          <div style={{ fontSize: 11.5, color: C.medium, marginTop: 4, lineHeight: 1.6 }}>
+            ⚠ โหมดนี้ยังไม่มี realtime sync ข้ามเครื่อง/แท็บ (ต้องกดรีเฟรชเองเพื่อดูข้อมูลที่คนอื่นแก้)
+            และยังไม่มี auto-backup/กู้คืนดราฟต์ออฟไลน์ครบเหมือนโหมด Legacy — เหมาะสำหรับทดสอบก่อนตัดสินใจย้ายจริงเท่านั้น
+          </div>
+        )}
+      </div>
+      {!confirming ? (
+        <Btn size="sm" variant={mode === 'collections' ? 'ghost' : 'danger'} onClick={() => setConfirming(true)}>
+          {mode === 'collections' ? '⬅ กลับไปโหมด Legacy' : '🧪 สลับไปโหมด Collections (ทดลอง)'}
+        </Btn>
+      ) : (
+        <div style={{ padding: '12px 16px', background: C.highBg, border: `1px solid ${C.highBorder}`, borderRadius: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.high, marginBottom: 8 }}>
+            ⚠ ยืนยันสลับโหมด — หน้าจะรีโหลดทันทีหลังกดยืนยัน
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12, lineHeight: 1.6 }}>
+            {mode === 'collections'
+              ? 'กลับไปอ่าน/เขียนเอกสาร clinic/main เหมือนเดิม — ปลอดภัย ไม่มีผลกระทบต่อข้อมูลใดๆ'
+              : 'ต้องแน่ใจว่ารัน migration/migrate.js --commit สำเร็จแล้วก่อนหน้านี้ ไม่งั้นแอพจะแสดงข้อมูลว่างเปล่าทันที (ข้อมูลเดิมใน clinic/main ยังปลอดภัย ไม่หาย — สลับกลับมาโหมด Legacy ได้ทุกเมื่อ)'}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirming(false)}>ยกเลิก</Btn>
+            <Btn size="sm" variant="danger" onClick={() => switchMode(mode === 'collections' ? 'legacy' : 'collections')}>ยืนยันสลับโหมด</Btn>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 Object.assign(window, {
-  LoginScreen, ProfileSetup, SettingsView, UserManager, FirebaseSetup, AuditLogView,
+  LoginScreen, ProfileSetup, SettingsView, UserManager, FirebaseSetup, AuditLogView, DataModePanel,
   loadFBConfig, saveFBConfig,
 });
 </script>
@@ -18708,6 +18767,113 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   );
 }
 
+// ── โครงสร้างข้อมูลใหม่แบบ multi-collection (ทดลอง, opt-in) ─────────────────────
+// ทำงานคู่ขนานกับ migration/transform.js (Node, ใช้กับ migration/migrate.js) — คิด doc path
+// แบบเดียวกันทุกประการ เพื่อให้เขียนทับ/อ่านต่อจากข้อมูลที่ migrate.js --commit สร้างไว้ได้ถูกต้อง
+// (มี tests/collections-adapter.test.js ตรวจ path ให้ตรงกับ transform.js เสมอ กันสองฝั่งหลุด sync)
+//
+// ค่าเริ่มต้นของแอพยังคงเป็นโหมด 'legacy' (อ่าน/เขียน clinic/main เอกสารเดียวเหมือนเดิมทุกประการ)
+// เสมอ — โหมด 'collections' ต้องเปิดเองจาก Settings (admin เท่านั้น) หลังรัน migration/migrate.js
+// --commit ให้ข้อมูลอยู่ใน collection ใหม่ก่อน ไม่งั้นจะเห็นข้อมูลว่างเปล่า
+// ข้อจำกัดที่ตั้งใจไว้ในเวอร์ชันนี้: โหมด 'collections' ยังไม่มี realtime listener (ต้องรีเฟรชเอง)
+// และยังไม่มี auto-backup/offline-draft-recovery เหมือนโหมด legacy — เหมาะสำหรับทดสอบก่อน
+// ตัดสินใจย้ายจริง ไม่ใช่ default สำหรับใช้งานประจำวัน
+const RX_DATA_MODE_KEY = 'rx_data_mode';
+function getDataMode() {
+  try { return localStorage.getItem(RX_DATA_MODE_KEY) === 'collections' ? 'collections' : 'legacy'; }
+  catch { return 'legacy'; }
+}
+function setDataMode(mode) {
+  try { localStorage.setItem(RX_DATA_MODE_KEY, mode === 'collections' ? 'collections' : 'legacy'); } catch { /* ignore */ }
+}
+
+function userDocId(u) { return u.uid || u.id; }
+function queueWalkInDocId(w) { return `${w.date}_${w.patientId}`; }
+
+async function assembleDataFromCollections(db) {
+  const [patientsSnap, telepharmacySnap, usersSnap, rostersSnap, queueSnap, haSnap] = await Promise.all([
+    db.collection('patients').get(),
+    db.collection('telepharmacy').get(),
+    db.collection('users').get(),
+    db.collection('clinicDayRosters').get(),
+    db.collection('queueWalkIns').get(),
+    db.collection('haCompliance').doc('main').get(),
+  ]);
+  const patients = patientsSnap.docs.map(d => d.data());
+  const visits = [];
+  for (const pDoc of patientsSnap.docs) {
+    const visitsSnap = await pDoc.ref.collection('visits').get();
+    visitsSnap.docs.forEach(v => visits.push(v.data()));
+  }
+  return {
+    patients, visits,
+    telepharmacy: telepharmacySnap.docs.map(d => d.data()),
+    users: usersSnap.docs.map(d => d.data()),
+    clinicDayRosters: rostersSnap.docs.map(d => d.data()),
+    queueWalkIns: queueSnap.docs.map(d => d.data()),
+    haCompliance: haSnap.exists ? haSnap.data() : { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
+    _savedAt: Date.now(),
+  };
+}
+
+// เทียบ array เดิม vs ใหม่ด้วย id (หรือ idFn ที่กำหนดเอง) — คืนเฉพาะรายการที่เปลี่ยน/ถูกลบจริง
+// เพื่อเขียนเท่าที่จำเป็น ไม่ใช่ทั้งก้อนเหมือนโหมด legacy
+function diffArrayById(prevArr, nextArr, idFn) {
+  const key = idFn || (x => x.id);
+  const prevMap = new Map((prevArr || []).map(x => [key(x), x]));
+  const nextMap = new Map((nextArr || []).map(x => [key(x), x]));
+  const changed = [];
+  const removedIds = [];
+  nextMap.forEach((item, id) => {
+    const prev = prevMap.get(id);
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) changed.push({ id, item });
+  });
+  prevMap.forEach((_, id) => { if (!nextMap.has(id)) removedIds.push(id); });
+  return { changed, removedIds };
+}
+
+function buildCollectionWriteOps(db, prevData, nextData) {
+  const ops = [];
+  const addCollectionDiff = (name, colPath, idFn) => {
+    const { changed, removedIds } = diffArrayById(prevData?.[name], nextData?.[name], idFn);
+    changed.forEach(({ id, item }) => ops.push({ ref: db.collection(colPath).doc(id), data: item }));
+    removedIds.forEach(id => ops.push({ ref: db.collection(colPath).doc(id), delete: true }));
+  };
+  addCollectionDiff('patients', 'patients');
+  addCollectionDiff('telepharmacy', 'telepharmacy');
+  addCollectionDiff('users', 'users', userDocId);
+  addCollectionDiff('clinicDayRosters', 'clinicDayRosters', r => r.date);
+  addCollectionDiff('queueWalkIns', 'queueWalkIns', queueWalkInDocId);
+
+  // visits: เทียบรวมทุกคนไข้ก่อน แล้วเขียนแยกไปที่ subcollection ของแต่ละคน (patientId ระบุ path)
+  const { changed: visitChanged, removedIds: visitRemovedIds } = diffArrayById(prevData?.visits, nextData?.visits);
+  const prevVisitById = new Map((prevData?.visits || []).map(v => [v.id, v]));
+  visitChanged.forEach(({ id, item }) => ops.push({ ref: db.collection('patients').doc(item.patientId).collection('visits').doc(id), data: item }));
+  visitRemovedIds.forEach(id => {
+    const prevVisit = prevVisitById.get(id);
+    if (prevVisit) ops.push({ ref: db.collection('patients').doc(prevVisit.patientId).collection('visits').doc(id), delete: true });
+  });
+
+  // haCompliance: เอกสารเดียว เขียนเฉพาะตอนเปลี่ยนจริง
+  if (nextData?.haCompliance && JSON.stringify(prevData?.haCompliance) !== JSON.stringify(nextData.haCompliance)) {
+    ops.push({ ref: db.collection('haCompliance').doc('main'), data: nextData.haCompliance });
+  }
+  return ops;
+}
+
+async function diffAndWriteChanges(db, prevData, nextData) {
+  const ops = buildCollectionWriteOps(db, prevData, nextData);
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < ops.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    ops.slice(i, i + BATCH_SIZE).forEach(op => {
+      if (op.delete) batch.delete(op.ref); else batch.set(op.ref, op.data);
+    });
+    await batch.commit();
+  }
+  return ops.length;
+}
+
 // ── App ───────────────────────────────────────────────
 function App() {
   // Auth — Firebase Authentication
@@ -18726,6 +18892,11 @@ function App() {
   const persistTried = useRef(false);   // กัน enablePersistence ถูกเรียกซ้ำ
   const currentUserRef = useRef(null);  // ใช้ใน callback ที่ไม่อยากผูก dep currentUser
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
+  // โหมดโครงสร้างข้อมูล — อ่านครั้งเดียวตอนโหลดแอพ (เปลี่ยนโหมดต้อง reload หน้าเสมอ ดู DataModePanel)
+  // ค่าเริ่มต้นของทุกคนคือ 'legacy' — โหมด 'collections' เป็นฟีเจอร์ทดลอง เปิดเองจาก Settings เท่านั้น
+  const dataModeRef = useRef(typeof getDataMode === 'function' ? getDataMode() : 'legacy');
+  const prevDataForDiffRef = useRef(null); // ใช้เฉพาะโหมด collections — สถานะล่าสุดที่เขียนไปแล้ว ใช้ diff รอบถัดไป
 
   // Nav
   const [view,         setView]         = useState('dashboard');
@@ -18863,6 +19034,27 @@ function App() {
     try {
       setSyncStatus('syncing');
 
+      // ── โหมด 'collections' (ทดลอง, opt-in จาก Settings เท่านั้น) — เส้นทางแยกจากโหมด legacy
+      // ทั้งหมด ไม่มี realtime listener / offline-draft-recovery / auto-backup ในเวอร์ชันนี้ (ดู
+      // migration/README.md) ต้องรัน migration/migrate.js --commit มาก่อน ไม่งั้นข้อมูลจะว่างเปล่า
+      if (dataModeRef.current === 'collections') {
+        const remoteC = await assembleDataFromCollections(db);
+        lastRemoteSig.current = dataSig(remoteC);
+        prevDataForDiffRef.current = remoteC;
+        setData(remoteC);
+        setCurrentUser(prev => {
+          if (!prev) return prev;
+          const fresh = remoteC.users?.find(u => u.id === prev.id || u.uid === prev.id);
+          if (!fresh) return prev;
+          if (fresh.role === prev.role && fresh.name === prev.name) return prev;
+          return { ...prev, ...fresh };
+        });
+        setFbReady(true);
+        setSyncStatus('synced');
+        maybeAutoBackup(db, remoteC);
+        return;
+      }
+
       // โหลดครั้งแรก
       const snap = await db.collection('clinic').doc('main').get();
       let remote = snap.exists ? snap.data() : { patients:[], visits:[], telepharmacy:[], clinicDayRosters:[], queueWalkIns:[], users:[], haCompliance:{medRec:[],adr:[],referrals:[],discharge:[],rca:[]}, _savedAt: Date.now() };
@@ -18955,6 +19147,26 @@ function App() {
     // ระหว่างที่ยังส่งไม่สำเร็จ (Firestore persistence คุ้มครองเฉพาะ write ที่เริ่มส่งไปแล้วเท่านั้น)
     try { localStorage.setItem('rx_offline_draft', JSON.stringify({ data: nd, ts: Date.now() })); } catch { /* เต็ม/ปิด localStorage ก็ข้ามได้ ไม่ critical */ }
     setSyncStatus('syncing');
+
+    // ── โหมด 'collections' (ทดลอง) — เขียนเฉพาะเอกสารที่เปลี่ยนจริง แทนเอกสารก้อนเดียวทั้งหมด ──
+    if (dataModeRef.current === 'collections') {
+      const prevForDiff = prevDataForDiffRef.current || {};
+      diffAndWriteChanges(dbRef.current, prevForDiff, nd)
+        .then(() => {
+          lastRemoteSig.current = dataSig(nd);
+          prevDataForDiffRef.current = nd;
+          pendingData.current = null; setPendingSync(false);
+          setSyncStatus('synced');
+          try { localStorage.removeItem('rx_offline_draft'); } catch {}
+        })
+        .catch(err => {
+          console.error('Collections-mode save error:', err);
+          pendingData.current = nd; setPendingSync(true);
+          setSyncStatus('error');
+        });
+      return;
+    }
+
     const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
     dbRef.current.collection('clinic').doc('main').set(payload)
       .then(() => {
@@ -19002,8 +19214,13 @@ function App() {
       if (nd && dbRef.current) {
         clearTimeout(saveTimer.current);
         try {
-          const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || '' };
-          dbRef.current.collection('clinic').doc('main').set(payload);
+          if (dataModeRef.current === 'collections') {
+            // best-effort เหมือน legacy path ด้านล่าง — ไม่ await ได้ใน beforeunload อยู่แล้ว
+            diffAndWriteChanges(dbRef.current, prevDataForDiffRef.current || {}, nd);
+          } else {
+            const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || '' };
+            dbRef.current.collection('clinic').doc('main').set(payload);
+          }
         } catch {}
       }
     };

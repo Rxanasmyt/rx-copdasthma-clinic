@@ -15,7 +15,7 @@ function readApp() {
 // รองรับทั้ง object/array literal ({...} หรือ [...]), function/arrow แบบมี body เป็น block,
 // และ arrow แบบ single-expression บรรทัดเดียวที่ไม่มี {} เลย (เช่น `const f = (x) => x + 1;`)
 function extractBlock(source, name) {
-  const declRe = new RegExp(`^(?:const|function)\\s+${name}\\b`, 'm');
+  const declRe = new RegExp(`^(?:const|(?:async\\s+)?function)\\s+${name}\\b`, 'm');
   const m = declRe.exec(source);
   if (!m) throw new Error(`extractBlock: ไม่พบ declaration ของ "${name}" ใน RxClinic.html`);
   const start = m.index;
