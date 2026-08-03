@@ -18576,10 +18576,11 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
           )}
         </div>
       )}
-      {scheduledToday.length === 0 && canEditQueue && (
+      {scheduledToday.length === 0 && (
         <div style={{ marginBottom:20, display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-start' }}>
-          <Btn size="sm" variant="ghost" onClick={() => setShowImportModal(true)}>📥 นำเข้ารายชื่อนัดจาก HOSxP</Btn>
-          {!showWalkInSearch ? (
+          <Btn size="sm" variant="ghost" onClick={() => window.printPaperAssessmentForm?.([null, null, null, null, null])}>🖨️ พิมพ์แบบประเมินกระดาษ (ฟอร์มเปล่า)</Btn>
+          {canEditQueue && <Btn size="sm" variant="ghost" onClick={() => setShowImportModal(true)}>📥 นำเข้ารายชื่อนัดจาก HOSxP</Btn>}
+          {canEditQueue && (!showWalkInSearch ? (
             <Btn size="sm" variant="ghost" onClick={() => setShowWalkInSearch(true)}>🚶 + เพิ่มผู้ป่วย Walk-in เข้าคิววันนี้</Btn>
           ) : (
             <div style={{ position:'relative', maxWidth:360 }}>
@@ -18598,7 +18599,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
               )}
               <Btn size="sm" variant="ghost" style={{ marginTop:8 }} onClick={() => { setShowWalkInSearch(false); setWalkInQuery(''); }}>ยกเลิก</Btn>
             </div>
-          )}
+          ))}
         </div>
       )}
 
