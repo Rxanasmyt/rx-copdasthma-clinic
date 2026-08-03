@@ -6036,6 +6036,22 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
 
       <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '0 0 18px' }} />
 
+      {/* แบบประเมินกระดาษ */}
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          🖨️ แบบประเมินกระดาษ (เทคนิคยาพ่น / DRP / Adherence / PRN)
+        </p>
+        <p style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 10, lineHeight: 1.6 }}>
+          สำหรับลงข้อมูลคร่าวๆ หน้างานก่อนกรอกจริงในแอพ — A4 แนวนอน 5 คน/หน้า พิมพ์ชื่อ/HN/วินิจฉัยผู้ป่วยไว้ล่วงหน้าอัตโนมัติ
+          (ใช้ "🖨️ พิมพ์แบบประเมินกระดาษ" ที่หน้า Dashboard เพื่อพิมพ์ตามรายชื่อคิววันนี้) หรือพิมพ์แบบฟอร์มเปล่าไว้ล่วงหน้าได้ที่นี่
+        </p>
+        <Btn size="sm" variant="ghost" onClick={() => window.printPaperAssessmentForm?.([null, null, null, null, null])}>
+          🖨️ พิมพ์แบบฟอร์มเปล่า (5 ช่อง)
+        </Btn>
+      </div>
+
+      <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '0 0 18px' }} />
+
       {/* PDF: patient */}
       <div style={{ marginBottom: 18 }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -14973,10 +14989,114 @@ ${visit?.drp?.noDRP === false ? '• พบ Drug-Related Problems ที่ต�
   setTimeout(() => win.print(), 300);
 };
 
+// ============ แบบประเมินกระดาษ (เทคนิคยาพ่น / DRP / Adherence / PRN) — 5 คน/หน้า A4 ============
+// สำหรับลงข้อมูลคร่าวๆ หน้างานก่อนนำไปกรอกจริงในแอพ — พิมพ์ชื่อ/HN/วินิจฉัยไว้ล่วงหน้า
+// ที่เหลือเป็นช่องว่างให้เขียนด้วยมือ ให้ตรงกับฟิลด์ในฟอร์มบันทึกการเยี่ยมของแอพมากที่สุด
+// เพื่อคัดลอกกลับเข้าแอพได้ตรงไปตรงมา (ไม่ต้องตีความ)
+const printPaperAssessmentForm = (patients) => {
+  if (!patients || patients.length === 0) { window.rxToast?.('ไม่มีรายชื่อผู้ป่วยให้พิมพ์', 'warning'); return; }
+
+  const chunk = (arr, size) => { const out = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out; };
+  const pages = chunk(patients, 5);
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const patientRow = (p) => `
+    <div class="paf-row">
+      <div class="paf-head">
+        <div class="paf-idline">
+          <strong>HN:</strong> ${p ? p.hn : ' '.repeat(8)}
+          &nbsp;&nbsp;<strong>ชื่อ-นามสกุล:</strong> ${p ? `${p.prefix}${p.firstName} ${p.lastName}` : ''}
+          <span class="paf-fillspace"></span>
+          <strong>วันที่:</strong> ____/____/______
+        </div>
+        <div class="paf-idline2">
+          <strong>วินิจฉัย:</strong>
+          ${['COPD', 'Asthma', 'Both'].map(dx => `<span class="paf-chk">${p && p.diagnosis === dx ? '☑' : '☐'} ${dx}</span>`).join(' ')}
+        </div>
+      </div>
+      <div class="paf-cols">
+        <div class="paf-col">
+          <div class="paf-colhead">🌬️ เทคนิคการใช้ยาพ่น</div>
+          <div class="paf-line">อุปกรณ์ 1: _______________ ผล: ☐ผ่าน ☐ไม่ผ่าน</div>
+          <div class="paf-line">อุปกรณ์ 2: _______________ ผล: ☐ผ่าน ☐ไม่ผ่าน</div>
+          <div class="paf-line paf-small">ข้อผิดพลาดที่พบ: ________________________</div>
+        </div>
+        <div class="paf-col">
+          <div class="paf-colhead">⚠️ DRP ที่พบ</div>
+          <div class="paf-drpgrid">
+            <span class="paf-chk">☐ Wrong Technique</span>
+            <span class="paf-chk">☐ Non-adherence</span>
+            <span class="paf-chk">☐ ADR</span>
+            <span class="paf-chk">☐ Drug Interaction</span>
+            <span class="paf-chk">☐ ต้องการยาเพิ่ม</span>
+            <span class="paf-chk">☐ อื่นๆ: ______</span>
+          </div>
+        </div>
+        <div class="paf-col">
+          <div class="paf-colhead">💊 ความร่วมมือใช้ยา (Adherence)</div>
+          <div class="paf-line paf-small">☐ ลืมใช้ยาบ้าง (1 เดือนที่ผ่านมา)</div>
+          <div class="paf-line paf-small">☐ ไม่ได้ใช้ตามที่แพทย์สั่งบางวัน</div>
+          <div class="paf-line paf-small">☐ เคยหยุดยาเองเมื่ออาการดีขึ้น</div>
+          <div class="paf-line paf-small">☐ เคยใช้น้อยกว่าที่สั่งเพราะคิดว่าไม่ได้ผล</div>
+        </div>
+        <div class="paf-col paf-colnarrow">
+          <div class="paf-colhead">🔁 PRN</div>
+          <div class="paf-line">ใช้ยา rescue กี่ครั้ง/สัปดาห์:</div>
+          <div class="paf-prnbox">______ ครั้ง</div>
+          <div class="paf-line paf-small">หมายเหตุ: __________</div>
+        </div>
+      </div>
+    </div>`;
+
+  const pageHtml = (pagePatients, pageNum, totalPages) => `
+    <div class="paf-page">
+      <div class="paf-pageheader">
+        <div><strong>แบบประเมินการบริบาลเภสัชกรรม COPD/Asthma (ฉบับกระดาษ — คร่าวๆ ก่อนกรอกในแอพ)</strong></div>
+        <div>วันที่พิมพ์: ${today} &nbsp;&nbsp; หน้า ${pageNum}/${totalPages}</div>
+      </div>
+      ${pagePatients.map(patientRow).join('')}
+    </div>`;
+
+  const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>แบบประเมินกระดาษ COPD/Asthma</title>
+<style>
+@page { size: A4 landscape; margin: 8mm; }
+* { box-sizing: border-box; }
+body { font-family: "Sarabun", "Sukhumvit Set", sans-serif; font-size: 9.5pt; margin: 0; color: #111; }
+.paf-page { page-break-after: always; }
+.paf-page:last-child { page-break-after: auto; }
+.paf-pageheader { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5pt; margin-bottom: 6pt; padding-bottom: 4pt; border-bottom: 1.5px solid #333; }
+.paf-row { border: 1.3px solid #333; border-radius: 3pt; margin-bottom: 5pt; padding: 4pt 6pt; break-inside: avoid; }
+.paf-head { border-bottom: 1px dashed #999; padding-bottom: 3pt; margin-bottom: 4pt; }
+.paf-idline { display: flex; align-items: baseline; font-size: 10pt; }
+.paf-idline2 { margin-top: 2pt; font-size: 9pt; }
+.paf-fillspace { flex: 1; border-bottom: 1px dotted #999; margin: 0 8pt; }
+.paf-cols { display: grid; grid-template-columns: 1.3fr 1.1fr 1.3fr 0.9fr; gap: 8pt; }
+.paf-colhead { font-weight: 700; font-size: 8.8pt; margin-bottom: 2pt; color: #1E40AF; }
+.paf-line { font-size: 8.6pt; line-height: 1.55; }
+.paf-small { font-size: 8pt; color: #444; }
+.paf-chk { display: inline-block; margin-right: 5pt; font-size: 8.3pt; }
+.paf-drpgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5pt 4pt; }
+.paf-colnarrow { border-left: 1px dashed #999; padding-left: 6pt; }
+.paf-prnbox { border: 1px solid #999; border-radius: 3pt; padding: 3pt 6pt; margin: 3pt 0; text-align: center; font-size: 10pt; }
+</style></head><body>
+${pages.map((p, i) => pageHtml(p, i + 1, pages.length)).join('')}
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('กรุณาอนุญาต Pop-up เพื่อพิมพ์ PDF'); return; }
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 300);
+};
+
 // Export
 window.printMonthlyReportByNum = printMonthlyReportByNum;
 window.printPatientHandout = printPatientHandout;
 window.printReferralLetter = printReferralLetter;
+window.printPaperAssessmentForm = printPaperAssessmentForm;
 </script>
 <script type="text/babel">
 // SmartRecommendations.jsx — AI-powered suggestions
@@ -18385,6 +18505,9 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                   📥 นำเข้าจาก HOSxP
                 </Btn>
               )}
+              <Btn size="sm" variant="ghost" onClick={() => window.printPaperAssessmentForm?.(scheduledToday.map(x => x.patient))} style={{ background:'rgba(255,255,255,0.15)', color:'#fff', border:'1px solid rgba(255,255,255,0.3)' }}>
+                🖨️ พิมพ์แบบประเมินกระดาษ
+              </Btn>
               {[{n:checkedInCount,l:'มาแล้ว',c:'#4ADE80'},{n:waitingCount,l:'รอ',c:'#FDE68A'}].map(x => (
                 <div key={x.l} style={{ background:'rgba(255,255,255,0.15)', borderRadius:10, padding:'8px 16px', textAlign:'center' }}>
                   <div style={{ fontSize:22, fontWeight:800, color:x.c }}>{x.n}</div>
