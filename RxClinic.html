@@ -15045,8 +15045,11 @@ const printPaperAssessmentForm = (patients) => {
           <div class="paf-colhead">🔁 PRN</div>
           <div class="paf-line">ใช้ยา rescue กี่ครั้ง/สัปดาห์:</div>
           <div class="paf-prnbox">______ ครั้ง</div>
-          <div class="paf-line paf-small">หมายเหตุ: __________</div>
         </div>
+      </div>
+      <div class="paf-footer">
+        <span><strong>ผู้ประเมิน:</strong> _______________ (ชื่อย่อ/เซ็นชื่อ)</span>
+        <span class="paf-footernote"><strong>หมายเหตุเภสัชกร (สิ่งที่ต้องกรอกในแอพ):</strong> ________________________________________________</span>
       </div>
     </div>`;
 
@@ -15070,8 +15073,8 @@ body { font-family: "Sarabun", "Sukhumvit Set", sans-serif; font-size: 9pt; marg
 .paf-page { page-break-after: always; }
 .paf-page:last-child { page-break-after: auto; }
 .paf-pageheader { display: flex; justify-content: space-between; align-items: baseline; font-size: 10pt; margin-bottom: 4pt; padding-bottom: 3pt; border-bottom: 1.5px solid #333; }
-.paf-row { border: 1.2px solid #333; border-radius: 3pt; margin-bottom: 3pt; padding: 3pt 6pt; break-inside: avoid; }
-.paf-head { border-bottom: 1px dashed #999; padding-bottom: 2pt; margin-bottom: 2.5pt; }
+.paf-row { border: 1.2px solid #333; border-radius: 3pt; margin-bottom: 2pt; padding: 2.5pt 6pt; break-inside: avoid; }
+.paf-head { border-bottom: 1px dashed #999; padding-bottom: 1.5pt; margin-bottom: 2pt; }
 .paf-idline { display: flex; align-items: baseline; font-size: 9.5pt; line-height: 1.3; }
 .paf-idline2 { margin-top: 1pt; font-size: 8.5pt; line-height: 1.3; }
 .paf-fillspace { flex: 1; border-bottom: 1px dotted #999; margin: 0 8pt; }
@@ -15083,6 +15086,8 @@ body { font-family: "Sarabun", "Sukhumvit Set", sans-serif; font-size: 9pt; marg
 .paf-drpgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1pt 4pt; }
 .paf-colnarrow { border-left: 1px dashed #999; padding-left: 6pt; }
 .paf-prnbox { border: 1px solid #999; border-radius: 3pt; padding: 2pt 6pt; margin: 2pt 0; text-align: center; font-size: 9.5pt; }
+.paf-footer { display: flex; align-items: baseline; gap: 12pt; margin-top: 1.5pt; padding-top: 1.5pt; border-top: 1px dashed #999; font-size: 7.6pt; }
+.paf-footernote { flex: 1; }
 </style></head><body>
 ${pages.map((p, i) => pageHtml(p, i + 1, pages.length)).join('')}
 </body></html>`;
