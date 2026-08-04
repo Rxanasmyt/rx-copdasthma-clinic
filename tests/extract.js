@@ -34,10 +34,21 @@ function extractBlock(source, name) {
     return source.slice(start, candidates[0].idx + 1);
   }
 
-  // มี body เป็น object/array/block — นับ {}/[] ให้สมดุล (ข้าม string/template literal ระหว่างทาง)
+  // มี body เป็น object/array/block — นับ {}/[] ให้สมดุล (ข้าม string/template literal/regex literal ระหว่างทาง)
+  // regex literal ต้องข้ามด้วย ไม่งั้น "[^\"]" หรือ [^,] ข้างในจะทำให้ตัวนับเพี้ยน (นับ "/[^\"]/" เป็น string
+  // เพราะเจอ " ตัวแรกแล้วเข้าใจผิดว่าเป็นการเปิด string) — แยกแยะ regex vs division ด้วย heuristic ตัวอักษร
+  // ที่ไม่ใช่ space ก่อนหน้า "/" (ถ้าเป็น identifier/number/")"/"]" แปลว่าหารเลข ไม่ใช่ regex)
   let depth = 0;
   let i = candidates[0].idx;
   let inStr = null; // null | '"' | "'" | '`'
+  const isRegexContext = (idx) => {
+    let j = idx - 1;
+    while (j >= 0 && /\s/.test(source[j])) j--;
+    if (j < 0) return true;
+    const c = source[j];
+    if (/[a-zA-Z0-9_$)\]]/.test(c)) return false; // หลัง identifier/number/)/"]" คือหารเลข ไม่ใช่ regex
+    return true;
+  };
   for (; i < source.length; i++) {
     const c = source[i];
     const prev = source[i - 1];
@@ -46,6 +57,20 @@ function extractBlock(source, name) {
       continue;
     }
     if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    if (c === '/' && isRegexContext(i)) {
+      // ข้าม regex literal ทั้งตัว (รวม character class [...] ที่ "/" ข้างในไม่ปิด regex)
+      let j = i + 1, inClass = false;
+      for (; j < source.length; j++) {
+        const rc = source[j];
+        if (rc === '\\') { j++; continue; }
+        if (rc === '[') inClass = true;
+        else if (rc === ']') inClass = false;
+        else if (rc === '/' && !inClass) break;
+        else if (rc === '\n') break; // regex literal ข้ามบรรทัดไม่ได้ ป้องกัน scan เพี้ยนไปไกล
+      }
+      i = j; // ข้าม flags (g/i/m ฯลฯ) ต่อท้ายด้วยการปล่อยให้ loop หลักเดินต่อทีละตัวตามปกติ
+      continue;
+    }
     if (c === '{' || c === '[') depth++;
     else if (c === '}' || c === ']') {
       depth--;

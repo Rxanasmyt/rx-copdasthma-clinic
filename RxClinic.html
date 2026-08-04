@@ -6788,7 +6788,7 @@ function PatientForm({ patient, onSave, onClose }) {
     age: '', gender: 'M', diagnosis: 'COPD',
     goldGrade: '', asthmaControl: '',
     comorbidities: [], phone: '', insurance: 'UC (บัตรทอง)',
-    dateOfBirth: '',
+    dateOfBirth: '', address: '',
     allergies: ['NKDA (ไม่แพ้ยา)'], allergyDetail: '',
     eGFR: '', weight: '',
     smokingStatus: 'Unknown', packYears: '',
@@ -6953,6 +6953,9 @@ function PatientForm({ patient, onSave, onClose }) {
             options={[{ value: 'M', label: 'ชาย' }, { value: 'F', label: 'หญิง' }]} />
         </FormField>
       </div>
+      <FormField label="ที่อยู่" hint="สำหรับติดต่อ/เยี่ยมบ้าน (ไม่บังคับ)">
+        <Input value={f.address} onChange={v => set('address', v)} placeholder="บ้านเลขที่ หมู่ ตำบล อำเภอ จังหวัด" />
+      </FormField>
 
       {/* คำนวณวันเกิดย้อนกลับจากอายุละเอียด ปี-เดือน-วัน (เช่นจากภาพ HOSxP "73 ปี 6 เดือน 5 วัน") */}
       {!showAgeCalc ? (
@@ -7235,6 +7238,90 @@ function PatientTrendChart({ visits, diagnosis }) {
 }
 
 // ── PatientList ───────────────────────────────────────
+// ── นำเข้าผู้ป่วยจาก CSV/Excel — รองรับทั้งไฟล์ .csv (comma) และวางตรงจาก Excel (tab) ──
+// รองรับคอลัมน์ "คำนำหน้า/ชื่อ-นามสกุล" รวมช่องเดียว (แยกด้วย window.RxOCR.splitThaiName)
+// และคอลัมน์ "วันเกิด (DOB)" รูปแบบ d/m/yyyy ค.ศ. (คำนวณอายุให้อัตโนมัติผ่าน AppStore.calcAgeFromDOB)
+// อยู่นอก PatientList (top-level) เพื่อให้ทดสอบได้ตรงจากไฟล์จริง — ดู tests/patient-import.test.js
+function parsePatientImportTable(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) return { error: 'ต้องมีหัวตารางอย่างน้อย 1 แถวข้อมูล (วางจาก Excel/CSV ก็ได้ ใช้ Tab หรือ Comma คั่นได้ทั้งคู่)' };
+
+  // รองรับทั้งวางจาก Excel (คั่นด้วย Tab) และไฟล์ .csv (คั่นด้วย comma) — ตรวจจากหัวตารางบรรทัดแรก
+  const delim = lines[0].includes('\t') ? '\t' : ',';
+  const splitLine = (line) => delim === '\t'
+    ? line.split('\t').map(v => v.trim().replace(/^"|"$/g, ''))
+    : (line.match(/(?:"[^"]*"|[^,])+/g) || []).map(v => v.trim().replace(/^"|"$/g, ''));
+
+  const headers = splitLine(lines[0]).map(h => h.trim().toLowerCase());
+  const findHeaderIdx = (...keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+  // คอลัมน์ "คำนำหน้า/ชื่อ-นามสกุล" รวมกันมาในช่องเดียว (รูปแบบที่มักคัดลอกมาจาก HOSxP/Excel)
+  // ต้องหาก่อน แล้วกันไม่ให้ idxFirst/idxLast ไปจับช่องเดียวกันซ้ำ
+  const idxCombinedName = headers.findIndex(h => /ชื่อ[-_\s]*นามสกุล/.test(h));
+  const excludeCombined = (idx) => idx === idxCombinedName ? -1 : idx;
+
+  const idxHN       = findHeaderIdx('hn');
+  const idxPrefix   = excludeCombined(findHeaderIdx('คำนำหน้า', 'prefix'));
+  const idxFirst    = excludeCombined(findHeaderIdx('firstname', 'ชื่อ'));
+  const idxLast     = excludeCombined(findHeaderIdx('lastname', 'นามสกุล'));
+  const idxDOB      = findHeaderIdx('วันเกิด', 'dob');
+  const idxAge      = findHeaderIdx('age', 'อายุ');
+  const idxAddress  = findHeaderIdx('ที่อยู่', 'address');
+  const idxPhone     = findHeaderIdx('เบอร์โทรศัพท์', 'โทร', 'phone');
+  const idxDx        = findHeaderIdx('โรค', 'diagnosis');
+  const idxGender     = findHeaderIdx('เพศ', 'gender');
+  const idxInsurance  = findHeaderIdx('สิทธิ์', 'insurance');
+
+  const rows = lines.slice(1).map(line => {
+    const vals = splitLine(line);
+    const get = (idx) => idx >= 0 ? (vals[idx] || '').trim() : '';
+
+    let prefix = get(idxPrefix), firstName = get(idxFirst), lastName = get(idxLast);
+    if (idxCombinedName >= 0 && (!firstName || !lastName)) {
+      const parsed = window.RxOCR?.splitThaiName?.(get(idxCombinedName)) || {};
+      prefix = prefix || parsed.prefix || '';
+      firstName = firstName || parsed.firstName || '';
+      lastName = lastName || parsed.lastName || '';
+    }
+    prefix = prefix || 'นาย';
+
+    // วันเกิด รูปแบบ d/m/yyyy (ค.ศ.) — ถ้ารูปแบบผิด (พิมพ์ผิด/ปีเกิน 4 หลัก ฯลฯ) ข้ามไปเงียบๆ
+    // ไม่ throw ให้ทั้งแถวเสีย ปล่อยให้เป็นค่าว่างแล้วไปแก้ทีหลังในพรีวิว/ในแอพแทน
+    const dobRaw = get(idxDOB);
+    let dateOfBirth = '', age = parseInt(get(idxAge)) || 0;
+    const dobMatch = dobRaw.match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
+    if (dobMatch) {
+      const [, d, mo, y] = dobMatch;
+      dateOfBirth = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const computedAge = AppStore.calcAgeFromDOB?.(dateOfBirth);
+      if (computedAge != null) age = computedAge;
+    }
+
+    const phoneRaw = get(idxPhone);
+    const phone = (!phoneRaw || phoneRaw === '-') ? '' : phoneRaw;
+
+    const genderRaw = get(idxGender);
+    const gender = genderRaw
+      ? (genderRaw.toUpperCase().startsWith('F') ? 'F' : 'M')
+      : (AppStore.genderFromPrefix?.(prefix) || 'M');
+
+    return {
+      hn: get(idxHN),
+      prefix, firstName, lastName,
+      age, dateOfBirth,
+      gender,
+      diagnosis: get(idxDx) || 'COPD',
+      phone,
+      address: get(idxAddress),
+      insurance: get(idxInsurance) || 'UC (บัตรทอง)',
+      comorbidities: [], allergies: ['NKDA (ไม่แพ้ยา)'], allergyDetail: '',
+      eGFR: null, weight: null, smokingStatus: 'Unknown', packYears: null,
+      vaccinations: { flu: '', pcv13: '', ppsv23: '', covid: '' },
+    };
+  }).filter(r => r.hn && r.firstName);
+  if (rows.length === 0) return { error: 'ไม่พบข้อมูลที่ถูกต้อง — ตรวจสอบว่ามีคอลัมน์ HN และชื่อ (แยกช่องหรือรวมในช่อง "ชื่อ-นามสกุล" ก็ได้)' };
+  return { rows };
+}
+
 function PatientList({ data, onDataChange, navigate, currentUser }) {
   const canEdit = AppStore.canEditClinical(currentUser);
   const [search, setSearch]     = pvState('');
@@ -7252,35 +7339,8 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
   const [page, setPage]         = pvState(1);
   const PAGE_SIZE = 20;
 
-  const parseCSV = (text) => {
-    const lines = text.trim().split('\n').filter(l => l.trim());
-    if (lines.length < 2) return { error: 'ไฟล์ CSV ต้องมีหัวตารางอย่างน้อย 1 แถวข้อมูล' };
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-    const rows = lines.slice(1).map(line => {
-      const vals = (line.match(/(?:"[^"]*"|[^,])+/g) || []).map(v => v.trim().replace(/^"|"$/g, ''));
-      const obj = {};
-      headers.forEach((h, j) => { obj[h] = vals[j] || ''; });
-      return {
-        hn:        obj['hn'] || obj['hn_no'] || '',
-        prefix:    obj['prefix'] || obj['คำนำหน้า'] || 'นาย',
-        firstName: obj['firstname'] || obj['ชื่อ'] || '',
-        lastName:  obj['lastname'] || obj['นามสกุล'] || '',
-        age:       parseInt(obj['age'] || obj['อายุ']) || 0,
-        gender:    (obj['gender'] || 'M').toUpperCase().startsWith('F') ? 'F' : 'M',
-        diagnosis: obj['diagnosis'] || obj['โรค'] || 'COPD',
-        phone:     obj['phone'] || obj['โทร'] || '',
-        insurance: obj['insurance'] || obj['สิทธิ์'] || 'UC (บัตรทอง)',
-        comorbidities: [], allergies: ['NKDA (ไม่แพ้ยา)'], allergyDetail: '',
-        eGFR: null, weight: null, smokingStatus: 'Unknown', packYears: null,
-        vaccinations: { flu: '', pcv13: '', ppsv23: '', covid: '' },
-      };
-    }).filter(r => r.hn && r.firstName);
-    if (rows.length === 0) return { error: 'ไม่พบข้อมูลที่ถูกต้อง — ตรวจสอบว่ามีคอลัมน์ HN และ FirstName' };
-    return { rows };
-  };
-
   const handleCSVPreview = () => {
-    const result = parseCSV(csvText);
+    const result = parsePatientImportTable(csvText);
     if (result.error) { setCsvError(result.error); setCsvPreview(null); }
     else { setCsvPreview(result.rows); setCsvError(''); }
   };
@@ -7561,15 +7621,18 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
 
       {/* CSV Import Modal */}
       <Modal open={csvOpen} onClose={() => { setCsvOpen(false); setCsvText(''); setCsvPreview(null); setCsvError(''); }}
-        title="📥 Import ผู้ป่วยจาก CSV" width={680}>
+        title="📥 Import ผู้ป่วยจาก CSV / Excel" width={760}>
         <p style={{ margin: '0 0 8px', fontSize: 13, color: C.text }}>
-          วางข้อมูล CSV ด้านล่าง (คั่นด้วย comma)
+          วางข้อมูลด้านล่าง — คัดลอกมาจาก Excel วางตรงๆ ได้เลย (คั่นด้วย Tab อัตโนมัติ) หรือจะเป็นไฟล์ .csv (คั่นด้วย comma) ก็ได้
         </p>
-        <div style={{ margin: '0 0 8px', padding: '8px 10px', background: C.bgAlt, borderRadius: 6, fontSize: 11, fontFamily: 'monospace', color: C.textMuted }}>
-          หัวตาราง: HN,Prefix,FirstName,LastName,Age,Gender,Diagnosis,Phone,Insurance
+        <div style={{ margin: '0 0 8px', padding: '8px 10px', background: C.bgAlt, borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.7 }}>
+          <strong>คอลัมน์ที่รองรับ</strong> (ลำดับไม่สำคัญ ไม่ต้องมีครบทุกคอลัมน์):
+          HN · คำนำหน้า/ชื่อ-นามสกุล (รวมช่องเดียวก็ได้ เช่น "น.ส.สมหญิง ใจดี" หรือจะแยก Prefix/FirstName/LastName ก็ได้) ·
+          วันเกิด (DOB, รูปแบบ d/m/yyyy — คำนวณอายุให้อัตโนมัติ) หรือ Age · เพศ · โรค · เบอร์โทรศัพท์ (เว้นว่าง/ใส่ "-" ได้ถ้าไม่มี) ·
+          ที่อยู่ · สิทธิ์การรักษา
         </div>
         <textarea value={csvText} onChange={e => setCsvText(e.target.value)}
-          placeholder={'HN,Prefix,FirstName,LastName,Age,Gender,Diagnosis,Phone\n67-001234,นาย,สมชาย,ใจดี,65,M,COPD,081-234-5678'}
+          placeholder={'HN\tเบอร์โทรศัพท์\tคำนำหน้า/ชื่อ-นามสกุล\tวันเกิด (DOB)\tที่อยู่\tโรค\n67001234\t0812345678\tนาย สมชาย ใจดี\t15/6/1960\t123 หมู่ 4 ต.ในเมือง อ.เมือง\tCOPD'}
           rows={6} style={{
             width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`,
             fontSize: 12, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box', marginBottom: 8,
@@ -7585,19 +7648,20 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
           <div style={{ overflowX: 'auto', maxHeight: 220, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 7 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr style={{ background: C.bgAlt }}>
-                {['HN','ชื่อ','อายุ','เพศ','โรค','โทร','สิทธิ์'].map(h => (
-                  <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, color: C.textMuted, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                {['HN','ชื่อ','อายุ','วันเกิด','เพศ','โรค','โทร','ที่อยู่'].map(h => (
+                  <th key={h} style={{ padding: '7px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, color: C.textMuted, fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>{csvPreview.map((r, i) => (
                 <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{r.hn}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.prefix}{r.firstName} {r.lastName}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.age}</td>
+                  <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>{r.prefix}{r.firstName} {r.lastName}</td>
+                  <td style={{ padding: '6px 10px' }}>{r.age || <span style={{ color: C.high }}>?</span>}</td>
+                  <td style={{ padding: '6px 10px' }}>{r.dateOfBirth || '—'}</td>
                   <td style={{ padding: '6px 10px' }}>{r.gender === 'F' ? 'หญิง' : 'ชาย'}</td>
                   <td style={{ padding: '6px 10px' }}>{r.diagnosis}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.phone}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.insurance}</td>
+                  <td style={{ padding: '6px 10px' }}>{r.phone || '—'}</td>
+                  <td style={{ padding: '6px 10px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.address || '—'}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -8194,6 +8258,12 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
             </div>
           </div>
         </div>
+        {patient.address && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>ที่อยู่</div>
+            <div style={{ marginTop: 4, fontSize: 13 }}>{patient.address}</div>
+          </div>
+        )}
         {/* Status row */}
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {patient.eGFR != null && patient.eGFR !== '' && (
