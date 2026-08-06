@@ -1014,6 +1014,9 @@ const RX_KPI_ENUMS = {
   ADHERENCE_RANK: { Poor: 0, Fair: 1, Good: 2 },
   TECHNIQUE_SCORES: ['Good', 'Acceptable', 'Poor'],
   TECHNIQUE_PASS: ['Good', 'Acceptable'],
+  // ใช้ตัวนี้ทุกจุดที่ต้องแปลง overallScore เป็นตัวเลข (เช่น หาค่าเฉลี่ย/แนวโน้ม) — ห้ามสร้าง map แยกเอง
+  // เพราะเคยลืมใส่ 'Acceptable' มาแล้วหลายจุด ทำให้ถูกนับเป็น 0 เท่ากับ 'Poor' หรือหลุดจากผลรวมไปเลย
+  TECHNIQUE_SCORE_RANK: { Poor: 0, Acceptable: 1, Good: 2 },
   DIAGNOSES: ['COPD', 'Asthma', 'Both'],
   RISK_LEVELS: ['Low', 'Medium', 'High'],
 };
@@ -4190,7 +4193,9 @@ function autoPCNE(visit, patient) {
 // ประมวลผลบนเครื่อง ปลอดภัยตาม PDPA · ทำงาน offline ได้เต็มรูปแบบ
 // ════════════════════════════════════════════════════════════════
 const RxAI = (() => {
-  const techVal = { Good: 2, Fair: 1, Poor: 0 };
+  // ใช้ RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK ตัวกลาง (มี 'Acceptable' ครบ) — เดิม map นี้ไม่มี 'Acceptable'
+  // เลย ทำให้ ?? null คัดผู้ป่วยที่เทคนิคเป็น Acceptable ออกจากแนวโน้มทั้งหมด (เข้าใจผิดว่า "ยังไม่มีข้อมูล")
+  const techVal = RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK;
   const adhLevelVal = { Good: 2, Fair: 1, Poor: 0 };
   const num = (x) => { const n = Number(x); return isFinite(n) ? n : null; };
 
@@ -5663,7 +5668,9 @@ function export43CHRONICFU(visits, patients, clinicCode, startDate, endDate) {
   const getPt = id => patients.find(p => p.id === id);
   // รหัส ICD-10 มาตรฐานตามกลุ่มโรคที่คลินิกนี้ดูแล (ใช้ค่าทั่วไปที่พบบ่อยสุด — ควรตรวจสอบกับแพทย์ผู้วินิจฉัยจริงอีกครั้ง)
   const chronicCode = (dx) => dx === 'COPD' ? 'J449' : dx === 'Asthma' ? 'J45' : dx === 'Both' ? 'J449,J45' : '';
-  const smokeCode = (s) => s === 'Current' ? '2' : s === 'Former' ? '3' : s === 'Never' ? '1' : '';
+  // ค่า enum จริงของ smokingStatus คือ 'Ex' (ดู SMOKING_OPTIONS) — ไม่ใช่ 'Former' เดิมเทียบผิดค่า
+  // ทำให้ผู้ป่วยเคยสูบเลิกแล้วทุกคนถูกส่งออกเป็นรหัส SMOKE ว่างเปล่า (ไม่ทราบ) แทนที่จะเป็น 3
+  const smokeCode = (s) => s === 'Current' ? '2' : s === 'Ex' ? '3' : s === 'Never' ? '1' : '';
   const scoped = visits.filter(v => {
     const pt = getPt(v.patientId);
     if (!pt || !['COPD', 'Asthma', 'Both'].includes(pt.diagnosis)) return false;
@@ -6339,7 +6346,7 @@ function printVisitSOAP(patient, visit) {
   const actScore = visit.assessments?.act?.allAnswered ? visit.assessments.act.score : null;
   const detected = (typeof window.detectDRP === 'function') ? window.detectDRP(visit, patient) : [];
   const drpRows  = detected.map(d =>
-    `<tr><td>${d.code||'—'}</td><td>${d.categoryTh||d.categoryEn||'—'}</td><td style="color:${d.severity==='High'?'#DC2626':d.severity==='Medium'?'#D97706':'#059669'};font-weight:700">${d.severity||'—'}</td><td>${d.action||'—'}</td></tr>`
+    `<tr><td>${d.code||'—'}</td><td>${d.categoryTh||d.categoryEn||'—'}</td><td style="color:${d.severity==='High'?'#DC2626':d.severity==='Medium'?'#D97706':'#059669'};font-weight:700">${d.severity||'—'}</td><td>${d.actionTh||d.actionEn||'—'}</td></tr>`
   ).join('');
   const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
 
@@ -6395,7 +6402,7 @@ function printDRPReport(patient, visits) {
     return drps.map(d => ({
       date: v.visitDate,
       code: d.code, cat: d.categoryTh || d.categoryEn,
-      sev: d.severity, action: d.action || '—',
+      sev: d.severity, action: d.actionTh || d.actionEn || '—',
     }));
   });
 
@@ -7229,8 +7236,10 @@ function PatientTrendChart({ visits, diagnosis }) {
         })()}
       </svg>
       <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.8 }}>
-        {showCAT && hasCAT && <div style={{ color: C.medium }}>CAT {catPts.filter(Boolean).at(-1)}</div>}
-        {showACT && hasACT && <div style={{ color: C.primaryLight }}>ACT {actPts.filter(Boolean).at(-1)}</div>}
+        {/* filter(Boolean) เดิมตัดค่า 0 ทิ้งด้วย (0 เป็นค่า CAT ที่ดีที่สุด/ถูกต้อง ไม่ใช่ "ไม่มีข้อมูล")
+            ทำให้ผู้ป่วยที่ CAT ล่าสุดเป็น 0 (ไม่มีอาการเลย) ขึ้นคะแนนของ visit ก่อนหน้าแทนที่จะเป็น 0 */}
+        {showCAT && hasCAT && <div style={{ color: C.medium }}>CAT {catPts.filter(v => v !== null).at(-1)}</div>}
+        {showACT && hasACT && <div style={{ color: C.primaryLight }}>ACT {actPts.filter(v => v !== null).at(-1)}</div>}
         <div style={{ color: C.textLight, fontSize: 9 }}>{sorted.length} visits</div>
       </div>
     </div>
@@ -11601,7 +11610,15 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
   const byAsthma = { Controlled: 0, Partly: 0, Uncontrolled: 0 };
   pts.filter(p => p.asthmaControl).forEach(p => { byAsthma[p.asthmaControl] = (byAsthma[p.asthmaControl] || 0) + 1; });
 
-  const totalEx = vis.reduce((s, v) => s + (v.exacerbation?.countThisYear || 0), 0);
+  // countThisYear เป็นค่า recall ต่อผู้ป่วย ต้องใช้ visit ล่าสุดของแต่ละคนเท่านั้น ไม่ใช่ sum ทุก visit
+  // (ไม่งั้นผู้ป่วยที่มาบ่อยจะถูกนับค่าเดิมซ้ำหลายเท่าตามจำนวนครั้งที่มา)
+  const latestVisitByPtRV = {};
+  vis.forEach(v => {
+    if (!v.visitDate) return;
+    if (!latestVisitByPtRV[v.patientId] || v.visitDate > latestVisitByPtRV[v.patientId].visitDate)
+      latestVisitByPtRV[v.patientId] = v;
+  });
+  const totalEx = Object.values(latestVisitByPtRV).reduce((s, v) => s + (v.exacerbation?.countThisYear || 0), 0);
   const hospCount = vis.filter(v => v.exacerbation?.hospitalized).length;
   const poorAdh  = vis.filter(v => v.adherence?.level === 'Poor').length;
   const poorTech = vis.filter(v => (v.inhalerTechnique || []).some(t => t.overallScore === 'Poor')).length;
@@ -12200,7 +12217,16 @@ const calculateKPIs = (data) => {
     : '—';
 
   // Exacerbation rate (per 100 patient-years, simplified as count / total patients)
-  const exacerbCount = allVisits.reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
+  // countThisYear เป็นค่า recall ต่อผู้ป่วย (นับย้อนหลัง 1 ปีจากวันที่ visit) ไม่ใช่เหตุการณ์ใหม่ต่อ visit
+  // ต้องใช้ค่าจาก "visit ล่าสุด" ของแต่ละคนเท่านั้น ไม่ใช่ sum ทุก visit — ไม่งั้นคนที่มา 4 ครั้ง/ปี
+  // จะถูกนับค่าเดิมซ้ำ 4 เท่า ทำให้อัตรากำเริบสูงเกินจริงหลายเท่าตัว
+  const latestVisitByPt = {};
+  allVisits.forEach(v => {
+    if (!v.visitDate) return;
+    if (!latestVisitByPt[v.patientId] || v.visitDate > latestVisitByPt[v.patientId].visitDate)
+      latestVisitByPt[v.patientId] = v;
+  });
+  const exacerbCount = Object.values(latestVisitByPt).reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
   const exacerbRate = data.patients.length > 0
     ? (exacerbCount / data.patients.length).toFixed(2)
     : '0';
@@ -12624,7 +12650,10 @@ const KPIsDashboard = ({ data }) => {
 // ============ QUALITY KPIs COMPONENT ============
 // 6 ตัวชี้วัดคุณภาพคลินิก COPD/Asthma (HA Accreditation KPIs)
 
-const calculateQualityKPIs = (data, startDate, endDate) => {
+const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
+  // todayStr: วันนี้จริง (yyyy-mm-dd) — รับเป็นพารามิเตอร์แยกเพื่อให้ทดสอบได้แน่นอน (ไม่ผูกกับนาฬิกาเครื่อง)
+  // ถ้าไม่ส่งมา ใช้วันนี้จริงเป็นค่าเริ่มต้น (พฤติกรรมเดิมของทุกจุดที่เรียกใช้อยู่แล้วไม่เปลี่ยน)
+  todayStr = todayStr || new Date().toISOString().slice(0, 10);
   const allVisits = data.visits || [];
   const patients  = data.patients || [];
 
@@ -12787,7 +12816,9 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
       const d = t.actualDate || t.scheduledDate || '';
       if (d === r.date && t.status === 'Success') cameSet.add(t.patientId);
     });
-    cameCount += cameSet.size;
+    // เพดานจำนวนที่มา ≤ จำนวนที่นัดไว้ (scheduledCount) — กันตัวชี้วัดเกิน 100% เวลามีผู้ป่วย
+    // walk-in ที่ไม่ได้อยู่ใน trackedIds/extraCount มาในวันเดียวกัน (ไม่ใช่ตัวหารของตัวชี้วัดนี้)
+    cameCount += Math.min(cameSet.size, scheduled);
     trackedIds.forEach(pid => {
       const dx = patientById.get(pid)?.diagnosis;
       if (dx === 'COPD' || dx === 'Asthma') {
@@ -12809,18 +12840,22 @@ const calculateQualityKPIs = (data, startDate, endDate) => {
   });
 
   // ── ส่วน fallback สำหรับวันที่ยังไม่มีการบันทึก roster (ข้อมูลเก่า/ยังไม่ได้ log) ──
+  // เอาเฉพาะนัดที่ "ถึงกำหนดแล้วจริง" (nextVisit <= วันนี้) — นัดในอนาคตยังไม่ควรถูกนับว่าไม่มา
   const dueThisPeriod = new Map(); // patientId -> nextVisit ล่าสุดที่ตกช่วงนี้ และยังไม่มี roster ของวันนั้น
   allVisits.forEach(v => {
-    if (v.nextVisit && v.nextVisit >= startDate && v.nextVisit <= endDate && !rosterDates.has(v.nextVisit)) {
+    if (v.nextVisit && v.nextVisit >= startDate && v.nextVisit <= endDate
+      && v.nextVisit <= todayStr && !rosterDates.has(v.nextVisit)) {
       const prevDue = dueThisPeriod.get(v.patientId);
       if (!prevDue || v.nextVisit > prevDue) dueThisPeriod.set(v.patientId, v.nextVisit);
     }
   });
   dueCount += dueThisPeriod.size;
   dueThisPeriod.forEach((nextVisitDate, pid) => {
-    const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= startDate && v.visitDate <= endDate);
-    const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid &&
-      (t.actualDate || t.scheduledDate || '') >= startDate && (t.actualDate || t.scheduledDate || '') <= endDate);
+    // "มา" ต้องเป็น visit/telepharmacy ที่เกิด "ตั้งแต่วันนัดนั้นเป็นต้นไป" เท่านั้น ไม่ใช่ visit ไหนก็ได้
+    // ในช่วงเวลาที่เลือก (เดิมใช้ startDate ทำให้ visit ที่สร้างนัดนี้ขึ้นมาเองถูกนับว่า "มาแล้ว" เสมอ)
+    const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= nextVisitDate && v.visitDate <= endDate);
+    const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid && t.status === 'Success' &&
+      (t.actualDate || t.scheduledDate || '') >= nextVisitDate && (t.actualDate || t.scheduledDate || '') <= endDate);
     const dx = patientById.get(pid)?.diagnosis;
     if (dx === 'COPD' || dx === 'Asthma') dueCountByDx[dx]++;
     if (cameByVisit || cameByTele) {
@@ -14865,7 +14900,15 @@ const printMonthlyReportByNum = (data, year, month) => {
   const uniquePatients = [...new Map(patients.map(p => [p.id, p])).values()];
 
   const drpCount = visits.filter(v => v.drp?.noDRP === false).length;
-  const exacerbCount = visits.reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
+  // countThisYear เป็นค่า recall ต่อผู้ป่วย ใช้ visit ล่าสุดของแต่ละคนในเดือนนี้เท่านั้น กันนับซ้ำ
+  // ถ้าผู้ป่วยมีมากกว่า 1 visit ในเดือนเดียวกัน
+  const latestVisitByPtMR = {};
+  visits.forEach(v => {
+    if (!v.visitDate) return;
+    if (!latestVisitByPtMR[v.patientId] || v.visitDate > latestVisitByPtMR[v.patientId].visitDate)
+      latestVisitByPtMR[v.patientId] = v;
+  });
+  const exacerbCount = Object.values(latestVisitByPtMR).reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
   const avgAdherence = visits.filter(v => v.adherence?.selfScore != null).length > 0
     ? (visits.filter(v => v.adherence?.selfScore != null).reduce((sum, v) => sum + v.adherence.selfScore, 0) / visits.filter(v => v.adherence?.selfScore != null).length).toFixed(1)
     : '—';
@@ -14928,7 +14971,10 @@ ${visits.map(v => {
 
 // ============ Patient Handout (A4 with Inhaler Instructions) ============
 const printPatientHandout = (patient, visit, device) => {
-  const deviceData = window.INHALER_CHECKLISTS?.[device] || { name: device, steps: [] };
+  // INHALER_CHECKLISTS เป็น const ใน classic script — ไม่เคยถูก attach เป็น window.INHALER_CHECKLISTS
+  // เลย (ทุกจุดอื่นในไฟล์ใช้ AppStore.INHALER_CHECKLISTS ถูกต้อง) จุดนี้จุดเดียวที่ใช้ window. ทำให้
+  // ได้ fallback ว่างเปล่าเสมอ — คู่มือกลับบ้านของผู้ป่วยพิมพ์ออกมาไม่มีขั้นตอนการใช้ยาพ่นเลยทุกครั้ง
+  const deviceData = AppStore.INHALER_CHECKLISTS?.[device] || { name: device, steps: [] };
   
   const html = `
 <!DOCTYPE html>
@@ -15252,7 +15298,9 @@ const generateRecommendations = (data, patientId = null) => {
 
     // 4. Technique re-check
     if (lastVisit?.inhalerTechnique) {
-      const lowScores = lastVisit.inhalerTechnique.filter(t => t.overallScore < 7);
+      // เดิมเทียบ overallScore (string 'Good'/'Acceptable'/'Poor') กับตัวเลข 7 โดยตรง ซึ่งเป็น
+      // NaN &lt; 7 เสมอ = false เงื่อนไขนี้จึงไม่เคย true เลยไม่ว่าข้อมูลจะเป็นอะไร
+      const lowScores = lastVisit.inhalerTechnique.filter(t => !isTechniquePass(t.overallScore));
       if (lowScores.length > 0 && visits.length >= 2) {
         recommendations.push({
           id: `tech-${p.id}`,
@@ -16378,7 +16426,9 @@ const deIdentifyData = (data) => {
         cat: v.cat,
         act: v.act,
         mMRC: v.mMRC,
-        inhalerTechnique: v.inhalerTechnique?.map(t => ({ device: t.device, score: t.overallScore })),
+        // score เป็นตัวเลข (RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK) ไม่ใช่ label string — คอลัมน์ CSV
+        // ปลายทาง "TechniqueScore" ต้องเป็นตัวเลขเพื่อหาค่าเฉลี่ยได้ (เดิมเก็บ label ทำให้บวกเลขไม่ได้ กลายเป็น NaN)
+        inhalerTechnique: v.inhalerTechnique?.map(t => ({ device: t.device, score: RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK[t.overallScore] ?? null })),
         drp: v.drp ? { noDRP: v.drp.noDRP, itemCount: v.drp.items?.length || 0 } : null,
       };
     }),
@@ -16390,12 +16440,16 @@ const calculateStats = (data) => {
   const patients = data.patients || [];
   const visits = data.visits || [];
 
+  // อายุที่ไม่ใช่ตัวเลข (ไม่มี/นำเข้ามาไม่ครบ) ต้องถูกตัดออกจากค่าเฉลี่ย ไม่ใช่นับเป็น 0 หรือปล่อยให้
+  // กลายเป็น NaN ทั้งค่า — ทั้งสองแบบทำให้ผลวิจัยผิดโดยไม่มีใครสังเกตเห็น (NaN ไม่ throw error)
+  const patientsWithAge = patients.filter(p => typeof p.age === 'number' && !isNaN(p.age) && p.age > 0);
+
   const stats = {
     // Demographics
     totalPatients: patients.length,
-    meanAge: patients.length > 0 ? (patients.reduce((sum, p) => sum + p.age, 0) / patients.length).toFixed(1) : '—',
-    sdAge: patients.length > 1 
-      ? Math.sqrt(patients.reduce((sum, p) => sum + Math.pow(p.age - (patients.reduce((s, x) => s + x.age, 0) / patients.length), 2), 0) / (patients.length - 1)).toFixed(1)
+    meanAge: patientsWithAge.length > 0 ? (patientsWithAge.reduce((sum, p) => sum + p.age, 0) / patientsWithAge.length).toFixed(1) : '—',
+    sdAge: patientsWithAge.length > 1
+      ? Math.sqrt(patientsWithAge.reduce((sum, p) => sum + Math.pow(p.age - (patientsWithAge.reduce((s, x) => s + x.age, 0) / patientsWithAge.length), 2), 0) / (patientsWithAge.length - 1)).toFixed(1)
       : '—',
     genderDistribution: {
       male: patients.filter(p => p.gender === 'M').length,
@@ -16431,17 +16485,22 @@ const calculateStats = (data) => {
     }
   }
 
-  // Exacerbation
-  const totalExacerb = visits.reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
+  // Exacerbation — countThisYear เป็นค่า recall ต่อผู้ป่วย ใช้ visit ล่าสุดของแต่ละคนเท่านั้น
+  const latestVisitByPtStats = {};
+  visits.forEach(v => {
+    if (!v.visitDate) return;
+    if (!latestVisitByPtStats[v.patientId] || v.visitDate > latestVisitByPtStats[v.patientId].visitDate)
+      latestVisitByPtStats[v.patientId] = v;
+  });
+  const totalExacerb = Object.values(latestVisitByPtStats).reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
   stats.exacerbationRate = patients.length > 0 ? (totalExacerb / patients.length).toFixed(2) : '—';
 
   // DRP
   const visitsWithDRP = visits.filter(v => v.drp?.noDRP === false);
   stats.drpPrevalence = visits.length > 0 ? ((visitsWithDRP.length / visits.length) * 100).toFixed(1) + '%' : '—';
 
-  // Technique
-  const techScoreMap = { 'Good': 2, 'Fair': 1, 'Poor': 0 };
-  const techScores = visits.flatMap(v => (v.inhalerTechnique || []).map(t => techScoreMap[t.overallScore] ?? 0));
+  // Technique — ใช้ RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK ตัวกลาง (มี 'Acceptable' ครบ ไม่ตกหล่นเหมือน map แยกเดิม)
+  const techScores = visits.flatMap(v => (v.inhalerTechnique || []).map(t => RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK[t.overallScore] ?? 0));
   if (techScores.length > 0) {
     stats.meanTechniqueScore = (techScores.reduce((a, b) => a + b, 0) / techScores.length).toFixed(2);
   }
@@ -16462,8 +16521,9 @@ const exportDeIDCSV = (data) => {
   // Visits CSV
   const visitHeader = 'VisitID,PatientID,VisitDate,RiskLevel,Adherence,Exacerbation,CAT,ACT,mMRC,TechniqueScore,DRP\n';
   const visitRows = deID.visits.map(v => {
-    const techScore = v.inhalerTechnique && v.inhalerTechnique.length > 0
-      ? (v.inhalerTechnique.reduce((s, t) => s + t.score, 0) / v.inhalerTechnique.length).toFixed(1)
+    const validTechScores = (v.inhalerTechnique || []).map(t => t.score).filter(s => s != null);
+    const techScore = validTechScores.length > 0
+      ? (validTechScores.reduce((s, x) => s + x, 0) / validTechScores.length).toFixed(1)
       : '';
     return `${v.id},${v.patientId},${v.visitDate},${v.riskLevel},${v.adherence?.selfScore || ''},${v.exacerbation?.countThisYear || ''},${v.cat?.score || ''},${v.act?.score || ''},${v.mMRC?.grade || ''},${techScore},${v.drp?.noDRP === false ? 'Yes' : 'No'}`;
   }).join('\n');
@@ -18245,12 +18305,18 @@ function ClinicDayRosterCard({ data, onDataChange, todayStr, scheduledToday, cur
   const canEdit = AppStore.canEditClinical(currentUser);
   const rosters = data.clinicDayRosters || [];
   const existing = rosters.find(r => r.date === todayStr);
+  // useState ทุกตัวต้องอยู่ก่อน early return เสมอ (Rules of Hooks) — เดิม return null คั่นกลาง
+  // ทำให้จำนวน hook ที่เรียกไม่เท่ากันระหว่าง render (ตอนยังไม่มี roster เรียกแค่ 1 ตัวแล้ว return,
+  // พอมีคนบันทึก roster จาก Firestore เข้ามาแบบ realtime กลายเป็นเรียก 4 ตัว) React จะ throw
+  // "Rendered more hooks than during the previous render" และทำให้ Dashboard ทั้งหน้าล่มทันที
+  // (เกิดง่ายกับ role ผู้ช่วยเภสัชกรที่เปิดหน้าค้างไว้ตอนเภสัชกรอีกเครื่องบันทึก roster วันนั้น)
   const [editing, setEditing] = useState(!existing && canEdit);
-  if (!existing && !canEdit) return null; // ผู้ช่วยเภสัชกร: ไม่มีอะไรให้ดูถ้ายังไม่มีใครบันทึกไว้ ไม่ต้องแสดงฟอร์มกรอก
   const [checkedIds, setCheckedIds] = useState(() =>
     existing ? new Set(existing.patientIds || []) : new Set(scheduledToday.map(x => x.patient.id)));
   const [extraCount, setExtraCount] = useState(existing ? (existing.extraCount || 0) : 0);
   const [note, setNote] = useState(existing ? (existing.note || '') : '');
+
+  if (!existing && !canEdit) return null; // ผู้ช่วยเภสัชกร: ไม่มีอะไรให้ดูถ้ายังไม่มีใครบันทึกไว้ ไม่ต้องแสดงฟอร์มกรอก
 
   if (!editing && existing) {
     const scheduledCount = existing.scheduledCount ?? ((existing.patientIds || []).length + (existing.extraCount || 0));

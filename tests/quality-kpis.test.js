@@ -12,6 +12,8 @@ const code = extractBlocks(src, [
 eval(code + `
 global.calculateQualityKPIs = calculateQualityKPIs;
 global.classifyRespiratoryMed = classifyRespiratoryMed;
+global.RX_KPI_ENUMS = RX_KPI_ENUMS;
+global.isTechniquePass = isTechniquePass;
 `);
 
 const mkPatient = (id, dx) => ({ id, hn: 'HN' + id, prefix: '', firstName: 'P' + id, lastName: '', diagnosis: dx });
@@ -92,6 +94,86 @@ function run(t) {
     const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
     t.ok('KPI6 den = manual scheduledCount, not derived count', kpis.carePercent.den === 5);
     t.ok('KPI6 num = 1 (p1 visited on roster date)', kpis.carePercent.num === 1);
+  }
+
+  // ─── KPI6 bug fix: genuine no-show must not be credited as "came" by an unrelated visit ───
+  // สถานการณ์จริงที่พบ: ผู้ป่วยมี visit ที่สร้าง nextVisit ไว้ แต่ไม่กลับมาตามนัดเลย — เดิม
+  // cameByVisit เช็คแค่ "มี visit ไหนก็ได้ในช่วงเวลาที่เลือก" ทำให้ visit ที่สร้างนัดนั้นเองถูกนับ
+  // เป็น "มาแล้ว" เสมอ (ต้องเช็คว่ามี visit ตั้งแต่วันนัดเป็นต้นไปเท่านั้น)
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD')],
+      visits: [{ id: 'v1', patientId: 'p1', visitDate: '2026-07-01', nextVisit: '2026-07-15' }],
+      telepharmacy: [], clinicDayRosters: [],
+    };
+    // todayStr หลัง 2026-07-15 เพื่อให้นัดนี้ "ถึงกำหนดแล้วจริง"
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31', '2026-07-20');
+    t.ok('KPI6: genuine no-show (never returned) -> den=1 num=0, not 100%', kpis.carePercent.den === 1 && kpis.carePercent.num === 0);
+    t.ok('KPI6: genuine no-show appears in noShowRoster', kpis.noShowRoster.some(r => r.id === 'p1'));
+  }
+  // ── same scenario but patient DID return after the due date -> counted as came ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD')],
+      visits: [
+        { id: 'v1', patientId: 'p1', visitDate: '2026-07-01', nextVisit: '2026-07-15' },
+        { id: 'v2', patientId: 'p1', visitDate: '2026-07-16' },
+      ],
+      telepharmacy: [], clinicDayRosters: [],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31', '2026-07-20');
+    t.ok('KPI6: patient who returns after due date counted as came (num=1)', kpis.carePercent.num === 1);
+    t.ok('KPI6: not listed as no-show when they did return', !kpis.noShowRoster.some(r => r.id === 'p1'));
+  }
+  // ── future nextVisit (not due yet) must not be counted as due/no-show at all ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD')],
+      visits: [{ id: 'v1', patientId: 'p1', visitDate: '2026-07-01', nextVisit: '2026-07-25' }],
+      telepharmacy: [], clinicDayRosters: [],
+    };
+    // todayStr ก่อนวันนัด — นัดยังไม่ถึงกำหนด
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31', '2026-07-10');
+    t.ok('KPI6: future appointment not yet due -> not counted in den/num at all', kpis.carePercent.den === 0);
+    t.ok('KPI6: future appointment not listed as no-show', !kpis.noShowRoster.some(r => r.id === 'p1'));
+  }
+  // ── failed telepharmacy call (No Answer) must not count as "came" ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD')],
+      visits: [{ id: 'v1', patientId: 'p1', visitDate: '2026-07-01', nextVisit: '2026-07-15' }],
+      telepharmacy: [{ id: 't1', patientId: 'p1', status: 'No Answer', actualDate: '2026-07-16' }],
+      clinicDayRosters: [],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31', '2026-07-20');
+    t.ok('KPI6: failed telepharmacy call (No Answer) does not count as came', kpis.carePercent.num === 0);
+  }
+  // ── roster day: walk-ins beyond scheduledCount must not push carePercent past 100% ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD'), mkPatient('p2', 'COPD'), mkPatient('p3', 'COPD')],
+      visits: [
+        { id: 'v1', patientId: 'p1', visitDate: '2026-07-06' },
+        { id: 'v2', patientId: 'p2', visitDate: '2026-07-06' },
+        { id: 'v3', patientId: 'p3', visitDate: '2026-07-06' }, // walk-in, not on roster, not in extraCount
+      ],
+      telepharmacy: [],
+      clinicDayRosters: [{ id: 'r1', date: '2026-07-06', scheduledCount: 2, patientIds: ['p1', 'p2'], extraCount: 0 }],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
+    t.ok('KPI6: unscheduled walk-in does not push carePercent past 100%', parseFloat(kpis.carePercent.value) <= 100);
+    t.ok('KPI6: num capped at scheduledCount (2), not 3', kpis.carePercent.num === 2);
+  }
+
+  // ─── TECHNIQUE_SCORE_RANK: 'Acceptable' must be a distinct rank, not dropped/merged with 'Poor' ───
+  // บั๊กที่พบ: หลายจุดในไฟล์เคยใช้ map ที่ไม่มี 'Acceptable' เอง ทำให้ถูกนับเป็น 0 เท่ากับ 'Poor'
+  // หรือหลุดออกจากผลรวมไปเลย (?? null) — ตอนนี้รวมเป็น RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK ตัวเดียว
+  {
+    t.ok('TECHNIQUE_SCORE_RANK: Good=2', RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK.Good === 2);
+    t.ok('TECHNIQUE_SCORE_RANK: Acceptable=1 (distinct from Poor)', RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK.Acceptable === 1);
+    t.ok('TECHNIQUE_SCORE_RANK: Poor=0', RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK.Poor === 0);
+    t.ok('isTechniquePass: Acceptable counts as pass', isTechniquePass('Acceptable') === true);
+    t.ok('isTechniquePass: Poor does not pass', isTechniquePass('Poor') === false);
   }
 
   // ─── classifyRespiratoryMed: preset + keyword fallback, no false positives ───
