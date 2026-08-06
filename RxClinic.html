@@ -5026,6 +5026,12 @@ function UserManager({ data, onDataChange, currentUser }) {
   const users      = (data && data.users) || [];
   const clinicCode = (data && data.clinicCode) || '';
   const isAdmin    = currentUser?.role === 'admin';
+  // สร้างบัญชี Firebase Auth ใหม่ใช้เวลาหลายวินาที (network round-trip) — ระหว่างนั้น data
+  // prop อาจอัปเดตจาก Firestore realtime sync ได้ (เช่น เภสัชกรอีกเครื่องบันทึก visit ระหว่างนี้)
+  // ถ้าใช้ `data` จาก closure ตอนกดปุ่มตรงๆ หลัง await จะเขียนทับการเปลี่ยนแปลงนั้นทิ้งไปเงียบๆ
+  // (whole-document overwrite) — เก็บ ref ที่อัปเดตตามค่าล่าสุดเสมอ แล้วอ่านจาก ref ตอนจะเขียนจริง
+  const dataRef = React.useRef(data);
+  React.useEffect(() => { dataRef.current = data; }, [data]);
 
   const [adding,   setAdding]   = stState(false);
   const [newPfx,   setNewPfx]   = stState('ภก.');
@@ -5064,7 +5070,9 @@ function UserManager({ data, onDataChange, currentUser }) {
         username: newEmail.trim().split('@')[0],
         role: newRole,
       };
-      onDataChange({ ...data, users: [...users, nu] });
+      // อ่านค่าล่าสุดจาก ref ตอนนี้ ไม่ใช่ data/users จาก closure ตอนกดปุ่ม (อาจเก่าไปแล้วหลัง await)
+      const freshData = dataRef.current || data;
+      onDataChange({ ...freshData, users: [...(freshData.users || []), nu] });
       setNewNm(''); setNewEmail(''); setNewPw(''); setNewRole('pharmacist'); setAdding(false);
       window.rxToast?.(`สร้างบัญชี ${nu.prefix}${nu.name} สำเร็จ`, 'success');
     } catch(e) {
@@ -5207,7 +5215,9 @@ function UserManager({ data, onDataChange, currentUser }) {
               window.rxToast?.('❌ สำรองข้อมูลก่อนลบไม่สำเร็จ — ยกเลิกการลบเพื่อความปลอดภัย กรุณาลองใหม่หรือดาวน์โหลด Backup ด้วยตนเองก่อน', 'error', 8000);
               return;
             }
-            onDataChange({ ...data, patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
+            // อ่าน ref ล่าสุด — ระหว่าง 2 confirm dialog + backup await ข้างบน data prop อาจ
+            // เปลี่ยนไปแล้ว (เช่น มีคนบันทึก visit จากเครื่องอื่น) ต้อง spread จากค่าล่าสุดเสมอ
+            onDataChange({ ...(dataRef.current || data), patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
               haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
           }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
         </Card>
@@ -5746,7 +5756,7 @@ function openPrintWindow(html, title) {
       .item div{font-size:12px;margin-top:2px;line-height:1.4;}
       .vc{border:1px solid #DDE3EC;border-radius:7px;padding:12px;margin-bottom:10px;break-inside:avoid;}
       .vc-head{display:flex;gap:12px;align-items:center;margin-bottom:8px;}
-      .soap-box{background:#F8FAFC;border-left:3px solid #0EA5C9;padding:8px 10px;border-radius:0 5px 5px 0;margin-bottom:6px;font-size:12px;line-height:1.5;}
+      .soap-box{background:#F8FAFC;border-left:3px solid #0EA5C9;padding:8px 10px;border-radius:0 5px 5px 0;margin-bottom:6px;font-size:12px;line-height:1.5;white-space:pre-wrap;}
       .flags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
       .flag{font-size:10px;color:#DC2626;background:#FEF2F2;padding:2px 7px;border-radius:20px;}
       table{width:100%;border-collapse:collapse;font-size:11px;}
@@ -5930,6 +5940,10 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
   const [backupBusy,  setBackupBusy]  = React.useState(false);
   const [restoreSlotInfo, setRestoreSlotInfo] = React.useState(null);
   const fileRef = React.useRef(null);
+  // การกู้คืนต้อง await backup ก่อนเขียนทับเสมอ — ระหว่างนั้น data prop อาจเปลี่ยนไปแล้วจาก
+  // Firestore realtime sync ต้องอ่านค่าล่าสุดตอนจะเขียนจริง ไม่ใช่ data จาก closure ตอนกดปุ่ม
+  const dataRef = React.useRef(data);
+  React.useEffect(() => { dataRef.current = data; }, [data]);
 
   const months = Array.from(new Set(
     data.visits.map(v => v.visitDate.slice(0,7))
@@ -5997,18 +6011,20 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
       return;
     }
+    // อ่าน data ล่าสุดจาก ref — ระหว่าง await backup ข้างบน data prop อาจเปลี่ยนไปแล้ว
+    const freshData = dataRef.current || data;
     // กรอง record ที่ขาดฟิลด์จำเป็น (HN/ชื่อ/วันที่) ออกก่อนเสมอ — กัน crash ที่จุดอื่นในแอพทีหลัง
-    const clean = sanitizeRestoredData(restoreInfo.parsed, data.users);
+    const clean = sanitizeRestoredData(restoreInfo.parsed, freshData.users);
     const p = restoreInfo.parsed;
     const merged = {
-      ...data,
-      clinicCode:   p.clinicCode ?? data.clinicCode ?? '',
+      ...freshData,
+      clinicCode:   p.clinicCode ?? freshData.clinicCode ?? '',
       users:        clean.users,
       patients:     clean.patients,
       visits:       clean.visits,
       telepharmacy: clean.telepharmacy,
-      clinicDayRosters: p.clinicDayRosters || data.clinicDayRosters || [],
-      haCompliance: p.haCompliance || data.haCompliance || {},
+      clinicDayRosters: p.clinicDayRosters || freshData.clinicDayRosters || [],
+      haCompliance: p.haCompliance || freshData.haCompliance || {},
     };
     onDataChange(merged);
     setRestoreInfo(null);
@@ -6029,9 +6045,10 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
       return;
     }
-    const clean = sanitizeRestoredData(restoreSlotInfo.data, data.users);
+    const freshData = dataRef.current || data;
+    const clean = sanitizeRestoredData(restoreSlotInfo.data, freshData.users);
     const p = restoreSlotInfo.data;
-    const merged = { ...data, patients: clean.patients, visits: clean.visits, telepharmacy: clean.telepharmacy, haCompliance: p.haCompliance || data.haCompliance || {} };
+    const merged = { ...freshData, patients: clean.patients, visits: clean.visits, telepharmacy: clean.telepharmacy, haCompliance: p.haCompliance || freshData.haCompliance || {} };
     onDataChange(merged);
     setRestoreSlotInfo(null);
     const skippedTotal = clean.skipped.patients + clean.skipped.visits + clean.skipped.telepharmacy;
@@ -6434,7 +6451,7 @@ function printVisitSOAP(patient, visit) {
     ${drpRows?`<h2>ปัญหาที่เกี่ยวข้องกับยา (DRP) — ${detected.length} รายการ</h2>
     <table><thead><tr><th>PCNE Code</th><th>ประเภท</th><th>ความรุนแรง</th><th>แนวทาง</th></tr></thead><tbody>${drpRows}</tbody></table>`:''}
 
-    ${visit.pharmacistNote?`<h2>บันทึกเภสัชกร</h2><div style="background:#F0F9FF;border-left:3px solid #0369A1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6">${visit.pharmacistNote}</div>`:''}
+    ${visit.pharmacistNote?`<h2>บันทึกเภสัชกร</h2><div style="background:#F0F9FF;border-left:3px solid #0369A1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;white-space:pre-wrap">${visit.pharmacistNote}</div>`:''}
   `;
   openPrintWindow(html, `SOAP — ${patient.firstName} ${patient.lastName} (${visit.visitDate})`);
 }
@@ -9720,6 +9737,23 @@ function isVisitFormMeaningful(f, exacEvents) {
   );
 }
 
+// ── Merge ประวัติกำเริบ (exacerbationEvents) แบบ 3-way กันข้อมูลหายเวลาแก้พร้อมกัน 2 เครื่อง ──
+// exacEvents ในฟอร์มถูก snapshot ไว้ครั้งเดียวตอนเปิดฟอร์ม (base) แล้วผู้ใช้แก้ต่อในฟอร์ม (local)
+// ระหว่างนั้นถ้าอีกเครื่องบันทึกเหตุการณ์กำเริบใหม่ให้ผู้ป่วยคนเดียวกัน (remote เปลี่ยนไปจาก base)
+// เดิม handleSave เขียน exacEvents (local) ทับ patient.exacerbationEvents ทั้งก้อนตรงๆ ทำให้
+// เหตุการณ์ที่อีกเครื่องเพิ่งเพิ่มหายไปเงียบๆ — แก้เป็น merge: เก็บของ local ทั้งหมด (ทั้งที่แก้ไข
+// และที่ลบไปแล้วตั้งใจ) แล้วเติมเฉพาะเหตุการณ์ใหม่จาก remote ที่ base ไม่เคยเห็น (ของอีกเครื่อง
+// ที่เพิ่มเข้ามาระหว่างที่ฟอร์มนี้เปิดอยู่) กลับเข้าไปด้วย
+function mergeExacerbationEvents(baseEvents, localEvents, remoteEvents) {
+  const base = baseEvents || [];
+  const local = localEvents || [];
+  const remote = remoteEvents || [];
+  const baseIds = new Set(base.map(e => e.id));
+  const localIds = new Set(local.map(e => e.id));
+  const newFromRemote = remote.filter(e => !baseIds.has(e.id) && !localIds.has(e.id));
+  return [...local, ...newFromRemote];
+}
+
 // ── Main VisitForm (with edit support) ────────────────
 function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, currentUser }) {
   const patient = data.patients.find(p => p.id === patientId);
@@ -9745,7 +9779,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const [showValidation, setShowValidation] = vfState(null);    // {warnings:[]} or null
   const [attemptedSave, setAttemptedSave] = vfState(false);     // show inline warning summary after first save attempt
 
-  const initial = isEditing ? { ...editingVisit } : {
+  const blankVisit = {
     patientId, visitDate: today, pharmacist: defaultPharmacist,
     chiefComplaint: '',
     exacerbation: { countThisYear: 0, lastDate: '', severity: 'None', hospitalized: false, erVisit: false, triggers: [], rescueMedUse: 'Never' },
@@ -9766,11 +9800,26 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     nextVisit: '',
     informedConsent: true,   // HA PSG.6 — default ยินยอม (ขอด้วยวาจาทุกครั้งก่อนบริการ) ปลดติ๊กได้ถ้ามีกรณีพิเศษ
   };
+  // แก้ visit เก่า/ที่นำเข้าจาก backup ที่ schema เพี้ยน (ขาด field ที่เพิ่มเข้ามาทีหลัง เช่น
+  // assessments/vitals/counselingTopics) ต้อง merge กับค่า default เสมอ — เดิมใช้ editingVisit
+  // ตรงๆ ทำให้ฟอร์ม crash ทันทีที่เปิดแก้ไข visit ที่ขาด field เหล่านี้ (ต่างจาก PatientForm ที่
+  // merge กับ blank อยู่แล้ว จุดนี้เป็นจุดเดียวที่ไม่ทำ) — merge ระดับ nested object ด้วย ไม่ใช่
+  // แค่ระดับบนสุด เพราะ nested object ที่มีอยู่บางส่วน (เช่น vitals ไม่มี fev1) ก็ต้องเติมให้ครบ
+  const initial = isEditing ? {
+    ...blankVisit, ...editingVisit,
+    exacerbation: { ...blankVisit.exacerbation, ...(editingVisit.exacerbation || {}) },
+    vitals: { ...blankVisit.vitals, ...(editingVisit.vitals || {}) },
+    adherence: { ...blankVisit.adherence, ...(editingVisit.adherence || {}) },
+    assessments: { ...blankVisit.assessments, ...(editingVisit.assessments || {}) },
+    soap: { ...blankVisit.soap, ...(editingVisit.soap || {}) },
+    drp: { ...blankVisit.drp, ...(editingVisit.drp || {}) },
+  } : blankVisit;
   const [f, setF] = vfState(initial);
 
   // ── ประวัติกำเริบแบบมีวันที่จริง (เก็บที่ระดับผู้ป่วย สะสมไปเรื่อยๆ) ──────
   // ตั้งต้นจากประวัติเดิมของผู้ป่วยเสมอ (ไม่ต้องพิมพ์ซ้ำ) — เพิ่มได้เฉพาะรายการใหม่ ลบได้เฉพาะที่พิมพ์ผิด
   const [exacEvents, setExacEvents] = vfState(patient?.exacerbationEvents || []);
+  const baseExacEventsRef = vfRef(patient?.exacerbationEvents || []); // snapshot ตอนเปิดฟอร์ม — ใช้ 3-way merge ตอนบันทึก
   const [newExacDate, setNewExacDate] = vfState('');
   const [newExacSeverity, setNewExacSeverity] = vfState('Moderate');
   const [newExacHosp, setNewExacHosp] = vfState(false);
@@ -9804,11 +9853,13 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       : { ...prev, exacerbation: { ...prev.exacerbation, countThisYear: countIn6mo, lastDate: latestDate } });
   }, [exacEvents, f.visitDate]);
 
-  // ถ้ากำลังแก้ไข visit เดิมที่เคยมีประวัติกำเริบซึ่งระบบเพิ่มให้อัตโนมัติอยู่แล้ว (จาก session ก่อนหน้า)
-  // ให้จำ id ไว้ก่อน ป้องกันสร้างรายการซ้ำซ้อนตอนเปิดแก้ไขใหม่
+  // ถ้ามี event ที่ระบบเพิ่มให้อัตโนมัติอยู่แล้วตรงกับวันที่ของ visit นี้ (จาก session ก่อนหน้า)
+  // ให้จำ id ไว้ก่อน ป้องกันสร้างรายการซ้ำซ้อน — เดิมเช็คเฉพาะตอนแก้ไข (isEditing) เท่านั้น ทำให้
+  // ผู้ป่วยที่มาซ้ำวันเดียวกัน (บันทึกเป็น visit ใหม่ ไม่ใช่แก้ไข visit เดิม) แล้วติ๊ก นอน รพ./ER
+  // ทั้งสอง visit จะสร้าง event ซ้ำ 2 รายการวันเดียวกัน ทำให้ยอดกำเริบ 6 เดือนพองเกินจริง
   vfEffect(() => {
-    if (!isEditing) return;
-    const match = exacEvents.find(e => e.autoLinked && e.date === editingVisit.visitDate);
+    const checkDate = isEditing ? editingVisit.visitDate : today;
+    const match = exacEvents.find(e => e.autoLinked && e.date === checkDate);
     if (match) autoEventIdRef.current = match.id;
   }, []);
 
@@ -10089,6 +10140,14 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   const handleSave = (skipValidation) => {
     if (saving) return;
+    // วันที่ visit ว่างเปล่าได้ (ช่อง date input เคลียร์ได้) — ถ้าปล่อยผ่าน visit นี้จะหายไปเงียบๆ
+    // จากรายงานรายเดือน/รายไตรมาสทุกฉบับ (เทียบ v.visitDate.startsWith('2026-08') กับ '' ไม่ตรง)
+    // และตารางผู้ป่วยจะขึ้น "🆕 ผู้ป่วยใหม่" ทั้งที่เพิ่งมาจริง — ต้องบล็อกจริง ไม่ใช่แค่เตือน
+    if (!f.visitDate) {
+      window.rxToast?.('⚠ กรุณาระบุวันที่มา visit ก่อนบันทึก', 'error', 4500);
+      setAttemptedSave(true);
+      return;
+    }
     if (Object.keys(vitalsErr).length > 0) {
       window.rxToast?.('⚠ ค่าสัญญาณชีพที่กรอกอยู่นอกช่วงที่เป็นไปได้ — กรุณาแก้ไขก่อนบันทึก', 'error', 4500);
       setAttemptedSave(true);
@@ -10120,7 +10179,8 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     const latestRisk = allForPt[0] ? { level: allForPt[0].riskLevel, flags: allForPt[0].riskFlags || [] } : { level: 'Low', flags: [] };
 
     const updatedPatients = data.patients.map(p => p.id === patientId
-      ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High', exacerbationEvents: exacEvents }
+      ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High',
+          exacerbationEvents: mergeExacerbationEvents(baseExacEventsRef.current, exacEvents, p.exacerbationEvents) }
       : p);
     let newData = { ...data, visits: updatedVisits, patients: updatedPatients };
     // Audit log — แปะรายชื่อ field ที่เปลี่ยนไปด้วย เพื่อให้รู้ว่า "แก้อะไร" ไม่ใช่แค่ "มีการแก้"
@@ -10149,9 +10209,14 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     const remaining = updatedVisits.filter(v => v.patientId === patientId)
       .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
     const latestRisk = remaining[0] ? { level: remaining[0].riskLevel, flags: remaining[0].riskFlags || [] } : { level: 'Low', flags: [] };
-    const updatedPatients = data.patients.map(p => p.id === patientId
-      ? { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High' }
-      : p);
+    const updatedPatients = data.patients.map(p => {
+      if (p.id !== patientId) return p;
+      // ลบประวัติกำเริบที่ระบบสร้างให้อัตโนมัติจาก visit นี้ (ติ๊ก นอน รพ./ER) ไปด้วย — เดิมลบ
+      // visit แล้วไม่ลบ event ที่ผูกกันไว้ ทำให้ค้างอยู่ถาวรและแก้ไม่ได้จากฟอร์ม visit อีกต่อไป
+      // (เพราะ visit ที่สร้าง event นี้ไม่มีอยู่แล้ว) ยังไปพองค่า exacerbation count/GOLD group ต่อ
+      const cleanedEvents = (p.exacerbationEvents || []).filter(e => !(e.autoLinked && e.date === editingVisit.visitDate));
+      return { ...p, riskLevel: latestRisk.level, riskFlags: latestRisk.flags, isHighRisk: latestRisk.level === 'High', exacerbationEvents: cleanedEvents };
+    });
     let newData = { ...data, visits: updatedVisits, patients: updatedPatients };
     newData = appendAudit(newData, {
       user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
@@ -10974,8 +11039,18 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
               setF(showDraftPrompt.data);
               setPrefillState('used');
               setShowDraftPrompt(null);
-              setShowToast({ msg: '✓ กู้คืนร่างสำเร็จ', type: 'success' });
-              setTimeout(() => setShowToast(null), 3000);
+              // ร่างเก่าพา visitDate เดิมมาด้วย (เช่น เริ่มกรอกเมื่อวาน กู้คืนวันนี้) — ถ้าเป็น
+              // visit ใหม่ (ไม่ใช่แก้ไข) และวันที่ในร่างไม่ตรงกับวันนี้ ต้องเตือนชัดเจน ไม่งั้น
+              // visit จะถูกบันทึกด้วยวันที่ผิด กระทบลำดับประวัติ/การนับ KPI ตามช่วงเวลาแบบเงียบๆ
+              const draftDate = showDraftPrompt.data?.visitDate;
+              const dateMismatch = !isEditing && draftDate && draftDate !== today;
+              setShowToast({
+                msg: dateMismatch
+                  ? `✓ กู้คืนร่างสำเร็จ — ⚠ ร่างนี้มีวันที่เดิมเป็น ${draftDate} กรุณาตรวจสอบช่องวันที่ก่อนบันทึก`
+                  : '✓ กู้คืนร่างสำเร็จ',
+                type: dateMismatch ? 'warning' : 'success',
+              });
+              setTimeout(() => setShowToast(null), dateMismatch ? 6000 : 3000);
             }}>กู้คืนร่าง</Btn>
           </div>
         </Modal>
@@ -15140,7 +15215,7 @@ h1 { font-size: 16pt; margin: 0 0 20pt; text-align: center; color: #1E40AF; }
 .letterhead { text-align: center; margin-bottom: 20pt; padding-bottom: 10pt; border-bottom: 2px solid #E2E8F0; }
 .date { text-align: right; margin-bottom: 16pt; }
 p { margin: 8pt 0; text-align: justify; }
-.indent { margin-left: 30pt; }
+.indent { margin-left: 30pt; white-space: pre-wrap; }
 .signature { margin-top: 40pt; text-align: right; }
 .signature-line { border-top: 1px solid #000; display: inline-block; width: 200pt; margin-top: 40pt; }
 </style></head><body>
