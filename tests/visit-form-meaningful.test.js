@@ -42,6 +42,21 @@ function run(t) {
     isVisitFormMeaningful({ exacerbation: { countThisYear: 0 } }, []) === false);
   t.ok('exacerbation.countThisYear=2 -> meaningful',
     isVisitFormMeaningful({ exacerbation: { countThisYear: 2 } }, []) === true);
+
+  // ─── regression จริงที่พบผ่าน browser test: informedConsent default เป็น true เสมอ ───
+  // สำหรับ visit ใหม่ทุกอัน (opt-out ไม่ใช่ opt-in) — ต้องไม่นับว่า "meaningful" จากค่า default
+  // นี้เพียงอย่างเดียว ไม่งั้นฟอร์มใหม่เอี่ยมที่ยังไม่ได้แตะอะไรเลยจะโดนเตือน/สร้าง draft ทันที
+  t.ok('informedConsent=true alone (blank new-visit default) -> NOT meaningful',
+    isVisitFormMeaningful({ informedConsent: true }, []) === false);
+  t.ok('informedConsent explicitly unchecked (false) -> meaningful (deliberate action)',
+    isVisitFormMeaningful({ informedConsent: false }, []) === true);
+  t.ok('full blank-visit-shaped default (informedConsent:true, empty everything else) -> NOT meaningful',
+    isVisitFormMeaningful({
+      chiefComplaint: '', medications: [], inhalerTechnique: [], adherence: { score: 0 },
+      soap: { s: '', o: '', a: '', p: '' }, drp: { items: [] },
+      vitals: {}, assessments: {}, exacerbation: { countThisYear: 0 },
+      counselingTopics: [], pharmacistNote: '', nextVisit: '', informedConsent: true,
+    }, []) === false);
 }
 
 module.exports = { run };

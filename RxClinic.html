@@ -9733,7 +9733,12 @@ function isVisitFormMeaningful(f, exacEvents) {
     f.exacerbation?.hospitalized || f.exacerbation?.erVisit || (f.exacerbation?.countThisYear > 0) ||
     (exacEvents && exacEvents.length > 0) ||
     (f.counselingTopics || []).length > 0 ||
-    !!f.pharmacistNote || !!f.nextVisit || !!f.informedConsent
+    !!f.pharmacistNote || !!f.nextVisit ||
+    // informedConsent default เป็น true เสมอสำหรับ visit ใหม่ทุกอัน (opt-out ไม่ใช่ opt-in) —
+    // เช็คแค่ !!f.informedConsent จะทำให้ฟอร์มใหม่เอี่ยมที่ยังไม่ได้แตะอะไรเลยถูกนับว่า "มีข้อมูล
+    // ที่ยังไม่บันทึก" ทันทีตั้งแต่เปิดฟอร์ม (เจอจากการทดสอบจริงผ่าน browser ไม่ใช่แค่ unit test)
+    // ต้องนับเฉพาะกรณีปลดติ๊กออก (=== false) ซึ่งเป็นการกระทำที่ตั้งใจจริงเท่านั้น
+    f.informedConsent === false
   );
 }
 
@@ -9949,6 +9954,17 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     if (hasUnsaved() && !window.confirm('คุณยังไม่ได้บันทึกข้อมูล Visit นี้ — ต้องการออกจากหน้านี้หรือไม่? (ร่างถูกบันทึกไว้ให้อัตโนมัติ)')) return;
     navigate('history', patientId);
   };
+
+  // ลงทะเบียนตัวเช็ค unsaved ไว้ที่ window ให้ navigate() ระดับ App เรียกใช้ได้ (ดูคอมเมนต์ที่
+  // navigate() ใน App) — ใช้ hasUnsavedRef (อัปเดตทุก render อยู่แล้ว) เพื่อให้ effect นี้ลงทะเบียน
+  // ครั้งเดียวตอน mount พอ ไม่ต้อง re-register ทุกครั้งที่ f เปลี่ยน
+  vfEffect(() => {
+    window._rxCheckUnsavedVisit = () => {
+      if (!hasUnsavedRef.current()) return true;
+      return window.confirm('คุณยังไม่ได้บันทึกข้อมูล Visit นี้ — ต้องการออกจากหน้านี้หรือไม่? (ร่างถูกบันทึกไว้ให้อัตโนมัติ)');
+    };
+    return () => { delete window._rxCheckUnsavedVisit; };
+  }, []);
 
   // Ctrl+S
   vfEffect(() => {
@@ -12298,7 +12314,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
                           background: p.riskLevel === 'High' ? C.high : p.riskLevel === 'Medium' ? C.medium : C.primary,
                           color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 14, fontWeight: 700, flexShrink: 0,
-                        }}>{p.firstName.charAt(0)}</div>
+                        }}>{(p.firstName || '?').charAt(0)}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
@@ -19085,7 +19101,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                     background:'linear-gradient(135deg,#DC2626,#EF4444)',
                     color:'#fff', display:'flex', alignItems:'center', justifyContent:'center',
                     fontSize:15, fontWeight:800, boxShadow:'0 3px 10px rgba(220,38,38,0.35)',
-                  }}>{p.firstName.charAt(0)}</div>
+                  }}>{(p.firstName || '?').charAt(0)}</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:700, fontSize:12 }}>{p.prefix}{p.firstName} {p.lastName}</div>
                     <div style={{ fontSize:10, color:C.textMuted }}>HN: {p.hn}</div>
@@ -19740,6 +19756,12 @@ function App() {
   }, []);
 
   const navigate = useCallback((target, patientId = null, extra = null) => {
+    // VisitForm ลงทะเบียน window._rxCheckUnsavedVisit ไว้ตอน mount (ดู VisitForm) — ถ้ามีข้อมูล
+    // ที่ยังไม่ได้บันทึกอยู่ ต้องเช็คตรงนี้ก่อนเสมอ เพราะ navigate() ถูกเรียกจากหลายทาง (sidebar,
+    // Ctrl+K QuickSearch, notification center) ที่ไม่เคยผ่าน guardedLeave ของ VisitForm เอง เดิม
+    // คลิกอะไรก็ตามในนี้ระหว่างกรอกฟอร์มจะทิ้งข้อมูลทันทีไม่มีคำเตือน (ยกเว้น auto-logout ตอนไม่มี
+    // การใช้งาน — ตั้งใจไม่บล็อกเพราะเรื่องความปลอดภัยของข้อมูลผู้ป่วยสำคัญกว่าความสะดวกตรงนี้)
+    if (window._rxCheckUnsavedVisit && !window._rxCheckUnsavedVisit()) return;
     // ผู้ช่วยเภสัชกร (assistant) ดูข้อมูลได้อย่างเดียว — กันไม่ให้เข้าหน้าที่ใช้บันทึก/แก้ไขข้อมูลได้
     if (['visit-form', 'visit-form-edit', 'telepharmacy-add'].includes(target) && !AppStore.canEditClinical(currentUser)) {
       window.rxToast?.('บทบาทผู้ช่วยเภสัชกรดูข้อมูลได้อย่างเดียว ไม่สามารถบันทึก/แก้ไขได้', 'error');
