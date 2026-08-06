@@ -11240,6 +11240,277 @@ function RiskScreeningView({ data, navigate }) {
 }
 
 // ── TelepharmacyView ──────────────────────────────────
+// ── 3 ฟอร์มย่อยของ Telepharmacy — ย้ายออกมาเป็น top-level component (นอก TelepharmacyView) ──
+// เดิมประกาศเป็น arrow function ข้างใน TelepharmacyView (const SchedForm = () => {...}) ทำให้
+// React มองว่าเป็น "component type ใหม่" ทุกครั้งที่ TelepharmacyView re-render (เกิดบ่อยมากจาก
+// Firestore realtime sync — แค่มีคนบันทึกอะไรก็ตามจากเครื่องอื่นก็ทำให้ data prop เปลี่ยน) ผล
+// คือ unmount+remount ฟอร์มทันทีทุกครั้ง ข้อมูลที่พิมพ์ค้างอยู่ (รวมถึง call timer ที่กำลังเดินอยู่
+// ระหว่างคุยโทรศัพท์กับผู้ป่วยจริง) หายหมดโดยไม่มีการเตือนใดๆ — ย้ายออกมาเป็น top-level function
+// ที่มี reference คงที่ตลอด แก้ปัญหานี้ได้ทันทีโดยไม่ต้องแตะ logic ข้างในเลย
+
+function TelepharmacySchedForm({ data, onDataChange, preselPt, onClose }) {
+  const [sf, setSf] = trState({ patientId: preselPt, scheduledDate: '', pharmacistNote: '' });
+  const getPatient = (pid) => data.patients.find(p => p.id === pid);
+  const handleSave = () => {
+    if (!sf.patientId || !sf.scheduledDate) return;
+    const rec = {
+      id: AppStore.generateId(), patientId: sf.patientId,
+      scheduledDate: sf.scheduledDate, actualDate: null, callTime: null,
+      status: 'Pending', symptoms: '', exacerbation: false, rescueUse: '',
+      medicationProblems: '', counseling: '', nextFollowup: null,
+      pharmacistNote: sf.pharmacistNote,
+    };
+    const updPt = data.patients.map(p => p.id === sf.patientId
+      ? { ...p, nextTelepharmacy: sf.scheduledDate } : p);
+    onDataChange({ ...data, telepharmacy: [...data.telepharmacy, rec], patients: updPt });
+    onClose();
+  };
+  return (
+    <div>
+      <FormField label="ผู้ป่วย" required>
+        <Select value={sf.patientId} onChange={v => setSf(p => ({ ...p, patientId: v }))}
+          placeholder="เลือกผู้ป่วย"
+          options={data.patients.map(p => ({
+            value: p.id,
+            label: `${p.prefix}${p.firstName} ${p.lastName} (${p.hn}) — ${p.riskLevel || 'Low'} Risk`,
+          }))} />
+      </FormField>
+      <FormField label="วันที่นัดโทร" required>
+        <Input type="date" value={sf.scheduledDate} onChange={v => setSf(p => ({ ...p, scheduledDate: v }))} />
+      </FormField>
+      <FormField label="บันทึก / วัตถุประสงค์การโทร">
+        <Textarea value={sf.pharmacistNote} onChange={v => setSf(p => ({ ...p, pharmacistNote: v }))}
+          placeholder="เช่น ติดตามเทคนิคการใช้ยาพ่น..." rows={2} />
+      </FormField>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+        <Btn variant="primary" onClick={handleSave}>บันทึกนัด</Btn>
+      </div>
+    </div>
+  );
+}
+
+function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
+  const highRiskPts = data.patients.filter(p => p.riskLevel === 'High' || p.riskLevel === 'Medium');
+  const [batchDate, setBatchDate] = trState('');
+  const [batchNote, setBatchNote] = trState('');
+  const [selected, setSelected]   = trState([]);
+  const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const handleSave = () => {
+    if (!batchDate || selected.length === 0) return;
+    const newRecs = selected.map(pid => ({
+      id: AppStore.generateId(), patientId: pid,
+      scheduledDate: batchDate, actualDate: null, callTime: null,
+      status: 'Pending', symptoms: '', exacerbation: false, rescueUse: '',
+      medicationProblems: '', counseling: '', nextFollowup: null,
+      pharmacistNote: batchNote,
+    }));
+    const updPts = data.patients.map(p => selected.includes(p.id) ? { ...p, nextTelepharmacy: batchDate } : p);
+    onDataChange({ ...data, telepharmacy: [...data.telepharmacy, ...newRecs], patients: updPts });
+    onClose();
+  };
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>เลือกผู้ป่วยที่ต้องการนัด Telepharmacy พร้อมกัน</div>
+      <FormField label="วันที่นัดโทร (ทุกคน)" required>
+        <Input type="date" value={batchDate} onChange={setBatchDate} />
+      </FormField>
+      <FormField label="บันทึก / วัตถุประสงค์">
+        <Textarea value={batchNote} onChange={setBatchNote} placeholder="เช่น ติดตามการใช้ยาประจำเดือน..." rows={2} />
+      </FormField>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+        เลือกผู้ป่วย ({selected.length} คน)
+      </div>
+      <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+        {highRiskPts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่มีผู้ป่วย High/Medium Risk</div>}
+        {highRiskPts.map(p => {
+          const checked = selected.includes(p.id);
+          return (
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? C.primaryBg : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
+              <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} style={{ accentColor: C.primary, width: 15, height: 15 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · {p.phone}</div>
+              </div>
+              <RiskBadge level={p.riskLevel || 'Low'} />
+            </label>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+        <button onClick={() => setSelected(highRiskPts.map(p => p.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600 }}>เลือกทั้งหมด</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={!batchDate || selected.length === 0}>บันทึกนัด {selected.length > 0 ? `(${selected.length} คน)` : ''}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
+  const rec = data.telepharmacy.find(t => t.id === selectedId);
+  if (!rec) return null;
+  const getPatient = (pid) => data.patients.find(p => p.id === pid);
+  const pt = getPatient(rec.patientId);
+  const today = new Date().toISOString().slice(0, 10);
+  const nowTime = new Date().toTimeString().slice(0, 5);
+  const [rf, setRf] = trState({
+    actualDate: rec.actualDate || today, callTime: rec.callTime || nowTime, status: rec.status === 'Pending' ? 'Success' : rec.status,
+    symptoms: rec.symptoms || '', exacerbation: rec.exacerbation || false,
+    rescueUse: rec.rescueUse || '', medicationProblems: rec.medicationProblems || '',
+    counseling: rec.counseling || '', nextFollowup: rec.nextFollowup || '',
+    pharmacistNote: rec.pharmacistNote || '', callDuration: rec.callDuration || 0,
+  });
+  const setR = (k, v) => setRf(p => ({ ...p, [k]: v }));
+
+  // Call timer
+  const [timerRunning, setTimerRunning] = trState(false);
+  const [elapsed, setElapsed] = trState(rec.callDuration || 0);
+  const timerRef = trRef(null);
+  trEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [timerRunning]);
+  const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const startCall = () => { if (!rf.callTime) setR('callTime', new Date().toTimeString().slice(0, 5)); setTimerRunning(true); };
+  const stopCall = () => { setTimerRunning(false); setR('callDuration', elapsed); };
+
+  // DRP context from patient's most recent visit
+  const ptVisits = (data.visits || []).filter(v => v.patientId === rec.patientId)
+    .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+  const lastVisit = ptVisits[0];
+  const drpContext = (lastVisit && pt && typeof window.detectDRP === 'function')
+    ? window.detectDRP(lastVisit, pt) : [];
+
+  const handleSave = () => {
+    const finalDuration = timerRunning ? elapsed : (rf.callDuration || elapsed);
+    const updated = data.telepharmacy.map(t => t.id === selectedId ? { ...t, ...rf, callDuration: finalDuration } : t);
+    onDataChange({ ...data, telepharmacy: updated });
+    onClose();
+    const statusTh = rf.status === 'Success' ? 'โทรสำเร็จ' : rf.status === 'No Answer' ? 'ไม่รับสาย' : rf.status || 'บันทึก';
+    window.rxToast?.(`บันทึกผลการโทร: ${statusTh}`, rf.status === 'Success' ? 'success' : 'info');
+  };
+  return (
+    <div>
+      {pt && (
+        <div style={{ padding: '10px 14px', background: C.bgAlt, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+          <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
+          <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate} · {pt.phone || 'ไม่มีเบอร์'}</span>
+          {rec.pharmacistNote && <div style={{ marginTop: 4, color: C.textMuted, fontSize: 12 }}>วัตถุประสงค์: {rec.pharmacistNote}</div>}
+        </div>
+      )}
+
+      {/* Call timer */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: timerRunning ? '#ECFDF5' : C.bgAlt,
+        border: `1px solid ${timerRunning ? '#A7F3D0' : C.border}`, borderRadius: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: 22 }}>{timerRunning ? '📞' : '⏱️'}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>ระยะเวลาการโทร (Call Timer)</div>
+          <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: timerRunning ? '#059669' : C.text, letterSpacing: '0.04em' }}>
+            {fmtTime(elapsed)}
+          </div>
+        </div>
+        {!timerRunning ? (
+          <Btn size="sm" variant="primary" onClick={startCall}>{elapsed > 0 ? '▶ โทรต่อ' : '▶ เริ่มโทร'}</Btn>
+        ) : (
+          <Btn size="sm" variant="danger" onClick={stopCall}>⏹ หยุด</Btn>
+        )}
+        {elapsed > 0 && !timerRunning && (
+          <Btn size="sm" variant="ghost" onClick={() => { setElapsed(0); setR('callDuration', 0); }}>รีเซ็ต</Btn>
+        )}
+      </div>
+
+      {/* DRP context — what to discuss */}
+      {drpContext.length > 0 && (
+        <div style={{ padding: '12px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
+            💡 ประเด็นที่ควรติดตาม (จาก visit {lastVisit.visitDate})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {drpContext.slice(0, 5).map((d, i) => (
+              <div key={i} style={{ fontSize: 11.5, color: '#78350F', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
+                  background: d.severity === 'High' ? '#FEE2E2' : d.severity === 'Medium' ? '#FEF3C7' : C.bg,
+                  color: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B' }}>{d.severity}</span>
+                <span>{d.problemTh} → <span style={{ color: '#92400E', fontWeight: 600 }}>{d.actionTh}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <FormField label="สถานะการโทร" required>
+          <Select value={rf.status} onChange={v => setR('status', v)}
+            options={[
+              { value: 'Success',   label: 'โทรสำเร็จ' },
+              { value: 'No Answer', label: 'ไม่รับสาย' },
+              { value: 'Cancelled', label: 'ยกเลิกนัด' },
+            ]} />
+        </FormField>
+        <FormField label="วันที่โทรจริง">
+          <Input type="date" value={rf.actualDate} onChange={v => setR('actualDate', v)} />
+        </FormField>
+        <FormField label="เวลาที่โทร">
+          <Input type="time" value={rf.callTime} onChange={v => setR('callTime', v)} />
+        </FormField>
+      </div>
+
+      {rf.status === 'Success' && (
+        <>
+          <FormField label="อาการล่าสุด / สิ่งที่ผู้ป่วยรายงาน">
+            <Textarea value={rf.symptoms} onChange={v => setR('symptoms', v)}
+              placeholder="อาการหอบ เหนื่อย ไอ หรืออื่นๆ..." rows={2} />
+          </FormField>
+          <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+              <input type="checkbox" checked={rf.exacerbation} onChange={e => setR('exacerbation', e.target.checked)}
+                style={{ accentColor: C.high, width: 16, height: 16 }} />
+              <span style={{ color: rf.exacerbation ? C.high : C.text, fontWeight: rf.exacerbation ? 600 : 400 }}>
+                มี Exacerbation ในช่วงนี้
+              </span>
+            </label>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <FormField label="การใช้ยา Rescue">
+              <Select value={rf.rescueUse} onChange={v => setR('rescueUse', v)} placeholder="เลือก"
+                options={[
+                  { value: 'None',         label: 'ไม่ใช้' },
+                  { value: 'Occasionally', label: 'นาน ๆ ครั้ง' },
+                  { value: 'Frequently',   label: 'บ่อย' },
+                  { value: 'Daily',        label: 'ทุกวัน' },
+                ]} />
+            </FormField>
+            <FormField label="นัดติดตามครั้งถัดไป">
+              <Input type="date" value={rf.nextFollowup} onChange={v => setR('nextFollowup', v)} />
+            </FormField>
+          </div>
+          <FormField label="ปัญหาการใช้ยา">
+            <Textarea value={rf.medicationProblems} onChange={v => setR('medicationProblems', v)}
+              placeholder="ลืมยา ผลข้างเคียง ไม่เข้าใจวิธีใช้..." rows={2} />
+          </FormField>
+          <FormField label="สิ่งที่แนะนำ / Counseling">
+            <Textarea value={rf.counseling} onChange={v => setR('counseling', v)}
+              placeholder="คำแนะนำที่ให้ในการโทรครั้งนี้..." rows={2} />
+          </FormField>
+        </>
+      )}
+      <FormField label="บันทึกเพิ่มเติม">
+        <Textarea value={rf.pharmacistNote} onChange={v => setR('pharmacistNote', v)} rows={2} />
+      </FormField>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+        <Btn variant="primary" onClick={handleSave}>บันทึกผลการโทร</Btn>
+      </div>
+    </div>
+  );
+}
+
 function TelepharmacyView({ data, onDataChange, navigate, initPatientId, currentUser }) {
   const canEdit = AppStore.canEditClinical(currentUser);
   const [schedOpen,  setSchedOpen]  = trState(!!initPatientId);
@@ -11275,272 +11546,6 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
   const noAnswerCount = records.filter(r => r.status === 'No Answer').length;
   const todayStr      = new Date().toISOString().slice(0, 10);
   const overdueCount  = records.filter(r => r.status === 'Pending' && r.scheduledDate < todayStr).length;
-
-  // Schedule form
-  const SchedForm = () => {
-    const [sf, setSf] = trState({ patientId: preselPt, scheduledDate: '', pharmacistNote: '' });
-    const handleSave = () => {
-      if (!sf.patientId || !sf.scheduledDate) return;
-      const pt = getPatient(sf.patientId);
-      const rec = {
-        id: AppStore.generateId(), patientId: sf.patientId,
-        scheduledDate: sf.scheduledDate, actualDate: null, callTime: null,
-        status: 'Pending', symptoms: '', exacerbation: false, rescueUse: '',
-        medicationProblems: '', counseling: '', nextFollowup: null,
-        pharmacistNote: sf.pharmacistNote,
-      };
-      const updPt = data.patients.map(p => p.id === sf.patientId
-        ? { ...p, nextTelepharmacy: sf.scheduledDate } : p);
-      onDataChange({ ...data, telepharmacy: [...data.telepharmacy, rec], patients: updPt });
-      setSchedOpen(false);
-      setPreselPt('');
-    };
-    return (
-      <div>
-        <FormField label="ผู้ป่วย" required>
-          <Select value={sf.patientId} onChange={v => setSf(p => ({ ...p, patientId: v }))}
-            placeholder="เลือกผู้ป่วย"
-            options={data.patients.map(p => ({
-              value: p.id,
-              label: `${p.prefix}${p.firstName} ${p.lastName} (${p.hn}) — ${p.riskLevel || 'Low'} Risk`,
-            }))} />
-        </FormField>
-        <FormField label="วันที่นัดโทร" required>
-          <Input type="date" value={sf.scheduledDate} onChange={v => setSf(p => ({ ...p, scheduledDate: v }))} />
-        </FormField>
-        <FormField label="บันทึก / วัตถุประสงค์การโทร">
-          <Textarea value={sf.pharmacistNote} onChange={v => setSf(p => ({ ...p, pharmacistNote: v }))}
-            placeholder="เช่น ติดตามเทคนิคการใช้ยาพ่น..." rows={2} />
-        </FormField>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <Btn variant="ghost" onClick={() => { setSchedOpen(false); setPreselPt(''); }}>ยกเลิก</Btn>
-          <Btn variant="primary" onClick={handleSave}>บันทึกนัด</Btn>
-        </div>
-      </div>
-    );
-  };
-
-  // Batch scheduler form — schedule multiple High Risk patients at once
-  const BatchSchedForm = () => {
-    const highRiskPts = data.patients.filter(p => p.riskLevel === 'High' || p.riskLevel === 'Medium');
-    const [batchDate, setBatchDate] = trState('');
-    const [batchNote, setBatchNote] = trState('');
-    const [selected, setSelected]   = trState([]);
-    const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-    const handleSave = () => {
-      if (!batchDate || selected.length === 0) return;
-      const newRecs = selected.map(pid => ({
-        id: AppStore.generateId(), patientId: pid,
-        scheduledDate: batchDate, actualDate: null, callTime: null,
-        status: 'Pending', symptoms: '', exacerbation: false, rescueUse: '',
-        medicationProblems: '', counseling: '', nextFollowup: null,
-        pharmacistNote: batchNote,
-      }));
-      const updPts = data.patients.map(p => selected.includes(p.id) ? { ...p, nextTelepharmacy: batchDate } : p);
-      onDataChange({ ...data, telepharmacy: [...data.telepharmacy, ...newRecs], patients: updPts });
-      setBatchOpen(false);
-    };
-    return (
-      <div>
-        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>เลือกผู้ป่วยที่ต้องการนัด Telepharmacy พร้อมกัน</div>
-        <FormField label="วันที่นัดโทร (ทุกคน)" required>
-          <Input type="date" value={batchDate} onChange={setBatchDate} />
-        </FormField>
-        <FormField label="บันทึก / วัตถุประสงค์">
-          <Textarea value={batchNote} onChange={setBatchNote} placeholder="เช่น ติดตามการใช้ยาประจำเดือน..." rows={2} />
-        </FormField>
-        <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-          เลือกผู้ป่วย ({selected.length} คน)
-        </div>
-        <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-          {highRiskPts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่มีผู้ป่วย High/Medium Risk</div>}
-          {highRiskPts.map(p => {
-            const checked = selected.includes(p.id);
-            return (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? C.primaryBg : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
-                <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} style={{ accentColor: C.primary, width: 15, height: 15 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · {p.phone}</div>
-                </div>
-                <RiskBadge level={p.riskLevel || 'Low'} />
-              </label>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
-          <button onClick={() => setSelected(highRiskPts.map(p => p.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600 }}>เลือกทั้งหมด</button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Btn variant="ghost" onClick={() => setBatchOpen(false)}>ยกเลิก</Btn>
-            <Btn variant="primary" onClick={handleSave} disabled={!batchDate || selected.length === 0}>บันทึกนัด {selected.length > 0 ? `(${selected.length} คน)` : ''}</Btn>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Record call result form
-  const RecordForm = () => {
-    const rec = data.telepharmacy.find(t => t.id === selectedId);
-    if (!rec) return null;
-    const pt = getPatient(rec.patientId);
-    const today = new Date().toISOString().slice(0, 10);
-    const nowTime = new Date().toTimeString().slice(0, 5);
-    const [rf, setRf] = trState({
-      actualDate: rec.actualDate || today, callTime: rec.callTime || nowTime, status: rec.status === 'Pending' ? 'Success' : rec.status,
-      symptoms: rec.symptoms || '', exacerbation: rec.exacerbation || false,
-      rescueUse: rec.rescueUse || '', medicationProblems: rec.medicationProblems || '',
-      counseling: rec.counseling || '', nextFollowup: rec.nextFollowup || '',
-      pharmacistNote: rec.pharmacistNote || '', callDuration: rec.callDuration || 0,
-    });
-    const setR = (k, v) => setRf(p => ({ ...p, [k]: v }));
-
-    // Call timer
-    const [timerRunning, setTimerRunning] = trState(false);
-    const [elapsed, setElapsed] = trState(rec.callDuration || 0);
-    const timerRef = trRef(null);
-    trEffect(() => {
-      if (timerRunning) {
-        timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
-      } else if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-      return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    }, [timerRunning]);
-    const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-    const startCall = () => { if (!rf.callTime) setR('callTime', new Date().toTimeString().slice(0, 5)); setTimerRunning(true); };
-    const stopCall = () => { setTimerRunning(false); setR('callDuration', elapsed); };
-
-    // DRP context from patient's most recent visit
-    const ptVisits = (data.visits || []).filter(v => v.patientId === rec.patientId)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
-    const lastVisit = ptVisits[0];
-    const drpContext = (lastVisit && pt && typeof window.detectDRP === 'function')
-      ? window.detectDRP(lastVisit, pt) : [];
-
-    const handleSave = () => {
-      const finalDuration = timerRunning ? elapsed : (rf.callDuration || elapsed);
-      const updated = data.telepharmacy.map(t => t.id === selectedId ? { ...t, ...rf, callDuration: finalDuration } : t);
-      onDataChange({ ...data, telepharmacy: updated });
-      setRecordOpen(false); setSelectedId(null);
-      const statusTh = rf.status === 'Success' ? 'โทรสำเร็จ' : rf.status === 'No Answer' ? 'ไม่รับสาย' : rf.status || 'บันทึก';
-      window.rxToast?.(`บันทึกผลการโทร: ${statusTh}`, rf.status === 'Success' ? 'success' : 'info');
-    };
-    return (
-      <div>
-        {pt && (
-          <div style={{ padding: '10px 14px', background: C.bgAlt, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
-            <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
-            <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate} · {pt.phone || 'ไม่มีเบอร์'}</span>
-            {rec.pharmacistNote && <div style={{ marginTop: 4, color: C.textMuted, fontSize: 12 }}>วัตถุประสงค์: {rec.pharmacistNote}</div>}
-          </div>
-        )}
-
-        {/* Call timer */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: timerRunning ? '#ECFDF5' : C.bgAlt,
-          border: `1px solid ${timerRunning ? '#A7F3D0' : C.border}`, borderRadius: 10, marginBottom: 16 }}>
-          <span style={{ fontSize: 22 }}>{timerRunning ? '📞' : '⏱️'}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>ระยะเวลาการโทร (Call Timer)</div>
-            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: timerRunning ? '#059669' : C.text, letterSpacing: '0.04em' }}>
-              {fmtTime(elapsed)}
-            </div>
-          </div>
-          {!timerRunning ? (
-            <Btn size="sm" variant="primary" onClick={startCall}>{elapsed > 0 ? '▶ โทรต่อ' : '▶ เริ่มโทร'}</Btn>
-          ) : (
-            <Btn size="sm" variant="danger" onClick={stopCall}>⏹ หยุด</Btn>
-          )}
-          {elapsed > 0 && !timerRunning && (
-            <Btn size="sm" variant="ghost" onClick={() => { setElapsed(0); setR('callDuration', 0); }}>รีเซ็ต</Btn>
-          )}
-        </div>
-
-        {/* DRP context — what to discuss */}
-        {drpContext.length > 0 && (
-          <div style={{ padding: '12px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
-              💡 ประเด็นที่ควรติดตาม (จาก visit {lastVisit.visitDate})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {drpContext.slice(0, 5).map((d, i) => (
-                <div key={i} style={{ fontSize: 11.5, color: '#78350F', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap', marginTop: 1,
-                    background: d.severity === 'High' ? '#FEE2E2' : d.severity === 'Medium' ? '#FEF3C7' : C.bg,
-                    color: d.severity === 'High' ? '#DC2626' : d.severity === 'Medium' ? '#D97706' : '#64748B' }}>{d.severity}</span>
-                  <span>{d.problemTh} → <span style={{ color: '#92400E', fontWeight: 600 }}>{d.actionTh}</span></span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <FormField label="สถานะการโทร" required>
-            <Select value={rf.status} onChange={v => setR('status', v)}
-              options={[
-                { value: 'Success',   label: 'โทรสำเร็จ' },
-                { value: 'No Answer', label: 'ไม่รับสาย' },
-                { value: 'Cancelled', label: 'ยกเลิกนัด' },
-              ]} />
-          </FormField>
-          <FormField label="วันที่โทรจริง">
-            <Input type="date" value={rf.actualDate} onChange={v => setR('actualDate', v)} />
-          </FormField>
-          <FormField label="เวลาที่โทร">
-            <Input type="time" value={rf.callTime} onChange={v => setR('callTime', v)} />
-          </FormField>
-        </div>
-
-        {rf.status === 'Success' && (
-          <>
-            <FormField label="อาการล่าสุด / สิ่งที่ผู้ป่วยรายงาน">
-              <Textarea value={rf.symptoms} onChange={v => setR('symptoms', v)}
-                placeholder="อาการหอบ เหนื่อย ไอ หรืออื่นๆ..." rows={2} />
-            </FormField>
-            <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                <input type="checkbox" checked={rf.exacerbation} onChange={e => setR('exacerbation', e.target.checked)}
-                  style={{ accentColor: C.high, width: 16, height: 16 }} />
-                <span style={{ color: rf.exacerbation ? C.high : C.text, fontWeight: rf.exacerbation ? 600 : 400 }}>
-                  มี Exacerbation ในช่วงนี้
-                </span>
-              </label>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <FormField label="การใช้ยา Rescue">
-                <Select value={rf.rescueUse} onChange={v => setR('rescueUse', v)} placeholder="เลือก"
-                  options={[
-                    { value: 'None',         label: 'ไม่ใช้' },
-                    { value: 'Occasionally', label: 'นาน ๆ ครั้ง' },
-                    { value: 'Frequently',   label: 'บ่อย' },
-                    { value: 'Daily',        label: 'ทุกวัน' },
-                  ]} />
-              </FormField>
-              <FormField label="นัดติดตามครั้งถัดไป">
-                <Input type="date" value={rf.nextFollowup} onChange={v => setR('nextFollowup', v)} />
-              </FormField>
-            </div>
-            <FormField label="ปัญหาการใช้ยา">
-              <Textarea value={rf.medicationProblems} onChange={v => setR('medicationProblems', v)}
-                placeholder="ลืมยา ผลข้างเคียง ไม่เข้าใจวิธีใช้..." rows={2} />
-            </FormField>
-            <FormField label="สิ่งที่แนะนำ / Counseling">
-              <Textarea value={rf.counseling} onChange={v => setR('counseling', v)}
-                placeholder="คำแนะนำที่ให้ในการโทรครั้งนี้..." rows={2} />
-            </FormField>
-          </>
-        )}
-        <FormField label="บันทึกเพิ่มเติม">
-          <Textarea value={rf.pharmacistNote} onChange={v => setR('pharmacistNote', v)} rows={2} />
-        </FormField>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <Btn variant="ghost" onClick={() => { setRecordOpen(false); setSelectedId(null); }}>ยกเลิก</Btn>
-          <Btn variant="primary" onClick={handleSave}>บันทึกผลการโทร</Btn>
-        </div>
-      </div>
-    );
-  };
 
   const cols = [
     {
@@ -11742,13 +11747,15 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
       )}
 
       <Modal open={schedOpen} onClose={() => { setSchedOpen(false); setPreselPt(''); }} title="นัด Telepharmacy" width={480}>
-        <SchedForm />
+        <TelepharmacySchedForm data={data} onDataChange={onDataChange} preselPt={preselPt}
+          onClose={() => { setSchedOpen(false); setPreselPt(''); }} />
       </Modal>
       <Modal open={recordOpen} onClose={() => { setRecordOpen(false); setSelectedId(null); }} title="บันทึกผลการโทร" width={580}>
-        <RecordForm />
+        <TelepharmacyRecordForm data={data} onDataChange={onDataChange} selectedId={selectedId}
+          onClose={() => { setRecordOpen(false); setSelectedId(null); }} />
       </Modal>
       <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="📋 นัด Telepharmacy หมู่" width={520}>
-        <BatchSchedForm />
+        <TelepharmacyBatchSchedForm data={data} onDataChange={onDataChange} onClose={() => setBatchOpen(false)} />
       </Modal>
     </div>
   );
