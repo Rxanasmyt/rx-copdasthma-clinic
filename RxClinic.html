@@ -5200,8 +5200,13 @@ function UserManager({ data, onDataChange, currentUser }) {
           <Btn size="sm" variant="danger" onClick={async () => {
             if (!window.confirm('ยืนยันลบข้อมูลผู้ป่วย/การเยี่ยม/Telepharmacy ทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้')) return;
             if (!window.confirm('ยืนยันอีกครั้ง — ข้อมูลผู้ป่วยทั้งหมดจะถูกลบถาวร')) return;
-            // Auto-backup ก่อนล้างข้อมูลเสมอ
-            if (window._rxForceBackup) await window._rxForceBackup();
+            // Auto-backup ก่อนล้างข้อมูลเสมอ — และต้องเช็คว่าสำรองสำเร็จจริงก่อนลบ ไม่งั้นถ้าสำรอง
+            // ล้มเหลว (เช่น เน็ตหลุด/เอกสารเกินขนาด) จะลบข้อมูลผู้ป่วยทั้งหมดไปโดยไม่มี backup เลย
+            const backedUp = window._rxForceBackup ? await window._rxForceBackup() : false;
+            if (!backedUp) {
+              window.rxToast?.('❌ สำรองข้อมูลก่อนลบไม่สำเร็จ — ยกเลิกการลบเพื่อความปลอดภัย กรุณาลองใหม่หรือดาวน์โหลด Backup ด้วยตนเองก่อน', 'error', 8000);
+              return;
+            }
             onDataChange({ ...data, patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
               haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
           }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
@@ -5964,13 +5969,19 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
 
   const confirmRestore = async () => {
     if (!restoreInfo) return;
-    // Backup ก่อนเขียนทับเสมอ
-    if (onForceBackup) await onForceBackup();
+    // Backup ก่อนเขียนทับเสมอ — ต้องเช็คว่าสำเร็จจริงก่อนเขียนทับข้อมูลปัจจุบัน
+    const backedUp = onForceBackup ? await onForceBackup() : false;
+    if (!backedUp) {
+      window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
+      return;
+    }
     const p = restoreInfo.parsed;
     const merged = {
       ...data,
       clinicCode:   p.clinicCode ?? data.clinicCode ?? '',
-      users:        p.users || [],
+      // ไฟล์ backup เก่าบางเวอร์ชันอาจไม่มี users เลย — ถ้าไม่มีต้อง fallback เป็นบัญชีปัจจุบัน
+      // ไม่ใช่ [] ว่างเปล่า ไม่งั้นจะลบบัญชีผู้ใช้ทั้งหมดออกไปรวมถึง admin ที่กำลังกู้คืนอยู่เอง
+      users:        p.users || data.users || [],
       patients:     p.patients || [],
       visits:       p.visits || [],
       telepharmacy: p.telepharmacy || [],
@@ -5985,7 +5996,12 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
 
   const confirmRestoreSlot = async () => {
     if (!restoreSlotInfo) return;
-    if (onForceBackup) await onForceBackup();
+    // เช็คว่าสำรองข้อมูลปัจจุบันสำเร็จจริงก่อนเขียนทับ (เหมือน confirmRestore ด้านบน)
+    const backedUp = onForceBackup ? await onForceBackup() : false;
+    if (!backedUp) {
+      window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
+      return;
+    }
     const p = restoreSlotInfo.data;
     const merged = { ...data, patients: p.patients || [], visits: p.visits || [], telepharmacy: p.telepharmacy || [], haCompliance: p.haCompliance || data.haCompliance || {} };
     onDataChange(merged);
@@ -19156,6 +19172,7 @@ function App() {
   const [syncStatus, setSyncStatus] = useState('syncing');
   const dbRef    = useRef(null);
   const unsubRef = useRef(null);
+  const authUnsubRef = useRef(null);    // unsubscribe ของ onAuthStateChanged — กันลงทะเบียนซ้ำถ้าตั้งค่า Firebase config ใหม่
   const persistTried = useRef(false);   // กัน enablePersistence ถูกเรียกซ้ำ
   const currentUserRef = useRef(null);  // ใช้ใน callback ที่ไม่อยากผูก dep currentUser
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
@@ -19247,32 +19264,44 @@ function App() {
       const meta = JSON.parse(localStorage.getItem(KEY) || '{"slot":0,"at":0}');
       if (Date.now() - (meta.at || 0) < 6 * 3600 * 1000) return; // ยังไม่ถึงรอบ (6 ชม.)
       const slot = (meta.slot || 0) % 10;
+      // อัปเดตเวลาไว้ก่อนเขียนจริง (ไม่รอผลสำเร็จ) — กันปัญหาถ้าเขียนล้มเหลว (เช่น เน็ตหลุด)
+      // เดิม localStorage.setItem อยู่หลัง await ทำให้ถ้า .set() throw, meta.at ไม่ขยับเลย
+      // จึงพยายาม backup ซ้ำทุกครั้งที่มีการบันทึกข้อมูล (ทุก save) ไม่ใช่แค่ทุก 6 ชม.ตามที่ตั้งใจ
+      localStorage.setItem(KEY, JSON.stringify({ slot: (slot + 1) % 10, at: Date.now() }));
       await db.collection('clinic_backups').doc('slot_' + slot).set({
         _backupAt: Date.now(),
         _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '',
         data: { ...snapshot, _savedAt: snapshot._savedAt || Date.now() },
       });
-      localStorage.setItem(KEY, JSON.stringify({ slot: (slot + 1) % 10, at: Date.now() }));
-    } catch (e) { /* best-effort — ไม่ขัดจังหวะการใช้งาน */ }
+    } catch (e) { /* best-effort — ไม่ขัดจังหวะการใช้งาน (จะลองใหม่รอบถัดไปใน 6 ชม.) */ }
   }, []);
 
   const initFirebase = useCallback((config) => {
-    if (!config || typeof firebase === 'undefined') { setSyncStatus('offline'); return; }
+    if (!config || typeof firebase === 'undefined') { setSyncStatus('offline'); return false; }
     try {
+      // ยกเลิก auth listener เก่าก่อนเสมอ ถ้าเคยเรียก initFirebase มาแล้ว (เช่น พิมพ์ config ใหม่
+      // ใน Settings) — เดิมไม่ยกเลิก ทำให้ทุกครั้งที่ auth state เปลี่ยนจะรัน initFirestore() ซ้ำ
+      // ตามจำนวนครั้งที่เคยเรียก initFirebase สะสมไปเรื่อยๆ (leak listener)
+      if (authUnsubRef.current) { authUnsubRef.current(); authUnsubRef.current = null; }
       if (!firebase.apps.length) firebase.initializeApp(config);
       else firebase.app();
       dbRef.current = firebase.firestore();
 
       // Phase 1: Auth listener only — Firestore data load happens AFTER sign-in
       const auth = firebase.auth();
-      auth.onAuthStateChanged(firebaseUser => {
+      authUnsubRef.current = auth.onAuthStateChanged(firebaseUser => {
         setFbUser(firebaseUser);
         setAuthReady(true);
         if (firebaseUser) {
           // Phase 2: now load Firestore (user is authenticated)
           initFirestore();
         } else {
-          // Signed out — stop listener, clear data
+          // Signed out — stop listener, clear data ค้าง และงาน sync ที่ยังไม่เสร็จทั้งหมด
+          // (เดิมไม่เคลียร์ saveTimer/pendingData ทำให้ข้อมูลของ user คนก่อนอาจถูกเขียนทับเข้าไปใน
+          // session ของ user คนถัดไปที่ล็อกอินบนเครื่องเดียวกัน ผ่าน online-retry หรือ draft-recovery)
+          clearTimeout(saveTimer.current);
+          pendingData.current = null;
+          setPendingSync(false);
           if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
           setData(null);
           setFbReady(false);
@@ -19280,9 +19309,11 @@ function App() {
           setSyncStatus('offline');
         }
       });
+      return true;
     } catch (e) {
       console.error('Firebase init error:', e);
       setSyncStatus('offline');
+      return false;
     }
   }, []);
 
@@ -19330,11 +19361,17 @@ function App() {
 
       // กู้คืน draft ที่ค้างจากครั้งก่อน (แท็บถูกปิด/แครชตอนออฟไลน์ ก่อน sync ขึ้น cloud สำเร็จ)
       // ต้องทำหลัง setData(remote) เพื่อให้ signature เทียบกับข้อมูลจาก cloud ล่าสุดจริงๆ
+      // สำคัญ: ต้องเช็คว่า draft "ใหม่กว่า" remote จริง ไม่ใช่แค่ "ต่างจาก" remote — ไม่งั้น draft
+      // เก่าค้างหลายวัน (เช่น เครื่องคลินิกที่ใช้ร่วมกัน คนละ user ล็อกอินสลับกัน) จะเขียนทับข้อมูล
+      // ที่คนอื่นบันทึกเพิ่มไปแล้วหลังจากนั้นทั้งหมด — ถือว่า "ใหม่กว่า" เฉพาะกรณีที่ draft.ts
+      // มากกว่า remote._savedAt เท่านั้น และต้องไม่เก่าเกิน DRAFT_EXPIRE_HOURS ด้วย
       try {
         const raw = localStorage.getItem('rx_offline_draft');
         if (raw) {
           const draft = JSON.parse(raw);
-          if (draft?.data && dataSig(draft.data) !== dataSig(remote)) {
+          const draftAgeHours = draft?.ts ? (Date.now() - draft.ts) / 3600000 : Infinity;
+          const draftIsNewer = draft?.ts && (draft.ts > (remote._savedAt || 0));
+          if (draft?.data && draftIsNewer && draftAgeHours <= DRAFT_EXPIRE_HOURS && dataSig(draft.data) !== dataSig(remote)) {
             setData(draft.data);
             pendingData.current = draft.data;
             setPendingSync(true);
@@ -19422,9 +19459,14 @@ function App() {
         .then(() => {
           lastRemoteSig.current = dataSig(nd);
           prevDataForDiffRef.current = nd;
-          pendingData.current = null; setPendingSync(false);
+          // เคลียร์ pendingData/draft เฉพาะถ้ายังไม่มีการแก้ไขใหม่เข้ามาระหว่างที่กำลังเขียนอยู่
+          // (เทียบด้วย reference — handleDataChange สร้าง object ใหม่ทุกครั้งที่มีการแก้ไข) ไม่งั้น
+          // การแก้ไขที่เกิดขึ้นระหว่างรอ ack จะถูกทำเหมือนบันทึกสำเร็จแล้วทั้งที่ยังไม่เคยถูกส่งขึ้นเลย
+          if (pendingData.current === nd) {
+            pendingData.current = null; setPendingSync(false);
+            try { localStorage.removeItem('rx_offline_draft'); } catch {}
+          }
           setSyncStatus('synced');
-          try { localStorage.removeItem('rx_offline_draft'); } catch {}
         })
         .catch(err => {
           console.error('Collections-mode save error:', err);
@@ -19438,9 +19480,14 @@ function App() {
     dbRef.current.collection('clinic').doc('main').set(payload)
       .then(() => {
         lastRemoteSig.current = dataSig(nd);
-        pendingData.current = null; setPendingSync(false);
+        // เช่นเดียวกับโหมด collections — เคลียร์เฉพาะถ้าไม่มีการแก้ไขใหม่แทรกเข้ามาระหว่างรอ ack
+        // (บั๊กเดิม: เคลียร์เสมอไม่ว่า nd จะยังเป็นข้อมูลล่าสุดหรือไม่ ทำให้การแก้ไขที่เกิดขึ้นระหว่าง
+        // รอ .set() ตอบกลับ ~200ms-หลายวินาที บนเน็ตคลินิก หายไปเงียบๆ ถ้าปิดแท็บ/แครชพอดีช่วงนั้น)
+        if (pendingData.current === nd) {
+          pendingData.current = null; setPendingSync(false);
+          try { localStorage.removeItem('rx_offline_draft'); } catch {}
+        }
         setSyncStatus('synced');
-        try { localStorage.removeItem('rx_offline_draft'); } catch {}
         maybeAutoBackup(dbRef.current, payload);
       })
       .catch(err => {
@@ -19480,12 +19527,16 @@ function App() {
       const nd = pendingData.current;
       if (nd && dbRef.current) {
         clearTimeout(saveTimer.current);
+        // เขียน draft ลง localStorage แบบ synchronous ก่อนเสมอ — ต้องทำจุดนี้เพราะการเขียนขึ้น
+        // Firestore ด้านล่างเป็น async ทั้งคู่ (enqueue แล้วคืนค่าทันที ไม่รอ ack) ซึ่งมักไม่ทันจบ
+        // ก่อนแท็บถูกปิดจริง — ถ้าไม่มี draft สำรองไว้ตรงนี้ การแก้ไขล่าสุดจะหายไปเงียบๆ
+        try { localStorage.setItem('rx_offline_draft', JSON.stringify({ data: nd, ts: Date.now() })); } catch {}
         try {
           if (dataModeRef.current === 'collections') {
             // best-effort เหมือน legacy path ด้านล่าง — ไม่ await ได้ใน beforeunload อยู่แล้ว
             diffAndWriteChanges(dbRef.current, prevDataForDiffRef.current || {}, nd);
           } else {
-            const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || '' };
+            const payload = { ...nd, _savedAt: Date.now(), _editedBy: currentUserRef.current?.name || currentUserRef.current?.username || '' };
             dbRef.current.collection('clinic').doc('main').set(payload);
           }
         } catch {}
@@ -19586,14 +19637,31 @@ function App() {
   // ดึงข้อมูลล่าสุดจาก Firebase ด้วยตนเอง (กดรีเฟรช)
   const handleRefresh = useCallback(async () => {
     if (refreshing || !dbRef.current) return;
+    // ถ้ามีการแก้ไขที่ยังไม่ sync ค้างอยู่ ห้ามรีเฟรชทับ — ไม่งั้นข้อมูลที่พิมพ์ค้างไว้จะหายทันที
+    // และ (โหมด collections) ครั้งก่อนนี้บั๊กนี้เคยทำให้ pendingData เก่าถูกเขียนทับข้อมูลใหม่จน
+    // เข้าใจผิดว่าเป็นการลบ — เตือนแทนที่จะรีเฟรชแบบเงียบๆ
+    if (pendingData.current) {
+      setAppToast({ msg: '⚠ มีการแก้ไขที่ยังไม่ได้ซิงค์ค้างอยู่ — กรุณารอให้บันทึกเสร็จก่อนรีเฟรช', type: 'warning' });
+      return;
+    }
     setRefreshing(true);
     setSyncStatus('syncing');
     try {
-      const snap = await dbRef.current.collection('clinic').doc('main').get();
-      if (snap.exists) {
-        const d = snap.data();
-        lastRemoteSig.current = dataSig(d);
-        setData(d);
+      // โหมด 'collections' (ทดลอง) ต้องอ่านจาก collection ใหม่ ไม่ใช่เอกสาร clinic/main เดิม
+      // เดิมบั๊กนี้อ่าน clinic/main เสมอไม่ว่าโหมดไหน ทำให้กดรีเฟรชในโหมด collections แล้วเห็น
+      // ข้อมูลเก่า/ว่างเปล่าจาก clinic/main แทน แล้วถ้าแก้ไขต่อจะเขียนทับ diff จนข้อมูลจริงหายไป
+      if (dataModeRef.current === 'collections') {
+        const remoteC = await assembleDataFromCollections(dbRef.current);
+        lastRemoteSig.current = dataSig(remoteC);
+        prevDataForDiffRef.current = remoteC;
+        setData(remoteC);
+      } else {
+        const snap = await dbRef.current.collection('clinic').doc('main').get();
+        if (snap.exists) {
+          const d = snap.data();
+          lastRemoteSig.current = dataSig(d);
+          setData(d);
+        }
       }
       setSyncStatus('synced');
       setAppToast({ msg: 'ดึงข้อมูลล่าสุดแล้ว', type: 'success' });
