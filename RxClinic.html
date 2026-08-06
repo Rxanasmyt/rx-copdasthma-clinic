@@ -9657,6 +9657,26 @@ function validateVitalsRange(vitals) {
   return e;
 }
 
+// ── ตรวจว่าฟอร์ม visit มีข้อมูล "มีความหมาย" ที่ควรกันหายหรือยัง (ใช้ทั้งกันออกโดยไม่บันทึกและ
+// autosave draft) — เดิมเช็คแค่ chiefComplaint/medications/inhalerTechnique/adherence/soap/drp
+// ทำให้ผู้ป่วยที่กรอกแค่ vitals/CAT/ACT/exacerbation/counseling/nextVisit/pharmacistNote (โดย
+// ยังไม่ได้แตะฟิลด์ที่เช็คอยู่เดิม) แล้วกดออกโดยไม่ได้บันทึก จะไม่มี draft ให้กู้คืนเลย และปุ่ม
+// "← กลับ"/"ยกเลิก" จะไม่เตือนอะไรเลยทั้งที่มีข้อมูลค้างอยู่จริง
+function isVisitFormMeaningful(f, exacEvents) {
+  if (!f) return false;
+  return !!(
+    f.chiefComplaint || (f.medications || []).length > 0 || (f.inhalerTechnique || []).length > 0 ||
+    (f.adherence?.score > 0) || f.soap?.s || f.soap?.o || f.soap?.a || f.soap?.p ||
+    (f.drp?.items || []).length > 0 ||
+    f.vitals?.spO2 || f.vitals?.rr || f.vitals?.bp || f.vitals?.fev1 || f.vitals?.peakFlow ||
+    f.assessments?.cat?.allAnswered || f.assessments?.act?.allAnswered || f.assessments?.mmrc?.grade != null ||
+    f.exacerbation?.hospitalized || f.exacerbation?.erVisit || (f.exacerbation?.countThisYear > 0) ||
+    (exacEvents && exacEvents.length > 0) ||
+    (f.counselingTopics || []).length > 0 ||
+    !!f.pharmacistNote || !!f.nextVisit || !!f.informedConsent
+  );
+}
+
 // ── Main VisitForm (with edit support) ────────────────
 function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, currentUser }) {
   const patient = data.patients.find(p => p.id === patientId);
@@ -9789,16 +9809,17 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   // Auto-save draft (debounced ~1s)
   vfEffect(() => {
+    // ห้าม autosave ทับ draft เดิมตราบใดที่ dialog "พบร่างข้อมูลที่ยังไม่ได้บันทึก" ยังไม่ถูกตอบ
+    // — เดิมไม่เช็คจุดนี้ ทำให้ผ่านไป 1 วินาทีหลังเปิดฟอร์ม (ก่อนผู้ใช้ตอบ dialog ด้วยซ้ำ)
+    // ค่าจาก editingVisit ที่ยังไม่ได้แก้ไขอะไรเลยจะถูกเขียนทับ draft เดิมที่มีค่าที่ยังไม่ได้
+    // บันทึกอยู่ ถ้าปิดแท็บไปโดยไม่ตอบ dialog draft ที่ดีจะหายไปแทนที่ด้วยข้อมูลเดิมจาก DB
+    if (showDraftPrompt) return;
     const editId = isEditing ? editingVisit.id : null;
     const handle = setTimeout(() => {
-      // Only save if form has meaningful content
-      const meaningful = f.chiefComplaint || f.medications.length > 0 ||
-        f.inhalerTechnique.length > 0 || f.adherence.score > 0 ||
-        f.soap.s || f.soap.a || f.soap.p || (f.drp.items || []).length > 0;
-      if (meaningful) saveDraft(patientId, editId, f);
+      if (isVisitFormMeaningful(f, exacEvents)) saveDraft(patientId, editId, f);
     }, 1000);
     return () => clearTimeout(handle);
-  }, [f, patientId, isEditing, editingVisit?.id]);
+  }, [f, patientId, isEditing, editingVisit?.id, showDraftPrompt, exacEvents]);
 
   // Auto-calculate risk
   vfEffect(() => {
@@ -9817,10 +9838,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
   // ── ป้องกันข้อมูลหายเมื่อยังไม่บันทึก ──
   const justSavedRef = useRef(false);
-  const hasUnsaved = () => !justSavedRef.current && (
-    !!f.chiefComplaint || f.medications.length > 0 || f.inhalerTechnique.length > 0 ||
-    (f.adherence?.score > 0) || !!f.soap?.s || !!f.soap?.a || !!f.soap?.p || (f.drp?.items || []).length > 0
-  );
+  const hasUnsaved = () => !justSavedRef.current && isVisitFormMeaningful(f, exacEvents);
   // Refs keep the latest closures so the window listeners can bind once
   // (instead of re-adding/removing on every keystroke re-render).
   const hasUnsavedRef = useRef(hasUnsaved);
@@ -9841,7 +9859,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   // Ctrl+S
   vfEffect(() => {
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSaveRef.current?.(false); }
+      // e.key คือ "อักขระที่พิมพ์ออกมา" ไม่ใช่ปุ่มจริง — บนคีย์บอร์ดไทย (เกษมณี) ปุ่ม S จริงพิมพ์ 'ห'
+      // ทำให้เดิม e.key==='s' เป็น false เสมอเมื่อสลับภาษาไทย, preventDefault ไม่ทำงาน, browser
+      // เปิด dialog "Save Page As..." แทนที่จะบันทึก visit — ทั้งที่ปุ่มในฟอร์มโฆษณา "⌘S บันทึก"
+      // ไว้ชัดเจน เภสัชกรกดแล้วเข้าใจผิดว่าบันทึกแล้ว ทั้งที่ยังไม่ได้บันทึกจริง e.code ไม่ขึ้นกับภาษา
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); handleSaveRef.current?.(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -10571,7 +10593,14 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
                   </div>
                   <Btn size="sm" variant="primary" onClick={() => {
                     const auto = autoPCNE(f, patient);
-                    if (!auto) { setShowToast('ยังไม่พบ DRP ให้จัดประเภทอัตโนมัติ'); return; }
+                    if (!auto) {
+                      // ทุกจุดอื่นส่ง object {msg,type} + ตั้ง timeout เคลียร์เอง — จุดนี้เดิมส่ง
+                      // string เปล่าๆ ทำให้ toast (ซึ่งอ่าน .msg/.type) เป็นแถบว่างค้างถาวรไม่มี
+                      // timeout ปิด บังปุ่ม "บันทึกการบริบาล" ไว้ที่ z-index สูงกว่าปุ่มตลอดเซสชัน
+                      setShowToast({ msg: 'ยังไม่พบ DRP ให้จัดประเภทอัตโนมัติ', type: 'warning' });
+                      setTimeout(() => setShowToast(null), 3000);
+                      return;
+                    }
                     set('drp', { ...f.drp, pcne: { ...(f.drp?.pcne || {}), ...auto } });
                   }}>⚡ เติม PCNE อัตโนมัติ</Btn>
                 </div>
@@ -10881,8 +10910,10 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
       {/* Draft Recovery Prompt */}
       {showDraftPrompt && (
         <Modal open={true} onClose={() => {
-          // Decline: clear and use blank
-          clearDraft(patientId, isEditing ? editingVisit.id : null);
+          // แค่ปิด dialog เฉยๆ ไม่ลบร่าง — onClose ถูกเรียกจาก Escape/คลิกนอกกรอบด้วย (ไม่ใช่แค่
+          // ปุ่ม "ยกเลิกร่าง" ที่ตั้งใจ) เดิมลบร่างทิ้งถาวรทันทีที่เผลอกด Escape หรือคลิกพลาดออกไป
+          // นอกกรอบ ซึ่งเป็นการกระทำที่ย้อนกลับไม่ได้ — ต้องกดปุ่ม "ยกเลิกร่าง" อย่างชัดเจนเท่านั้น
+          // ถึงจะลบจริง ร่างจะหมดอายุเองตาม DRAFT_EXPIRE_HOURS ถ้าไม่ได้ตอบอะไรเลย
           setShowDraftPrompt(null);
         }} title="🔄 พบร่างข้อมูลที่ยังไม่ได้บันทึก" width={460}>
           <p style={{ margin: '0 0 8px', fontSize: 13, color: C.text, lineHeight: 1.6 }}>
