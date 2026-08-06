@@ -5897,6 +5897,28 @@ function printMonthlyReport(data, yearMonth) {
 }
 
 // ── ExportSection Component ───────────────────────────
+// ── กรอง record ที่ผิดรูปแบบออกก่อนนำเข้าจากไฟล์ backup เสมอ (ไฟล์เก่า/มือแก้เอง/schema เพี้ยน) ──
+// ทั้งแอพมีจุดที่ .sort() ด้วย .localeCompare บนฟิลด์วันที่ (visitDate/scheduledDate) และ
+// .charAt(0) บน firstName อยู่หลายสิบจุดโดยไม่ guard ค่า undefined — record ที่ขาดฟิลด์จำเป็น
+// จะทำให้แอพ crash ตอนไปเปิดหน้าที่ sort/render ข้อมูลนั้นทีหลัง (ไม่ใช่ตอน restore) จึงหาสาเหตุ
+// ยาก แก้ที่ต้นทางตรงนี้จุดเดียวคุ้มกว่าไล่ guard ทุกจุดที่ใช้ข้อมูลเหล่านี้ทั่วทั้งไฟล์
+function sanitizeRestoredData(p, fallbackUsers) {
+  const patients = (p.patients || []).filter(x => x && x.id && x.hn && x.firstName);
+  const validPatientIds = new Set(patients.map(x => x.id));
+  const visits = (p.visits || []).filter(x => x && x.id && x.patientId && x.visitDate && validPatientIds.has(x.patientId));
+  const telepharmacy = (p.telepharmacy || []).filter(x => x && x.id && x.patientId && x.scheduledDate && validPatientIds.has(x.patientId));
+  const skipped = {
+    patients: (p.patients || []).length - patients.length,
+    visits: (p.visits || []).length - visits.length,
+    telepharmacy: (p.telepharmacy || []).length - telepharmacy.length,
+  };
+  return {
+    patients, visits, telepharmacy,
+    users: p.users || fallbackUsers || [],
+    skipped,
+  };
+}
+
 function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const [selPt,      setSelPt]      = React.useState('');
   const [selMonth,   setSelMonth]   = React.useState(new Date().toISOString().slice(0,7));
@@ -5975,23 +5997,28 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
       return;
     }
+    // กรอง record ที่ขาดฟิลด์จำเป็น (HN/ชื่อ/วันที่) ออกก่อนเสมอ — กัน crash ที่จุดอื่นในแอพทีหลัง
+    const clean = sanitizeRestoredData(restoreInfo.parsed, data.users);
     const p = restoreInfo.parsed;
     const merged = {
       ...data,
       clinicCode:   p.clinicCode ?? data.clinicCode ?? '',
-      // ไฟล์ backup เก่าบางเวอร์ชันอาจไม่มี users เลย — ถ้าไม่มีต้อง fallback เป็นบัญชีปัจจุบัน
-      // ไม่ใช่ [] ว่างเปล่า ไม่งั้นจะลบบัญชีผู้ใช้ทั้งหมดออกไปรวมถึง admin ที่กำลังกู้คืนอยู่เอง
-      users:        p.users || data.users || [],
-      patients:     p.patients || [],
-      visits:       p.visits || [],
-      telepharmacy: p.telepharmacy || [],
+      users:        clean.users,
+      patients:     clean.patients,
+      visits:       clean.visits,
+      telepharmacy: clean.telepharmacy,
       clinicDayRosters: p.clinicDayRosters || data.clinicDayRosters || [],
       haCompliance: p.haCompliance || data.haCompliance || {},
     };
     onDataChange(merged);
     setRestoreInfo(null);
     setRestoreErr('');
-    window.rxToast?.('✓ กู้คืนข้อมูลสำเร็จ — ข้อมูลถูกซิงค์ขึ้น Cloud แล้ว', 'success');
+    const skippedTotal = clean.skipped.patients + clean.skipped.visits + clean.skipped.telepharmacy;
+    window.rxToast?.(
+      skippedTotal > 0
+        ? `✓ กู้คืนข้อมูลสำเร็จ — ข้าม ${skippedTotal} รายการที่ข้อมูลไม่ครบ (ผู้ป่วย ${clean.skipped.patients}, การเยี่ยม ${clean.skipped.visits}, Telepharmacy ${clean.skipped.telepharmacy})`
+        : '✓ กู้คืนข้อมูลสำเร็จ — ข้อมูลถูกซิงค์ขึ้น Cloud แล้ว',
+      skippedTotal > 0 ? 'warning' : 'success', 6000);
   };
 
   const confirmRestoreSlot = async () => {
@@ -6002,11 +6029,17 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       window.rxToast?.('❌ สำรองข้อมูลก่อนกู้คืนไม่สำเร็จ — ยกเลิกการกู้คืนเพื่อความปลอดภัย (ข้อมูลปัจจุบันยังไม่ถูกแตะต้อง)', 'error', 8000);
       return;
     }
+    const clean = sanitizeRestoredData(restoreSlotInfo.data, data.users);
     const p = restoreSlotInfo.data;
-    const merged = { ...data, patients: p.patients || [], visits: p.visits || [], telepharmacy: p.telepharmacy || [], haCompliance: p.haCompliance || data.haCompliance || {} };
+    const merged = { ...data, patients: clean.patients, visits: clean.visits, telepharmacy: clean.telepharmacy, haCompliance: p.haCompliance || data.haCompliance || {} };
     onDataChange(merged);
     setRestoreSlotInfo(null);
-    window.rxToast?.('✓ กู้คืนจาก Cloud Backup สำเร็จ', 'success');
+    const skippedTotal = clean.skipped.patients + clean.skipped.visits + clean.skipped.telepharmacy;
+    window.rxToast?.(
+      skippedTotal > 0
+        ? `✓ กู้คืนจาก Cloud Backup สำเร็จ — ข้าม ${skippedTotal} รายการที่ข้อมูลไม่ครบ`
+        : '✓ กู้คืนจาก Cloud Backup สำเร็จ',
+      skippedTotal > 0 ? 'warning' : 'success', 6000);
   };
 
   return (
@@ -6821,6 +6854,16 @@ function PatientForm({ patient, onSave, onClose }) {
   const [f, setF] = pvState(patient ? { ...blank, ...patient } : blank);
   const [err, setErr] = pvState({});
   const [ocrFilled, setOcrFilled] = pvState({}); // { fieldKey: true } — ช่องที่ AI กรอกให้ ยังไม่ได้ตรวจสอบ
+  // snapshot ตอนเปิดฟอร์ม — ใช้เทียบว่ามีการแก้ไขจริงหรือยัง ก่อนยอมให้ปิดฟอร์มโดยไม่บันทึก
+  const initialFRef = React.useRef(patient ? { ...blank, ...patient } : blank);
+  const guardedClose = () => {
+    const isDirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
+    // เดิม Modal ผูก onClose กับทั้ง Escape/คลิกนอกกรอบ/ปุ่ม ✕/ปุ่ม "ยกเลิก" เหมือนกันหมด โดยไม่
+    // เช็คว่ากรอกอะไรไปแล้วหรือยัง — พิมพ์ข้อมูลผู้ป่วยใหม่ 15 ช่องแล้วเผลอกด Escape หรือคลิกพลาด
+    // ออกนอกกรอบ ข้อมูลทั้งหมดหายทันที ไม่มี draft ให้กู้คืนเหมือน VisitForm เลย
+    if (isDirty && !window.confirm('มีข้อมูลที่ยังไม่ได้บันทึก ต้องการปิดฟอร์มนี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
 
   const set = (k, v) => { setF(prev => ({ ...prev, [k]: v })); setOcrFilled(prev => (prev[k] ? { ...prev, [k]: false } : prev)); };
 
@@ -6927,10 +6970,10 @@ function PatientForm({ patient, onSave, onClose }) {
   const row3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 };
 
   return (
-    <Modal open={true} onClose={onClose} title={patient ? 'แก้ไขข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วยใหม่'} width={860}
+    <Modal open={true} onClose={guardedClose} title={patient ? 'แก้ไขข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วยใหม่'} width={860}
       footer={
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+          <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
           <Btn variant="primary" onClick={handleSave}>
             {patient ? 'บันทึกการแก้ไข' : 'เพิ่มผู้ป่วย'}
           </Btn>
