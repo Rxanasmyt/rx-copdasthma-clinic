@@ -47,9 +47,18 @@ function buildHAComplianceDoc(data) {
   return { path: 'haCompliance/main', data: { ...data.haCompliance } };
 }
 
+// auditLog + clinicCode รวมเป็นเอกสารเดียว (meta/main) — ต้องตรงกับ assembleDataFromCollections/
+// buildCollectionWriteOps ในตัวแอพเอง (RxClinic.html) เป๊ะ ดู tests/collections-adapter.test.js
+// ที่ตรวจความสอดคล้องของ path ระหว่างสองระบบนี้อัตโนมัติ
+function buildMetaDoc(data) {
+  if (!data.auditLog && !data.clinicCode) return null;
+  return { path: 'meta/main', data: { auditLog: data.auditLog || [], clinicCode: data.clinicCode || '' } };
+}
+
 // รวมทุกอย่างเป็นแผนเดียว — ใช้ทั้งตอน dry-run (แค่ log) และตอนเขียนจริง
 function buildMigrationPlan(data) {
   const haDoc = buildHAComplianceDoc(data);
+  const metaDoc = buildMetaDoc(data);
   return {
     patients: buildPatientDocs(data),
     visits: buildVisitDocs(data),
@@ -58,6 +67,7 @@ function buildMigrationPlan(data) {
     clinicDayRosters: buildRosterDocs(data),
     queueWalkIns: buildQueueWalkInDocs(data),
     haCompliance: haDoc ? [haDoc] : [],
+    meta: metaDoc ? [metaDoc] : [],
   };
 }
 
@@ -93,6 +103,7 @@ module.exports = {
   buildRosterDocs,
   buildQueueWalkInDocs,
   buildHAComplianceDoc,
+  buildMetaDoc,
   buildMigrationPlan,
   planSummary,
   verifyPlanCounts,

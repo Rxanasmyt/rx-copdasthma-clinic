@@ -86,6 +86,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── Meta (auditLog + clinicCode, เอกสารเดียว) ──
+    match /meta/{doc} {
+      allow read: if isSignedIn();
+      allow create, update: if canEditClinical();
+      allow delete: if false;
+    }
+
     // ── Auto-backup slots (คงพฤติกรรมเดิม) ──
     match /clinic_backups/{slot} {
       allow read: if isSignedIn();

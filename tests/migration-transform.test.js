@@ -2,7 +2,7 @@
 // ── ทดสอบตรรกะการแปลงข้อมูลสำหรับ migration ไป multi-collection (ไม่แตะ Firestore จริง) ──
 const {
   buildPatientDocs, buildVisitDocs, buildTelepharmacyDocs, buildUserDocs,
-  buildRosterDocs, buildQueueWalkInDocs, buildHAComplianceDoc,
+  buildRosterDocs, buildQueueWalkInDocs, buildHAComplianceDoc, buildMetaDoc,
   buildMigrationPlan, planSummary, verifyPlanCounts,
 } = require('../migration/transform');
 
@@ -25,6 +25,8 @@ const sampleData = {
   clinicDayRosters: [{ date: '2026-07-20', patientIds: ['p1'], scheduledCount: 5 }],
   queueWalkIns: [{ date: '2026-07-20', patientId: 'p2', addedAt: 123 }],
   haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
+  auditLog: [{ user: 'แอดมิน', action: 'create-visit', summary: 'สร้าง Visit' }],
+  clinicCode: '10670',
 };
 
 function run(t) {
@@ -54,11 +56,16 @@ function run(t) {
   t.ok('buildHAComplianceDoc: single doc at haCompliance/main', haDoc.path === 'haCompliance/main');
   t.ok('buildHAComplianceDoc: null when source has no haCompliance', buildHAComplianceDoc({}) === null);
 
+  const metaDoc = buildMetaDoc(sampleData);
+  t.ok('buildMetaDoc: single doc at meta/main', metaDoc.path === 'meta/main');
+  t.ok('buildMetaDoc: carries auditLog and clinicCode', metaDoc.data.clinicCode === '10670' && metaDoc.data.auditLog.length === 1);
+  t.ok('buildMetaDoc: null when source has neither auditLog nor clinicCode', buildMetaDoc({}) === null);
+
   const plan = buildMigrationPlan(sampleData);
   const summary = planSummary(plan);
   t.ok('planSummary: counts match source exactly',
     summary.patients === 2 && summary.visits === 3 && summary.telepharmacy === 1 &&
-    summary.clinicDayRosters === 1 && summary.queueWalkIns === 1 && summary.haCompliance === 1);
+    summary.clinicDayRosters === 1 && summary.queueWalkIns === 1 && summary.haCompliance === 1 && summary.meta === 1);
 
   const verify = verifyPlanCounts(sampleData, plan);
   t.ok('verifyPlanCounts: ok=true when every collection count matches source', verify.ok === true);

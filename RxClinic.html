@@ -19246,13 +19246,17 @@ function userDocId(u) { return u.uid || u.id; }
 function queueWalkInDocId(w) { return `${w.date}_${w.patientId}`; }
 
 async function assembleDataFromCollections(db) {
-  const [patientsSnap, telepharmacySnap, usersSnap, rostersSnap, queueSnap, haSnap] = await Promise.all([
+  // เพิ่ม meta/main (auditLog + clinicCode) — เดิมโหมด collections ไม่เคยอ่าน/เขียน 2 ฟิลด์นี้
+  // เลย ทำให้ audit trail (บันทึกว่าใครแก้อะไรเมื่อไหร่ ใช้เพื่อ HA compliance) หายไปทุกครั้งที่
+  // reload และ export 43-แฟ้ม/HDC ได้ HOSPCODE ว่างเปล่าเสมอในโหมดนี้
+  const [patientsSnap, telepharmacySnap, usersSnap, rostersSnap, queueSnap, haSnap, metaSnap] = await Promise.all([
     db.collection('patients').get(),
     db.collection('telepharmacy').get(),
     db.collection('users').get(),
     db.collection('clinicDayRosters').get(),
     db.collection('queueWalkIns').get(),
     db.collection('haCompliance').doc('main').get(),
+    db.collection('meta').doc('main').get(),
   ]);
   const patients = patientsSnap.docs.map(d => d.data());
   const visits = [];
@@ -19260,6 +19264,7 @@ async function assembleDataFromCollections(db) {
     const visitsSnap = await pDoc.ref.collection('visits').get();
     visitsSnap.docs.forEach(v => visits.push(v.data()));
   }
+  const meta = metaSnap.exists ? metaSnap.data() : {};
   return {
     patients, visits,
     telepharmacy: telepharmacySnap.docs.map(d => d.data()),
@@ -19267,6 +19272,8 @@ async function assembleDataFromCollections(db) {
     clinicDayRosters: rostersSnap.docs.map(d => d.data()),
     queueWalkIns: queueSnap.docs.map(d => d.data()),
     haCompliance: haSnap.exists ? haSnap.data() : { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
+    auditLog: meta.auditLog || [],
+    clinicCode: meta.clinicCode || '',
     _savedAt: Date.now(),
   };
 }
@@ -19312,6 +19319,12 @@ function buildCollectionWriteOps(db, prevData, nextData) {
   // haCompliance: เอกสารเดียว เขียนเฉพาะตอนเปลี่ยนจริง
   if (nextData?.haCompliance && JSON.stringify(prevData?.haCompliance) !== JSON.stringify(nextData.haCompliance)) {
     ops.push({ ref: db.collection('haCompliance').doc('main'), data: nextData.haCompliance });
+  }
+  // meta (auditLog + clinicCode): เอกสารเดียว เขียนเฉพาะตอนเปลี่ยนจริง — เหมือน haCompliance
+  const prevMeta = { auditLog: prevData?.auditLog || [], clinicCode: prevData?.clinicCode || '' };
+  const nextMeta = { auditLog: nextData?.auditLog || [], clinicCode: nextData?.clinicCode || '' };
+  if (JSON.stringify(prevMeta) !== JSON.stringify(nextMeta)) {
+    ops.push({ ref: db.collection('meta').doc('main'), data: nextMeta });
   }
   return ops;
 }

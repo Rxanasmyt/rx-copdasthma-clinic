@@ -32,6 +32,8 @@ const sampleData = {
   clinicDayRosters: [{ date: '2026-07-20', patientIds: ['p1'], scheduledCount: 5 }],
   queueWalkIns: [{ date: '2026-07-20', patientId: 'p2', addedAt: 123 }],
   haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
+  auditLog: [{ user: 'แอดมิน', action: 'create-visit', summary: 'สร้าง Visit' }],
+  clinicCode: '10670',
 };
 
 async function run(t) {
@@ -39,9 +41,9 @@ async function run(t) {
   {
     const db = makeFirestoreMock();
     const opCount = await diffAndWriteChanges(db, {}, sampleData);
-    // 2 patients + 3 visits + 1 telepharmacy + 1 user + 1 roster + 1 queueWalkIn + 1 haCompliance
+    // 2 patients + 3 visits + 1 telepharmacy + 1 user + 1 roster + 1 queueWalkIn + 1 haCompliance + 1 meta
     t.ok('diffAndWriteChanges: op count matches total item count',
-      opCount === 2 + 3 + 1 + 1 + 1 + 1 + 1);
+      opCount === 2 + 3 + 1 + 1 + 1 + 1 + 1 + 1);
 
     const assembled = await assembleDataFromCollections(db);
     t.ok('round-trip: patients count matches', assembled.patients.length === 2);
@@ -52,6 +54,9 @@ async function run(t) {
     t.ok('round-trip: roster doc id uses date', db._store.has('clinicDayRosters/2026-07-20'));
     t.ok('round-trip: queueWalkIn doc id is composite date_patientId', db._store.has('queueWalkIns/2026-07-20_p2'));
     t.ok('round-trip: haCompliance written as single doc', db._store.has('haCompliance/main'));
+    t.ok('round-trip: meta (auditLog+clinicCode) written as single doc', db._store.has('meta/main'));
+    t.ok('round-trip: auditLog round-trips correctly', assembled.auditLog.length === 1 && assembled.auditLog[0].action === 'create-visit');
+    t.ok('round-trip: clinicCode round-trips correctly', assembled.clinicCode === '10670');
     t.ok('round-trip: patient field values preserved exactly', assembled.patients.find(p => p.id === 'p1').hn === 'HN001');
   }
 
@@ -102,6 +107,7 @@ async function run(t) {
       ...plan.clinicDayRosters.map(d => d.path),
       ...plan.queueWalkIns.map(d => d.path),
       ...plan.haCompliance.map(d => d.path),
+      ...plan.meta.map(d => d.path),
     ]);
 
     t.ok('path consistency: live adapter and migration script produce the exact same doc paths',
