@@ -7,13 +7,16 @@ const { readApp, extractBlocks } = require('./extract');
 const src = readApp();
 const code = extractBlocks(src, [
   'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
-  'checkInteractions', 'detectDRP', 'drpEntryId', 'computeDRPWorklist', 'getDRPWorklistStats', 'countOpenHighDRP',
+  'checkInteractions', 'detectDRP', 'drpEntryId', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
+  'computeDRPWorklist', 'getDRPWorklistStats', 'countOpenHighDRP',
 ]);
 // eslint-disable-next-line no-eval
 eval(code + `
 global.AppStore = { COMMON_MEDICATIONS, INHALER_CHECKLISTS, DRUG_INTERACTIONS };
 global.detectDRP = detectDRP;
 global.drpEntryId = drpEntryId;
+global.groupVisitsByPatientSorted = groupVisitsByPatientSorted;
+global.verifyDRPOutcome = verifyDRPOutcome;
 global.computeDRPWorklist = computeDRPWorklist;
 global.getDRPWorklistStats = getDRPWorklistStats;
 global.countOpenHighDRP = countOpenHighDRP;
@@ -30,7 +33,7 @@ function run(t) {
   const visits = [
     {
       id: 'v1', patientId: 'p1', visitDate: '2026-06-01',
-      medications: [{ name: 'Salbutamol MDI' }], // SABA เดี่ยวไม่มี controller
+      medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }], // SABA เดี่ยวไม่มี controller
     },
     {
       id: 'v2', patientId: 'p2', visitDate: '2026-07-01',
@@ -80,7 +83,7 @@ function run(t) {
 
   // ─── computeDRPWorklist: ผู้ป่วยถูกลบไปแล้วแต่ visit เก่าค้าง -> ไม่ throw ไม่รวมมา ───
   {
-    const orphanVisits = [{ id: 'vX', patientId: 'ghost', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI' }] }];
+    const orphanVisits = [{ id: 'vX', patientId: 'ghost', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] }];
     const worklist = computeDRPWorklist([], orphanVisits, {}, null);
     t.ok('computeDRPWorklist: กรองทิ้ง visit ของผู้ป่วยที่ถูกลบไปแล้ว (กัน crash)', worklist.length === 0);
   }
@@ -115,8 +118,8 @@ function run(t) {
   {
     const multiVisitPatients = [mkPatient('p1', 'Asthma')];
     const multiVisits = [
-      { id: 'v1', patientId: 'p1', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI' }] }, // เก่า มี DRP
-      { id: 'v2', patientId: 'p1', visitDate: '2026-07-01', medications: [{ name: 'Symbicort Turbuhaler' }] }, // ล่าสุด แก้ไขแล้ว ไม่มี DRP
+      { id: 'v1', patientId: 'p1', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] }, // เก่า มี DRP
+      { id: 'v2', patientId: 'p1', visitDate: '2026-07-01', medications: [{ name: 'Budesonide/Formoterol (Symbicort) DPI 160/4.5 mcg' }] }, // ล่าสุด แก้ไขแล้ว ไม่มี DRP
     ];
     const count = countOpenHighDRP(multiVisitPatients, multiVisits, {});
     t.ok('countOpenHighDRP: นับจาก visit ล่าสุดเท่านั้น ไม่รวม visit เก่าที่แก้ไขไปแล้ว', count === 0);
@@ -138,6 +141,43 @@ function run(t) {
     const scopedWorklist = computeDRPWorklist([patients[0]], singlePatientVisits, {}, null);
     t.ok('computeDRPWorklist: โหมดผู้ป่วยคนเดียว ([patient]+visits ที่กรองแล้ว) ให้ผลเหมือนกรองจาก worklist เต็มทุกประการ',
       JSON.stringify(scopedWorklist.map(w => w.id).sort()) === JSON.stringify(fullWorklist.map(w => w.id).sort()));
+  }
+
+  // ─── ปิดวงจร (closed-loop outcome verification) ───
+  {
+    // p1: DRP ที่ visit 1 (SABA เดี่ยว), ปิดว่า resolved, visit ถัดไป (v3) เปลี่ยนมาใช้ controller แล้ว -> ต้องยืนยันว่าดีขึ้น
+    const p = mkPatient('cp1', 'Asthma');
+    const vDrp = { id: 'cv1', patientId: 'cp1', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] };
+    const vFollowUpFixed = { id: 'cv2', patientId: 'cp1', visitDate: '2026-02-01', medications: [{ name: 'Budesonide/Formoterol (Symbicort) DPI 160/4.5 mcg' }] }; // มี controller แล้ว
+    const worklistBefore = computeDRPWorklist([p], [vDrp], {}, null);
+    const targetEntry = worklistBefore.find(w => w.visitId === 'cv1');
+    t.ok('closed-loop: DRP ที่ยังไม่ resolved -> outcome.checked = false เสมอ (ยังไม่ต้องตรวจ)', targetEntry.outcome.checked === false);
+
+    const drpTracker = { [targetEntry.id]: { status: 'resolved', dateResolved: '2026-01-15' } };
+    const worklistNoFollowUp = computeDRPWorklist([p], [vDrp], drpTracker, null);
+    t.ok('closed-loop: resolved แล้วแต่ยังไม่มี visit ถัดไป -> outcome.checked = false (pending)',
+      worklistNoFollowUp[0].outcome.checked === false && worklistNoFollowUp[0].outcome.followUpVisitDate === null);
+
+    const worklistFixed = computeDRPWorklist([p], [vDrp, vFollowUpFixed], drpTracker, null);
+    const fixedEntry = worklistFixed.find(w => w.visitId === 'cv1');
+    t.ok('closed-loop: มี visit ถัดไปและไม่พบ code เดิมแล้ว -> ยืนยันว่าดีขึ้นจริง (stillDetected = false)',
+      fixedEntry.outcome.checked === true && fixedEntry.outcome.stillDetected === false && fixedEntry.outcome.followUpVisitDate === '2026-02-01');
+
+    // ยังไม่ดีขึ้น: visit ถัดไปยังใช้ SABA เดี่ยวเหมือนเดิม
+    const vFollowUpSame = { id: 'cv3', patientId: 'cp1', visitDate: '2026-02-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] };
+    const worklistNotFixed = computeDRPWorklist([p], [vDrp, vFollowUpSame], drpTracker, null);
+    const notFixedEntry = worklistNotFixed.find(w => w.visitId === 'cv1');
+    t.ok('closed-loop: มี visit ถัดไปแต่ยังพบ code เดิม -> ยังไม่ดีขึ้น (stillDetected = true)', notFixedEntry.outcome.stillDetected === true);
+
+    // getDRPWorklistStats ต้องนับ verified/regressed/pending ถูกต้อง และแยกจากกันชัดเจน
+    const statsFixed = getDRPWorklistStats(worklistFixed);
+    t.ok('getDRPWorklistStats: outcomeVerified นับรายการที่ยืนยันดีขึ้นแล้วถูกต้อง', statsFixed.outcomeVerified === 1 && statsFixed.outcomeRegressed === 0);
+    const statsNotFixed = getDRPWorklistStats(worklistNotFixed);
+    t.ok('getDRPWorklistStats: outcomeRegressed นับรายการที่ยังไม่ดีขึ้นถูกต้อง', statsNotFixed.outcomeRegressed === 1 && statsNotFixed.outcomeVerified === 0);
+    const statsPending = getDRPWorklistStats(worklistNoFollowUp);
+    t.ok('getDRPWorklistStats: outcomePending นับรายการที่รอ visit ถัดไปถูกต้อง และ outcomeVerifiedRate เป็น null เมื่อยังไม่มีอะไรให้ตรวจสอบ',
+      statsPending.outcomePending === 1 && statsPending.outcomeVerifiedRate === null);
+    t.ok('getDRPWorklistStats: outcomeVerifiedRate คำนวณถูกต้องเมื่อยืนยันครบ 100%', statsFixed.outcomeVerifiedRate === '100.0');
   }
 }
 

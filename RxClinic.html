@@ -1130,6 +1130,37 @@ const advancedPatientSearch = (patients, visits, filters, todayStr) => {
   return results.sort((a, b) => (b.lastVisitDate || '').localeCompare(a.lastVisitDate || ''));
 };
 
+// ── ตรวจความครบถ้วนของข้อมูล (Data Completeness) — KPI ทุกตัวพึ่งข้อมูลพวกนี้ ถ้าลืมประเมิน
+// ก็จะไม่ถูกนับเข้า KPI เงียบๆ (denominator/numerator เบี้ยวโดยไม่มีใครรู้) ก่อนจะเชื่อตัวเลข KPI
+// ต้องมั่นใจก่อนว่าข้อมูลที่ใช้คิดครบจริง — ใช้ visit ล่าสุดของแต่ละคนเป็นตัวแทนสถานะปัจจุบัน ──
+const computeDataCompleteness = (patients, visits) => {
+  const latestByPatient = new Map();
+  (visits || []).forEach(v => {
+    if (!v.patientId || !v.visitDate) return;
+    const cur = latestByPatient.get(v.patientId);
+    if (!cur || v.visitDate > cur.visitDate) latestByPatient.set(v.patientId, v);
+  });
+
+  const missingTechnique = [], missingAdherence = [], missingRiskLevel = [], neverVisited = [];
+  (patients || []).forEach(p => {
+    const lastVisit = latestByPatient.get(p.id);
+    const row = { id: p.id, hn: p.hn, name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(), diagnosis: p.diagnosis };
+    if (!lastVisit) { neverVisited.push(row); return; } // ยังไม่มี visit เลย — ประเมินอะไรไม่ได้ทั้งหมด นับแยกไม่ปนกับที่เหลือ
+    if (!(lastVisit.inhalerTechnique || []).length) missingTechnique.push(row);
+    if (!lastVisit.adherence?.level) missingAdherence.push(row);
+    if (!p.riskLevel) missingRiskLevel.push(row);
+  });
+
+  const total = (patients || []).length;
+  const pct = (list) => total > 0 ? ((list.length / total) * 100).toFixed(1) : '0';
+  return {
+    total,
+    missingTechnique, missingAdherence, missingRiskLevel, neverVisited,
+    missingTechniquePct: pct(missingTechnique), missingAdherencePct: pct(missingAdherence),
+    missingRiskLevelPct: pct(missingRiskLevel), neverVisitedPct: pct(neverVisited),
+  };
+};
+
 // ── Role-based access control ──────────────────────────────────────────
 // 'admin' = หัวหน้า/ผู้ดูแลระบบ (ทุกสิทธิ์) · 'pharmacist' = เภสัชกร (ดู/แก้/ลบข้อมูลทางคลินิกได้ แต่เข้า Settings ไม่ได้)
 // 'assistant' = ผู้ช่วยเภสัชกร (ดูข้อมูลได้อย่างเดียว บันทึก/แก้ไข/ลบไม่ได้)
@@ -4306,11 +4337,43 @@ function autoPCNE(visit, patient) {
 // ทำให้ Firestore doc ไม่บวมตามจำนวน DRP ที่ตรวจพบ (เก็บเฉพาะที่ถูกจัดการแล้วเท่านั้น)
 const drpEntryId = (visitId, code) => visitId + '::' + code;
 
+// ── จัดกลุ่ม visit ตามผู้ป่วย + เรียงตามวันที่ (เก่า→ใหม่) ใช้หา "visit ถัดไป" เพื่อยืนยันผล ──
+const groupVisitsByPatientSorted = (visits) => {
+  const m = new Map();
+  (visits || []).forEach(v => {
+    if (!v.patientId) return;
+    if (!m.has(v.patientId)) m.set(v.patientId, []);
+    m.get(v.patientId).push(v);
+  });
+  m.forEach(arr => arr.sort((a, b) => (a.visitDate || '').localeCompare(b.visitDate || '')));
+  return m;
+};
+
+// ── ปิดวงจร (closed-loop): DRP ที่ถูกปิดแล้ว จริงๆ ดีขึ้นไหม ไม่ใช่แค่ติ๊กว่า "แก้ไขแล้ว" แล้วจบ ──
+// วิธีตรวจ: รัน detectDRP ซ้ำกับ "visit ถัดไป" ของผู้ป่วยคนเดียวกัน (หลังวันที่พบ DRP นี้) ถ้าไม่เจอ
+// ปัญหาเดิมอีกแล้ว = มีหลักฐานว่าดีขึ้นจริง ถ้ายังเจอ = ยังไม่ได้ผล ต้องติดตามต่อ ใช้ได้กับ DRP ทุก
+// ประเภทเพราะอิงจาก "ตรวจพบซ้ำหรือไม่" ไม่ต้องเขียนกฎเทียบเฉพาะแต่ละหมวดแยกกัน
+// เทียบด้วย problemEn (ข้อความปัญหาที่เจาะจง) ไม่ใช่แค่ code — เพราะ code เดียวกัน (เช่น P1.2 "ต้องการ
+// ยาเพิ่มเติม") ใช้ร่วมกันได้หลายปัญหาย่อยที่ไม่เหมือนกันเลย (เช่น "ไม่มี SABA" กับ "ไม่มี ICS controller")
+// ถ้าเทียบแค่ code เฉยๆ จะเข้าใจผิดว่ายังไม่ดีขึ้นทั้งที่จริงๆ กลายเป็นปัญหาคนละเรื่องไปแล้ว
+const verifyDRPOutcome = (entry, visitsByPatient, patient) => {
+  if (entry.status !== 'resolved') return { checked: false, followUpVisitDate: null, stillDetected: null };
+  const pVisits = visitsByPatient.get(entry.patientId) || [];
+  const followUp = pVisits.find(v => (v.visitDate || '') > entry.visitDate);
+  if (!followUp) return { checked: false, followUpVisitDate: null, stillDetected: null };
+  const stillDetected = ((typeof detectDRP === 'function' ? detectDRP(followUp, patient) : []) || [])
+    .some(d => d.problemEn === entry.problemEn);
+  return { checked: true, followUpVisitDate: followUp.visitDate || '', stillDetected };
+};
+
 // รวม DRP ที่ตรวจพบจริงจากทุก visit (หรือเฉพาะช่วงวันที่ถ้าระบุ dateRange) เข้ากับสถานะที่บันทึกไว้ใน
 // drpTracker คืนเป็นรายการเดียว เรียง: ยังไม่ปิดก่อน (High > Medium > Low) แล้วตามด้วยที่ปิดแล้ว (ล่าสุดก่อน)
 const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
   drpTracker = drpTracker || {};
   const patientById = new Map((patients || []).map(p => [p.id, p]));
+  // ใช้ visits ทั้งก้อน (ไม่กรอง dateRange) หา "visit ถัดไป" — DRP ที่พบในช่วงที่กรองอาจมีวิสิตติดตาม
+  // ผลอยู่นอกช่วงที่เลือกดูได้ ไม่ควรพลาดหลักฐานว่าดีขึ้นแล้วเพียงเพราะ user กำลังกรองช่วงวันที่แคบอยู่
+  const visitsByPatient = groupVisitsByPatientSorted(visits);
   const entries = [];
   (visits || []).forEach(v => {
     if (!v.patientId) return;
@@ -4322,7 +4385,7 @@ const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
     detected.forEach(d => {
       const id = drpEntryId(v.id, d.code);
       const tracked = drpTracker[id] || {};
-      entries.push({
+      const entry = {
         id, patientId: v.patientId, visitId: v.id, visitDate: v.visitDate || '',
         patient: { id: p.id, hn: p.hn, name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(), diagnosis: p.diagnosis },
         code: d.code, categoryEn: d.categoryEn, categoryTh: d.categoryTh, severity: d.severity,
@@ -4330,7 +4393,9 @@ const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
         status: tracked.status || 'open', assignedTo: tracked.assignedTo || '',
         actionTaken: tracked.actionTaken || '', note: tracked.note || '',
         dateResolved: tracked.dateResolved || '', resolvedBy: tracked.resolvedBy || '', updatedAt: tracked.updatedAt || '',
-      });
+      };
+      entry.outcome = verifyDRPOutcome(entry, visitsByPatient, p);
+      entries.push(entry);
     });
   });
   const sevRank = { High: 0, Medium: 1, Low: 2 };
@@ -4351,9 +4416,19 @@ const getDRPWorklistStats = (worklist) => {
   const resolved = worklist.filter(w => w.status === 'resolved').length;
   const highOpen = worklist.filter(w => w.status !== 'resolved' && w.severity === 'High').length;
   const total = worklist.length;
+  // ── ปิดวงจร: ในบรรดารายการที่ "แก้ไขแล้ว" มีกี่รายการที่ยืนยันได้ผลจริง (verified) / ยังไม่ดีขึ้น
+  // (regressed — ตรวจซ้ำแล้วเจอ code เดิม) / ยังไม่มี visit ถัดไปให้ยืนยัน (pending) ──
+  const resolvedEntries = worklist.filter(w => w.status === 'resolved');
+  const outcomeVerified = resolvedEntries.filter(w => w.outcome?.checked && !w.outcome.stillDetected).length;
+  const outcomeRegressed = resolvedEntries.filter(w => w.outcome?.checked && w.outcome.stillDetected).length;
+  const outcomePending = resolvedEntries.filter(w => !w.outcome?.checked).length;
   return {
     total, open, inProgress, resolved, highOpen,
     resolutionRate: total > 0 ? ((resolved / total) * 100).toFixed(1) : '0',
+    outcomeVerified, outcomeRegressed, outcomePending,
+    // อัตรา "ยืนยันได้ผลจริง" นับเฉพาะรายการที่มี visit ถัดไปให้ตรวจสอบแล้ว (ตัด pending ออก กันหาร 0/ลำเอียง)
+    outcomeVerifiedRate: (outcomeVerified + outcomeRegressed) > 0
+      ? ((outcomeVerified / (outcomeVerified + outcomeRegressed)) * 100).toFixed(1) : null,
   };
 };
 
@@ -11602,6 +11677,13 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
           </div>
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{DRP_STATUS_LABEL[entry.status]}</span>
+        {entry.status === 'resolved' && entry.outcome && (
+          entry.outcome.checked
+            ? (entry.outcome.stillDetected
+                ? <span style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>⚠ ยังพบปัญหาเดิม</span>
+                : <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>✅ ยืนยันดีขึ้นแล้ว</span>)
+            : <span style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', background: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>⏳ รอ visit ถัดไปยืนยัน</span>
+        )}
         {entry.assignedTo && <span style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: 'nowrap' }}>👤 {entry.assignedTo}</span>}
         <span style={{ fontSize: 11, color: C.textLight, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
       </div>
@@ -11610,6 +11692,22 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
           <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.6 }}>
             💡 แนวทางแก้ไขที่แนะนำ: {entry.actionTh || entry.actionEn}
           </div>
+          {entry.status === 'resolved' && entry.outcome?.checked && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 600,
+              background: entry.outcome.stillDetected ? '#FEF2F2' : '#F0FDF4',
+              color: entry.outcome.stillDetected ? '#B91C1C' : '#047857',
+              border: `1px solid ${entry.outcome.stillDetected ? '#FECACA' : '#BBF7D0'}`,
+            }}>
+              🔁 ปิดวงจร: ตรวจซ้ำใน visit ถัดไป ({entry.outcome.followUpVisitDate}) —{' '}
+              {entry.outcome.stillDetected ? 'ยังพบปัญหาเดิมอยู่ ควรพิจารณาติดตามต่อ' : 'ไม่พบปัญหาเดิมแล้ว ยืนยันว่าดีขึ้นจริง'}
+            </div>
+          )}
+          {entry.status === 'resolved' && !entry.outcome?.checked && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 11.5, color: C.textMuted, background: '#F3F4F6', border: '1px solid #E5E7EB' }}>
+              🔁 ปิดวงจร: ยังไม่มี visit ถัดไปหลัง {entry.visitDate} ให้ตรวจสอบว่าดีขึ้นจริงหรือไม่ — ระบบจะเช็คให้อัตโนมัติเมื่อผู้ป่วยมา visit ครั้งหน้า
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>สถานะ</label>
@@ -11691,10 +11789,17 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
           { label: 'แก้ไขแล้ว', value: stats.resolved, color: '#059669', icon: '✅' },
           { label: 'High ที่ยังเปิดอยู่', value: stats.highOpen, color: '#DC2626', icon: '⚠️' },
           { label: 'อัตราแก้ไขสำเร็จ', value: `${stats.resolutionRate}%`, color: '#2563EB', icon: '📈' },
+          {
+            label: 'ยืนยันได้ผลจริง (ปิดวงจร)',
+            value: stats.outcomeVerifiedRate !== null ? `${stats.outcomeVerifiedRate}%` : '—',
+            sub: `${stats.outcomeVerified} ยืนยัน · ${stats.outcomeRegressed} ยังไม่ดีขึ้น · ${stats.outcomePending} รอตรวจสอบ`,
+            color: '#7C3AED', icon: '🔁',
+          },
         ].map(s => (
           <Card key={s.label} style={{ padding: '12px 14px' }}>
             <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>{s.icon} {s.label}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, marginTop: 3 }}>{s.value}</div>
+            {s.sub && <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 2 }}>{s.sub}</div>}
           </Card>
         ))}
       </div>
@@ -12521,6 +12626,64 @@ function AdvancedPatientQueryCard({ data, navigate }) {
   );
 }
 
+// ── Data Completeness — ก่อนเชื่อตัวเลข KPI ต้องมั่นใจว่าข้อมูลที่ใช้คิดครบก่อน ──
+function DataCompletenessCard({ data, navigate }) {
+  const [expandedKey, setExpandedKey] = React.useState(null);
+  const completeness = React.useMemo(
+    () => computeDataCompleteness(data.patients, data.visits),
+    [data.patients, data.visits]
+  );
+
+  const sections = [
+    { key: 'neverVisited', label: 'ยังไม่เคยมารับบริการเลย', list: completeness.neverVisited, pct: completeness.neverVisitedPct, icon: '🆕' },
+    { key: 'missingTechnique', label: 'visit ล่าสุดยังไม่ประเมินเทคนิคการใช้ยาพ่น', list: completeness.missingTechnique, pct: completeness.missingTechniquePct, icon: '🎯' },
+    { key: 'missingAdherence', label: 'visit ล่าสุดยังไม่ประเมิน Adherence', list: completeness.missingAdherence, pct: completeness.missingAdherencePct, icon: '💊' },
+    { key: 'missingRiskLevel', label: 'ยังไม่ได้ประเมินระดับความเสี่ยง', list: completeness.missingRiskLevel, pct: completeness.missingRiskLevelPct, icon: '🔴' },
+  ];
+
+  return (
+    <Card style={{ marginBottom: 24 }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>📋 ความครบถ้วนของข้อมูล (Data Completeness)</h3>
+      <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>
+        ตัวชี้วัดทุกตัวพึ่งข้อมูลเหล่านี้ — ถ้าลืมประเมินจะไม่ถูกนับเข้า KPI เงียบๆ ตรวจสอบให้ครบก่อนเชื่อตัวเลข
+        (ทั้งทะเบียน {completeness.total} คน)
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {sections.map(s => (
+          <div key={s.key}>
+            <div onClick={() => setExpandedKey(k => k === s.key ? null : s.key)} className="rx-kpi-row-click" style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9, cursor: 'pointer',
+              background: s.list.length > 0 ? '#FFFBEB' : '#F0FDF4',
+              border: `1px solid ${s.list.length > 0 ? '#FDE68A' : '#BBF7D0'}`,
+            }}>
+              <span style={{ fontSize: 16 }}>{s.icon}</span>
+              <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: C.text }}>{s.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: s.list.length > 0 ? '#B45309' : '#059669' }}>
+                {s.list.length} คน <span style={{ fontWeight: 500, fontSize: 11 }}>({s.pct}%)</span>
+              </div>
+              {s.list.length > 0 && <span style={{ fontSize: 11, color: C.textLight, transform: expandedKey === s.key ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>}
+            </div>
+            {expandedKey === s.key && s.list.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6, paddingLeft: 10, maxHeight: 260, overflowY: 'auto' }}>
+                {s.list.map(p => (
+                  <div key={p.id} onClick={() => navigate?.('history', p.id)} className="rx-kpi-row-click" style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 7,
+                    background: C.bgAlt, border: `1px solid ${C.border}`, cursor: navigate ? 'pointer' : 'default', fontSize: 12,
+                  }}>
+                    <span style={{ fontWeight: 700 }}>{p.name || '—'}</span>
+                    <span style={{ color: C.textMuted }}>· HN {p.hn} · {p.diagnosis || '—'}</span>
+                    {navigate && <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: C.primary }}>ดูประวัติ →</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 // ── ReportsView ───────────────────────────────────────
 function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const pts = data.patients;
@@ -12868,13 +13031,16 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
       {/* ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข — ทั้งทะเบียน */}
       <AdvancedPatientQueryCard data={data} navigate={navigate} />
 
+      {/* ความครบถ้วนของข้อมูล — ก่อนเชื่อ KPI ต้องมั่นใจว่าข้อมูลครบก่อน */}
+      <DataCompletenessCard data={data} navigate={navigate} />
+
       {/* Export Section */}
       <ExportSection data={data} onDataChange={onDataChange} onForceBackup={onForceBackup} onLoadBackupSlots={onLoadBackupSlots} />
     </div>
   );
 }
 
-Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DRPTrackerView });
+Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DataCompletenessCard, DRPTrackerView });
 </script>
 <script type="text/babel">
 // QuickSearch.jsx — Cmd/Ctrl+K Quick Patient Lookup
@@ -15183,6 +15349,105 @@ function printQualityKPITrend(trend, metrics) {
 }
 window.printQualityKPIReport = printQualityKPIReport;
 window.printQualityKPITrend = printQualityKPITrend;
+
+// ── รวมชุดข้อมูลพร้อมส่งตรวจประเมิน HA Accreditation เป็นเอกสารเดียว ──────────
+// เดิมต้องไปเก็บทีละหน้า (KPI / DRP Tracker / HA Compliance) กว่าจะรวมส่งให้ผู้ประเมินได้ครบ
+// เสียเวลามาก — รวม 3 ส่วนเป็นเอกสารเดียวกดครั้งเดียว: (1) ตัวชี้วัดคุณภาพ 7 ตัว (2) DRP resolution
+// log ในช่วงเวลาที่เลือก พร้อมอัตรายืนยันได้ผลจริง (closed-loop) (3) สรุป HA Compliance ทั้ง 5 ด้าน
+function printAccreditationBundle(data, dateRange) {
+  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const kpis = calculateQualityKPIs(data, dateRange.start, dateRange.end);
+  // รายการตัวชี้วัดแบบย่อ (key/icon/targetLabel เท่านั้น พอสำหรับตารางพิมพ์) — ต้องตรงกับ 7 ตัวใน
+  // QualityKPIsDashboard เป๊ะ (ดู metrics array ที่นั่นถ้าจะแก้เป้าหมาย/เพิ่มตัวชี้วัดใหม่ ต้องแก้ที่นี่ด้วย)
+  const metrics = [
+    { key: 'copdExacerbRate', icon: '💨', targetLabel: '< 110 /100 ผู้ป่วย' },
+    { key: 'asthmaErRate', icon: '🚑', targetLabel: '< 20 /100 ผู้ป่วย' },
+    { key: 'asthmaIcsPercent', icon: '💊', targetLabel: '> 80%' },
+    { key: 'copdTherapyPercent', icon: '💉', targetLabel: '> 80%' },
+    { key: 'techniquePercent', icon: '🎯', targetLabel: '> 80%' },
+    { key: 'carePercent', icon: '👨‍⚕️', targetLabel: '> 80%' },
+    { key: 'adherenceGoodPercent', icon: '💊', targetLabel: '> 80%' },
+  ];
+  const kpiRows = metrics.map(({ key, icon, targetLabel }) => {
+    const m = kpis[key];
+    if (!m) return '';
+    const isPass = m.status === 'pass';
+    return `<tr>
+      <td>${icon} ${m.label}</td>
+      <td style="font-weight:700;color:${isPass ? '#059669' : '#DC2626'}">${m.value}${m.unit}</td>
+      <td>${targetLabel}</td>
+      <td>${m.num} / ${m.den}</td>
+      <td style="font-weight:700;color:${isPass ? '#059669' : '#DC2626'}">${isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</td>
+    </tr>`;
+  }).join('');
+
+  const worklist = computeDRPWorklist(data.patients, data.visits, data.drpTracker, dateRange);
+  const drpStats = getDRPWorklistStats(worklist);
+  const resolvedInRange = worklist.filter(w => w.status === 'resolved');
+  const drpRows = resolvedInRange.map(w => `<tr>
+    <td>${w.patient.hn} — ${w.patient.name}</td>
+    <td>${w.categoryTh || w.categoryEn}</td>
+    <td>${w.problemTh}</td>
+    <td>${w.actionTaken || '—'}</td>
+    <td>${w.resolvedBy || '—'}</td>
+    <td>${w.dateResolved || '—'}</td>
+    <td style="font-weight:700;color:${w.outcome?.checked ? (w.outcome.stillDetected ? '#DC2626' : '#059669') : '#6B7280'}">
+      ${w.outcome?.checked ? (w.outcome.stillDetected ? '⚠ ยังไม่ดีขึ้น' : '✅ ยืนยันดีขึ้น') : '⏳ รอตรวจสอบ'}
+    </td>
+  </tr>`).join('');
+
+  const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  const inRange = (r) => (!dateRange.start || (r.date || '') >= dateRange.start) && (!dateRange.end || (r.date || '') <= dateRange.end);
+  const haStats = {
+    medRec: (ha.medRec || []).filter(inRange).length,
+    adr: (ha.adr || []).filter(inRange).length,
+    severeADR: (ha.adr || []).filter(inRange).filter(r => r.severity === 'severe' || r.severity === 'fatal').length,
+    referrals: (ha.referrals || []).filter(inRange).length,
+    referralsWithFeedback: (ha.referrals || []).filter(inRange).filter(r => r.feedbackReceived).length,
+    discharge: (ha.discharge || []).filter(inRange).length,
+    rca: (ha.rca || []).filter(inRange).length,
+  };
+
+  const html = `
+    <h1>📦 ชุดข้อมูลพร้อมส่งตรวจประเมิน HA Accreditation</h1>
+    <div class="meta">คลินิก COPD/Asthma · ช่วงเวลา: ${dateRange.start} ถึง ${dateRange.end} · พิมพ์เมื่อ: ${today}</div>
+
+    <h2>🏆 ส่วนที่ 1 — ตัวชี้วัดคุณภาพ (Quality KPIs)</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${kpis.patientCount}</div><div class="l">ผู้ป่วยทั้งหมด</div></div>
+      <div class="stat"><div class="n">${kpis.copdCount}</div><div class="l">COPD</div></div>
+      <div class="stat"><div class="n">${kpis.asthmaCount}</div><div class="l">Asthma</div></div>
+      <div class="stat"><div class="n">${kpis.visitCount}</div><div class="l">Visits ในช่วง</div></div>
+    </div>
+    <table>
+      <thead><tr><th>ตัวชี้วัด</th><th>ค่าที่ได้</th><th>เป้าหมาย</th><th>ตัวเศษ/ส่วน</th><th>ผล</th></tr></thead>
+      <tbody>${kpiRows}</tbody>
+    </table>
+
+    <h2>🧪 ส่วนที่ 2 — DRP Resolution Log (ปิดวงจร: ยืนยันได้ผลจริงหรือไม่)</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${drpStats.resolved}</div><div class="l">DRP ที่แก้ไขแล้ว</div></div>
+      <div class="stat"><div class="n">${drpStats.resolutionRate}%</div><div class="l">อัตราแก้ไขสำเร็จ</div></div>
+      <div class="stat"><div class="n">${drpStats.outcomeVerifiedRate !== null ? drpStats.outcomeVerifiedRate + '%' : '—'}</div><div class="l">ยืนยันได้ผลจริง</div></div>
+      <div class="stat"><div class="n">${drpStats.highOpen}</div><div class="l">High ที่ยังเปิดอยู่</div></div>
+    </div>
+    ${resolvedInRange.length > 0 ? `<table>
+      <thead><tr><th>ผู้ป่วย</th><th>หมวด</th><th>ปัญหา</th><th>Action ที่ทำ</th><th>โดย</th><th>วันที่ปิด</th><th>ผลยืนยัน</th></tr></thead>
+      <tbody>${drpRows}</tbody>
+    </table>` : `<p style="color:#64748B;font-size:12px">ไม่มี DRP ที่แก้ไขแล้วในช่วงเวลานี้</p>`}
+
+    <h2>🏥 ส่วนที่ 3 — สรุป HA Compliance</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${haStats.medRec}</div><div class="l">Med Reconciliation</div></div>
+      <div class="stat"><div class="n">${haStats.adr}</div><div class="l">ADR Reports${haStats.severeADR > 0 ? ` (${haStats.severeADR} severe)` : ''}</div></div>
+      <div class="stat"><div class="n">${haStats.referrals}</div><div class="l">Referrals (${haStats.referralsWithFeedback} มี feedback)</div></div>
+      <div class="stat"><div class="n">${haStats.discharge}</div><div class="l">Discharge Checklist</div></div>
+      <div class="stat"><div class="n">${haStats.rca}</div><div class="l">RCA Reports</div></div>
+    </div>
+  `;
+  window.openPrintWindow(html, 'ชุดข้อมูลพร้อมส่งตรวจประเมิน HA Accreditation');
+}
+window.printAccreditationBundle = printAccreditationBundle;
 
 // ── พิมพ์รายชื่อผู้ป่วยที่ได้รับการบริบาลในช่วงเวลาที่เลือก ──────────────────
 function printPatientRoster(roster, dateRange) {
@@ -18549,6 +18814,11 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [rcaOpen, setRcaOpen] = useState(false);
   const [rcaTrigger, setRcaTrigger] = useState('');
+  const [bundleRange, setBundleRange] = useState(() => {
+    const end = new Date().toISOString().slice(0, 10);
+    const start = new Date(); start.setFullYear(start.getFullYear() - 1);
+    return { start: start.toISOString().slice(0, 10), end };
+  });
 
   const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
   const saveHA = (field, record) => {
@@ -18590,6 +18860,26 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
           </Card>
         ))}
       </div>
+
+      {/* ── ชุดข้อมูลพร้อมส่งตรวจประเมิน HA Accreditation — รวม KPI + DRP resolution log + HA compliance เป็นเอกสารเดียว ── */}
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 260px' }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.primary }}>📦 ชุดข้อมูลพร้อมส่งตรวจประเมิน</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 11.5, color: C.textMuted }}>
+              รวมตัวชี้วัดคุณภาพ 7 ตัว + DRP resolution log (พร้อมผลยืนยันปิดวงจร) + สรุป HA Compliance เป็นเอกสารเดียว
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="date" value={bundleRange.start} onChange={e => setBundleRange(r => ({ ...r, start: e.target.value }))}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+            <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
+            <input type="date" value={bundleRange.end} onChange={e => setBundleRange(r => ({ ...r, end: e.target.value }))}
+              style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
+            <Btn onClick={() => window.printAccreditationBundle?.(data, bundleRange)}>📦 Export ชุดข้อมูล</Btn>
+          </div>
+        </div>
+      </Card>
 
       {/* Patient selector + Action buttons */}
       <Card style={{ marginBottom: 16 }}>
