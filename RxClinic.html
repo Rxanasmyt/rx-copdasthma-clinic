@@ -1005,6 +1005,34 @@ const classifyRespiratoryMed = (name) => {
   return result;
 };
 
+// ── ค้นหาผู้ป่วยตามชื่อยา (medication cohort search) — ทั้งทะเบียน ไม่จำกัดช่วงวันที่ ──
+// แก้ช่องว่างที่ไม่เคยมีมาก่อน: ไม่มีทางค้นว่า "ใช้ยา X กี่คน" ได้เลยในแอพ (ต้อง export Excel มากรองเอง)
+// จับคู่แบบ substring ไม่สนตัวพิมพ์เล็ก/ใหญ่ กับชื่อยาที่บันทึกในแต่ละ visit — คืนรายชื่อผู้ป่วยที่ไม่ซ้ำกัน
+// พร้อมประวัติการใช้ยานั้นของแต่ละคน (เรียงตามวันที่ใช้ล่าสุดก่อน) ให้ดึงไปวิเคราะห์ต่อได้ตรงจุด
+const searchPatientsByMedication = (patients, visits, query) => {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return [];
+  const byPatient = new Map();
+  (visits || []).forEach(v => {
+    if (!v.patientId) return;
+    (v.medications || []).forEach(m => {
+      if (!m?.name || !m.name.toLowerCase().includes(q)) return;
+      if (!byPatient.has(v.patientId)) byPatient.set(v.patientId, []);
+      byPatient.get(v.patientId).push({
+        visitDate: v.visitDate || '', name: m.name, dose: m.dose || '', adherence: m.adherence || '',
+      });
+    });
+  });
+  const patientById = new Map((patients || []).map(p => [p.id, p]));
+  return [...byPatient.entries()]
+    .map(([patientId, matches]) => {
+      const sorted = matches.sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''));
+      return { patient: patientById.get(patientId) || null, patientId, matches: sorted, latestMatchDate: sorted[0]?.visitDate || '' };
+    })
+    .filter(r => r.patient) // กันผู้ป่วยที่ถูกลบไปแล้วแต่ visit เก่ายังค้างอยู่
+    .sort((a, b) => (b.latestMatchDate || '').localeCompare(a.latestMatchDate || ''));
+};
+
 // ── ค่า enum ที่ตัวชี้วัดคุณภาพ (Quality KPI) ใช้ตัดสิน "ผ่าน/ไม่ผ่าน" — แหล่งความจริงเดียว (single source of truth) ──
 // ทุกจุดที่ต้องเช็คว่า adherence/technique อยู่ระดับไหน ควรอ้างอิงชุดนี้แทนพิมพ์ string ('Good','Acceptable',...) ซ้ำเอง
 // เพื่อกันบั๊กแบบที่เจอมาก่อน (ลืมนับ 'Acceptable' เป็นเทคนิคที่ผ่านเกณฑ์ ทำให้ Technique Mastery Curve ขึ้น NaN)
@@ -11777,6 +11805,105 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
   );
 }
 
+// ── ค้นหาผู้ป่วยตามชื่อยา (ทั้งทะเบียน) — ปิดช่องว่างเดิมที่ต้อง export Excel มากรองเอง ──
+function MedicationSearchCard({ data, navigate }) {
+  const [q, setQ] = React.useState('');
+  const results = React.useMemo(() => searchPatientsByMedication(data.patients, data.visits, q), [data.patients, data.visits, q]);
+
+  // แนะนำชื่อยาจากคลังยาที่เคยสั่งจริง (COMMON_MEDICATIONS + ชื่อที่เคยพิมพ์เองใน visit) กันพิมพ์ผิดจนหาไม่เจอ
+  const suggestions = React.useMemo(() => {
+    const names = new Set(AppStore.COMMON_MEDICATIONS.map(m => m.name));
+    (data.visits || []).forEach(v => (v.medications || []).forEach(m => { if (m?.name) names.add(m.name); }));
+    return [...names].sort((a, b) => a.localeCompare(b, 'th'));
+  }, [data.visits]);
+
+  return (
+    <Card style={{ marginBottom: 24 }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>💊 ค้นหาผู้ป่วยตามยา</h3>
+      <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>
+        ค้นทั้งทะเบียนผู้ป่วย (ไม่จำกัดช่วงวันที่) — เช่น พิมพ์ "Anoro" เพื่อดูว่ามีผู้ป่วยใช้ยานี้กี่คน และใครบ้าง
+      </p>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <input
+          list="rx-med-search-suggestions"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="พิมพ์ชื่อยา เช่น Anoro, Symbicort, Salbutamol..."
+          style={{
+            flex: '1 1 260px', padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
+            fontSize: 13, fontFamily: 'inherit', outline: 'none',
+          }}
+        />
+        <datalist id="rx-med-search-suggestions">
+          {suggestions.map(n => <option key={n} value={n} />)}
+        </datalist>
+        {q && (
+          <button onClick={() => setQ('')} style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+            border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontFamily: 'inherit',
+          }}>ล้าง</button>
+        )}
+      </div>
+
+      {q && (
+        <>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700,
+            color: results.length ? C.primary : C.textMuted,
+          }}>
+            {results.length > 0
+              ? `พบผู้ป่วยที่ใช้ยาตรงกับ "${q}" ทั้งหมด ${results.length} ราย`
+              : `ไม่พบผู้ป่วยที่ใช้ยาตรงกับ "${q}"`}
+            {results.length > 0 && (
+              <button onClick={() => {
+                const rows = [['HN', 'ชื่อ-สกุล', 'โรค', 'ชื่อยาที่ตรง', 'ขนาดยา', 'Adherence', 'วันที่ล่าสุด'],
+                  ...results.flatMap(r => r.matches.map(m => [
+                    r.patient.hn, `${r.patient.prefix || ''}${r.patient.firstName || ''} ${r.patient.lastName || ''}`.trim(),
+                    r.patient.diagnosis || '', m.name, m.dose, m.adherence, m.visitDate,
+                  ]))];
+                const csv = '﻿' + rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = Object.assign(document.createElement('a'), { href: url, download: `ผู้ป่วยใช้ยา_${q}.csv` });
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }} style={{
+                marginLeft: 'auto', padding: '5px 12px', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontFamily: 'inherit',
+              }}>⬇️ ดาวน์โหลด CSV</button>
+            )}
+          </div>
+          {results.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 400, overflowY: 'auto' }}>
+              {results.map(r => (
+                <div key={r.patientId} onClick={() => navigate?.('history', r.patientId)} className="rx-kpi-row-click" style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9,
+                  background: C.bgAlt, border: `1px solid ${C.border}`, cursor: navigate ? 'pointer' : 'default',
+                }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: C.primary, color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700,
+                  }}>{(r.patient.firstName || r.patient.hn || '?').charAt(0)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+                      {r.patient.prefix || ''}{r.patient.firstName} {r.patient.lastName} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {r.patient.hn}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>
+                      {r.patient.diagnosis || '—'} · {[...new Set(r.matches.map(m => m.name))].join(', ')} · ล่าสุด {r.latestMatchDate || '—'}
+                      {r.matches.length > 1 && ` (${r.matches.length} ครั้ง)`}
+                    </div>
+                  </div>
+                  {navigate && <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, flexShrink: 0 }}>ดูประวัติ →</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 // ── ReportsView ───────────────────────────────────────
 function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const pts = data.patients;
@@ -12118,13 +12245,16 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
         );
       })()}
 
+      {/* ค้นหาผู้ป่วยตามยา — ทั้งทะเบียน */}
+      <MedicationSearchCard data={data} navigate={navigate} />
+
       {/* Export Section */}
       <ExportSection data={data} onDataChange={onDataChange} onForceBackup={onForceBackup} onLoadBackupSlots={onLoadBackupSlots} />
     </div>
   );
 }
 
-Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView });
+Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard });
 </script>
 <script type="text/babel">
 // QuickSearch.jsx — Cmd/Ctrl+K Quick Patient Lookup
@@ -13398,6 +13528,38 @@ const getProblemPatients = (metricKey, roster, noShowRoster) => {
   }
 };
 
+// ── ฝั่งตรงข้าม getProblemPatients — ผู้ป่วยที่ "ผ่านเกณฑ์" ของตัวชี้วัดนั้น (เดิมดูได้แต่ฝั่งไม่ผ่าน) ──
+// ให้ครบทั้ง numerator (ผ่าน) และ denominator เต็ม (ผ่าน+ไม่ผ่านรวมกัน) ไว้วิเคราะห์เปรียบเทียบได้
+const getPassingPatients = (metricKey, roster, noShowRoster) => {
+  roster = roster || []; noShowRoster = noShowRoster || [];
+  switch (metricKey) {
+    case 'copdExacerbRate':
+      return roster.filter(r => r.diagnosis === 'COPD' && !(r.exacerbationCount > 0))
+        .map(r => ({ ...r, reason: 'ไม่มีอาการกำเริบในช่วงเวลานี้' }));
+    case 'asthmaErRate':
+      return roster.filter(r => r.diagnosis === 'Asthma' && r.erOrAdmit !== true)
+        .map(r => ({ ...r, reason: 'ไม่ได้เข้าห้องฉุกเฉิน/นอนโรงพยาบาล' }));
+    case 'asthmaIcsPercent':
+      return roster.filter(r => r.diagnosis === 'Asthma' && r.hasICS === true)
+        .map(r => ({ ...r, reason: 'ได้รับยา ICS แล้ว' }));
+    case 'copdTherapyPercent':
+      return roster.filter(r => r.hasAppropriateCOPDTherapy === true)
+        .map(r => ({ ...r, reason: 'ได้รับยา LABA/LAMA/Combo ที่เหมาะสมแล้ว' }));
+    case 'techniquePercent':
+      return roster.filter(r => r.techniquePass === true)
+        .map(r => ({ ...r, reason: 'เทคนิคการใช้ยาพ่นล่าสุด ผ่านเกณฑ์' }));
+    case 'carePercent':
+      // "ผ่าน" ของ KPI นี้ = มาตามนัดจริง — ไม่ได้อยู่ใน noShowRoster และอยู่ในกลุ่มที่ถูกบริบาลช่วงนี้
+      { const noShowIds = new Set(noShowRoster.map(r => r.id));
+        return roster.filter(r => !noShowIds.has(r.id)).map(r => ({ ...r, reason: 'มารับบริการตามนัด/ในช่วงเวลานี้' })); }
+    case 'adherenceGoodPercent':
+      return roster.filter(r => r.adherenceGood === true)
+        .map(r => ({ ...r, reason: 'ความร่วมมือในการใช้ยาพ่น (Adherence) อยู่ในระดับดี' }));
+    default:
+      return [];
+  }
+};
+
 // ── รวมผู้ป่วยที่มีปัญหาจากทุกตัวชี้วัดไว้ที่เดียว (Action Center) — dedupe ตามคน + เรียงตามจำนวนปัญหา ──
 // คืนค่า [{ id, hn, name, diagnosis, issues: [{ metricKey, metricLabel, metricIcon, metricColor, reason }] }]
 const getAllProblemPatients = (metrics, kpis) => {
@@ -13427,6 +13589,14 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
     () => (open && metricKey) ? getProblemPatients(metricKey, roster, noShowRoster) : [],
     [open, metricKey, roster, noShowRoster]
   );
+  // ── ฝั่งที่ผ่านเกณฑ์ — เดิมดูได้แต่รายชื่อที่ "ไม่ผ่าน" เท่านั้น สลับดูฝั่งผ่านได้ด้วยปุ่มด้านล่าง ──
+  const [showPassing, setShowPassing] = React.useState(false);
+  const passingPatients = React.useMemo(
+    () => (open && metricKey) ? getPassingPatients(metricKey, roster, noShowRoster) : [],
+    [open, metricKey, roster, noShowRoster]
+  );
+  React.useEffect(() => { if (open) setShowPassing(false); }, [open, metricKey]); // รีเซ็ตทุกครั้งที่เปิด KPI ใหม่
+  const shownList = showPassing ? passingPatients : problemPatients;
 
   if (!open || !metricKey || !monthlyTrend) return null;
   const latest = monthlyTrend[monthlyTrend.length - 1].kpis[metricKey];
@@ -13514,34 +13684,46 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
           </div>
         )}
 
-        {/* ─── ผู้ป่วยที่เป็นสาเหตุให้ตัวชี้วัดนี้ไม่ผ่าน/ต้องติดตาม (ช่วงเวลาที่กำลังดูอยู่) ─── */}
+        {/* ─── ผู้ป่วยที่เป็นสาเหตุให้ตัวชี้วัดนี้ไม่ผ่าน/ต้องติดตาม (ช่วงเวลาที่กำลังดูอยู่) — สลับดูฝั่งผ่านเกณฑ์ได้ด้วย ─── */}
         {roster && (
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: problemPatients.length ? '#DC2626' : '#059669', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-              🚩 ผู้ป่วยที่ต้องติดตาม/แก้ไข {problemPatients.length > 0 && `(${problemPatients.length} ราย)`}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: showPassing ? '#059669' : (shownList.length ? '#DC2626' : '#059669'), display: 'flex', alignItems: 'center', gap: 6 }}>
+                {showPassing ? '✅ ผู้ป่วยที่ผ่านเกณฑ์' : '🚩 ผู้ป่วยที่ต้องติดตาม/แก้ไข'} {shownList.length > 0 && `(${shownList.length} ราย)`}
+              </div>
+              <div style={{ display: 'flex', gap: 6, background: C.bgAlt, borderRadius: 8, padding: 3 }}>
+                <button onClick={() => setShowPassing(false)} style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                  background: !showPassing ? '#DC2626' : 'transparent', color: !showPassing ? '#fff' : C.textMuted,
+                }}>🚩 ไม่ผ่าน ({problemPatients.length})</button>
+                <button onClick={() => setShowPassing(true)} style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                  background: showPassing ? '#059669' : 'transparent', color: showPassing ? '#fff' : C.textMuted,
+                }}>✅ ผ่าน ({passingPatients.length})</button>
+              </div>
             </div>
             {dateRange && <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>ช่วงเวลาที่กำลังดู: {dateRange.start} ถึง {dateRange.end}</div>}
-            {problemPatients.length === 0 ? (
-              <div style={{ padding: '12px 16px', borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 12.5, color: '#059669', fontWeight: 600 }}>
-                ✅ ไม่มีผู้ป่วยที่ต้องแก้ไขในช่วงเวลานี้
+            {shownList.length === 0 ? (
+              <div style={{ padding: '12px 16px', borderRadius: 10, background: showPassing ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${showPassing ? '#FECACA' : '#BBF7D0'}`, fontSize: 12.5, color: showPassing ? '#B91C1C' : '#059669', fontWeight: 600 }}>
+                {showPassing ? '— ไม่มีผู้ป่วยที่ผ่านเกณฑ์ในช่วงเวลานี้' : '✅ ไม่มีผู้ป่วยที่ต้องแก้ไขในช่วงเวลานี้'}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
-                {problemPatients.map((p, i) => (
+                {shownList.map((p, i) => (
                   <div key={p.id} onClick={() => goToPatient(p.id)} className="rx-kpi-row-click" style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9,
-                    background: '#FEF2F2', border: '1px solid #FECACA', cursor: navigate ? 'pointer' : 'default',
+                    background: showPassing ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${showPassing ? '#BBF7D0' : '#FECACA'}`, cursor: navigate ? 'pointer' : 'default',
                     animation: 'rxRiseSm 0.35s ease', animationDelay: `${i * 40}ms`, animationFillMode: 'both',
                   }}>
                     <div style={{
-                      width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: '#DC2626', color: '#fff',
+                      width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: showPassing ? '#059669' : '#DC2626', color: '#fff',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700,
                     }}>{(p.name || p.hn || '?').charAt(0)}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>{p.name || '—'} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {p.hn}</span></div>
-                      <div style={{ fontSize: 11.5, color: '#B91C1C', marginTop: 1 }}>{p.reason}</div>
+                      <div style={{ fontSize: 11.5, color: showPassing ? '#047857' : '#B91C1C', marginTop: 1 }}>{p.reason}</div>
                     </div>
-                    {navigate && <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', flexShrink: 0 }}>ดูประวัติ →</span>}
+                    {navigate && <span style={{ fontSize: 11, fontWeight: 700, color: showPassing ? '#059669' : '#DC2626', flexShrink: 0 }}>ดูประวัติ →</span>}
                   </div>
                 ))}
               </div>
@@ -14235,7 +14417,7 @@ const PatientRosterTable = ({ roster, dateRange }) => {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
               <tr style={{ background: C.bgAlt }}>
-                {['ชื่อ-สกุล','HN','โรค','Visit ล่าสุด','Exacerb.','ER/Admit','ICS','LABA/LAMA','เทคนิคผ่าน'].map((h,i) => (
+                {['ชื่อ-สกุล','HN','โรค','Visit ล่าสุด','Exacerb.','ER/Admit','ICS','LABA/LAMA','เทคนิคผ่าน','Adherence ดี'].map((h,i) => (
                   <th key={i} style={{ padding: '8px 10px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontSize: 10.5, fontWeight: 700, color: C.textMuted, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -14254,10 +14436,11 @@ const PatientRosterTable = ({ roster, dateRange }) => {
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasICS)}</td>
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.hasAppropriateCOPDTherapy)}</td>
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.techniquePass)}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>{yn(r.adherenceGood)}</td>
                 </tr>
               ))}
               {roster.length === 0 && (
-                <tr><td colSpan={9} style={{ padding: 16, textAlign: 'center', color: C.textMuted }}>ไม่มีผู้ป่วยที่ได้รับการบริบาลในช่วงเวลานี้</td></tr>
+                <tr><td colSpan={10} style={{ padding: 16, textAlign: 'center', color: C.textMuted }}>ไม่มีผู้ป่วยที่ได้รับการบริบาลในช่วงเวลานี้</td></tr>
               )}
             </tbody>
           </table>
@@ -14380,12 +14563,13 @@ function printPatientRoster(roster, dateRange) {
     <td style="text-align:center">${yn(r.hasICS)}</td>
     <td style="text-align:center">${yn(r.hasAppropriateCOPDTherapy)}</td>
     <td style="text-align:center">${yn(r.techniquePass)}</td>
+    <td style="text-align:center">${yn(r.adherenceGood)}</td>
   </tr>`).join('');
   const html = `
     <h1>👥 รายชื่อผู้ป่วยที่ได้รับการบริบาลทางเภสัชกรรม</h1>
     <div class="meta">ช่วงเวลา: ${dateRange.start} ถึง ${dateRange.end} · จำนวน ${roster.length} คน · พิมพ์เมื่อ: ${today}</div>
     <table>
-      <thead><tr><th>ชื่อ-สกุล</th><th>HN</th><th>โรค</th><th>Visit ล่าสุด</th><th>Exacerb.</th><th>ER/Admit</th><th>ICS</th><th>LABA/LAMA</th><th>เทคนิคผ่าน</th></tr></thead>
+      <thead><tr><th>ชื่อ-สกุล</th><th>HN</th><th>โรค</th><th>Visit ล่าสุด</th><th>Exacerb.</th><th>ER/Admit</th><th>ICS</th><th>LABA/LAMA</th><th>เทคนิคผ่าน</th><th>Adherence ดี</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   window.openPrintWindow(html, 'รายชื่อผู้ป่วยที่ได้รับการบริบาล');
