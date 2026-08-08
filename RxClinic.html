@@ -1005,16 +1005,19 @@ const classifyRespiratoryMed = (name) => {
   return result;
 };
 
-// ── ค้นหาผู้ป่วยตามชื่อยา (medication cohort search) — ทั้งทะเบียน ไม่จำกัดช่วงวันที่ ──
+// ── ค้นหาผู้ป่วยตามชื่อยา (medication cohort search) — ค้นได้ทั้งทะเบียน (ไม่ระบุ dateRange) ──
+// หรือจำกัดเฉพาะช่วงวันที่ก็ได้ (ระบุ dateRange = {start, end} เป็น yyyy-mm-dd) เลือกได้ทุกแบบตามต้องการ
 // แก้ช่องว่างที่ไม่เคยมีมาก่อน: ไม่มีทางค้นว่า "ใช้ยา X กี่คน" ได้เลยในแอพ (ต้อง export Excel มากรองเอง)
 // จับคู่แบบ substring ไม่สนตัวพิมพ์เล็ก/ใหญ่ กับชื่อยาที่บันทึกในแต่ละ visit — คืนรายชื่อผู้ป่วยที่ไม่ซ้ำกัน
 // พร้อมประวัติการใช้ยานั้นของแต่ละคน (เรียงตามวันที่ใช้ล่าสุดก่อน) ให้ดึงไปวิเคราะห์ต่อได้ตรงจุด
-const searchPatientsByMedication = (patients, visits, query) => {
+const searchPatientsByMedication = (patients, visits, query, dateRange) => {
   const q = (query || '').trim().toLowerCase();
   if (!q) return [];
   const byPatient = new Map();
   (visits || []).forEach(v => {
     if (!v.patientId) return;
+    if (dateRange?.start && (!v.visitDate || v.visitDate < dateRange.start)) return;
+    if (dateRange?.end && (!v.visitDate || v.visitDate > dateRange.end)) return;
     (v.medications || []).forEach(m => {
       if (!m?.name || !m.name.toLowerCase().includes(q)) return;
       if (!byPatient.has(v.patientId)) byPatient.set(v.patientId, []);
@@ -11808,7 +11811,18 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
 // ── ค้นหาผู้ป่วยตามชื่อยา (ทั้งทะเบียน) — ปิดช่องว่างเดิมที่ต้อง export Excel มากรองเอง ──
 function MedicationSearchCard({ data, navigate }) {
   const [q, setQ] = React.useState('');
-  const results = React.useMemo(() => searchPatientsByMedication(data.patients, data.visits, q), [data.patients, data.visits, q]);
+  // ── โหมดช่วงเวลา: ค้นทั้งทะเบียน (ค่าเริ่มต้น) หรือจำกัดเฉพาะช่วงวันที่ก็ได้ เลือกได้ทุกแบบ ──
+  const [useDateRange, setUseDateRange] = React.useState(false);
+  const [dateRange, setDateRange] = React.useState(() => {
+    const end = new Date().toISOString().slice(0, 10);
+    const start = new Date(); start.setFullYear(start.getFullYear() - 1);
+    return { start: start.toISOString().slice(0, 10), end };
+  });
+  const activeRange = useDateRange ? dateRange : null;
+  const results = React.useMemo(
+    () => searchPatientsByMedication(data.patients, data.visits, q, activeRange),
+    [data.patients, data.visits, q, activeRange]
+  );
 
   // แนะนำชื่อยาจากคลังยาที่เคยสั่งจริง (COMMON_MEDICATIONS + ชื่อที่เคยพิมพ์เองใน visit) กันพิมพ์ผิดจนหาไม่เจอ
   const suggestions = React.useMemo(() => {
@@ -11821,9 +11835,9 @@ function MedicationSearchCard({ data, navigate }) {
     <Card style={{ marginBottom: 24 }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>💊 ค้นหาผู้ป่วยตามยา</h3>
       <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>
-        ค้นทั้งทะเบียนผู้ป่วย (ไม่จำกัดช่วงวันที่) — เช่น พิมพ์ "Anoro" เพื่อดูว่ามีผู้ป่วยใช้ยานี้กี่คน และใครบ้าง
+        เลือกค้นทั้งทะเบียนผู้ป่วย หรือจำกัดเฉพาะช่วงวันที่ก็ได้ — เช่น พิมพ์ "Anoro" เพื่อดูว่ามีผู้ป่วยใช้ยานี้กี่คน และใครบ้าง
       </p>
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <input
           list="rx-med-search-suggestions"
           value={q}
@@ -11842,6 +11856,31 @@ function MedicationSearchCard({ data, navigate }) {
             padding: '9px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
             border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontFamily: 'inherit',
           }}>ล้าง</button>
+        )}
+      </div>
+
+      {/* ── สลับโหมด: ทั้งทะเบียน / จำกัดช่วงวันที่ ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: `1.5px solid ${C.border}` }}>
+          <button onClick={() => setUseDateRange(false)} style={{
+            padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+            background: !useDateRange ? C.primary : C.surface, color: !useDateRange ? '#fff' : C.text,
+          }}>📖 ทั้งทะเบียน</button>
+          <button onClick={() => setUseDateRange(true)} style={{
+            padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+            background: useDateRange ? C.primary : C.surface, color: useDateRange ? '#fff' : C.text,
+          }}>📅 จำกัดช่วงวันที่</button>
+        </div>
+        {useDateRange && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="date" value={dateRange.start}
+              onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+              style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
+            <span style={{ color: C.textMuted, fontSize: 11.5 }}>ถึง</span>
+            <input type="date" value={dateRange.end}
+              onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+              style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
+          </div>
         )}
       </div>
 
@@ -13988,6 +14027,14 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
     start.setMonth(start.getMonth() - months);
     setDateRange({ start: start.toISOString().slice(0, 10), end });
   };
+  // ── "ทั้งหมด" — ดึง KPI/รายชื่อผู้ป่วยจากทั้งทะเบียน ไม่ใช่แค่ผู้ป่วยที่มาในช่วงที่เลือก ──
+  // ใช้วันที่ visit แรกสุดที่มีบันทึกจริงเป็นจุดเริ่ม (กันพลาดกรณีข้อมูลเก่ากว่าที่คาด) ไม่ใช่วันคงที่เดา
+  const setAllTimeRange = () => {
+    const end = new Date().toISOString().slice(0, 10);
+    const dates = (data.visits || []).map(v => v.visitDate).filter(Boolean);
+    const earliest = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : end;
+    setDateRange({ start: earliest, end });
+  };
   // ดึงช่วง "เดือนนี้ / ไตรมาสนี้ / ปีงบนี้ / ปีงบที่แล้ว" แบบเป๊ะๆ (ไม่ใช่ N วันย้อนหลัง)
   // back=0 คือช่วงปัจจุบัน, back=1 คือช่วงก่อนหน้า 1 ช่วง (เช่น ปีงบที่แล้ว)
   const setExactPeriod = (granularity, back = 0) => {
@@ -14125,6 +14172,10 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
                   border: `1px solid ${C.border}`, background: C.bgAlt, color: C.text, fontFamily: 'inherit',
                 }}>{label}</button>
               ))}
+              <button onClick={setAllTimeRange} title="คำนวณตัวชี้วัด/รายชื่อผู้ป่วยจากทั้งทะเบียน ตั้งแต่ visit แรกสุดจนถึงวันนี้" style={{
+                padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                border: `1.5px solid #059669`, background: '#ECFDF5', color: '#047857', fontFamily: 'inherit',
+              }}>📖 ทั้งหมด (ทั้งทะเบียน)</button>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
                 <input type="date" value={dateRange.start}
                   onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}

@@ -32,6 +32,18 @@ function run(t) {
     t.ok('searchPatientsByMedication: เรียงประวัติของแต่ละคนตามวันที่ล่าสุดก่อน', p1result.matches[0].visitDate === '2026-07-01');
     t.ok('searchPatientsByMedication: แนบข้อมูล patient object ให้ครบ (ดึงไปแสดง/นำทางได้)', p1result.patient.hn === 'HNp1');
     t.ok('searchPatientsByMedication: เรียงผลลัพธ์ตามวันที่ใช้ยาล่าสุดของแต่ละคน (คนล่าสุดก่อน)', results[0].patientId === 'p3');
+
+    // ── โหมดจำกัดช่วงวันที่ (dateRange) — ต้องเลือกได้ทั้งทั้งทะเบียนและช่วงวันที่ ──
+    const juneOnly = searchPatientsByMedication(patients, visits, 'Anoro', { start: '2026-06-01', end: '2026-06-30' });
+    t.ok('searchPatientsByMedication+dateRange: กรองเฉพาะ visit ในช่วงที่ระบุ (p1 เดือน มิ.ย. เท่านั้น)',
+      juneOnly.length === 1 && juneOnly[0].patientId === 'p1' && juneOnly[0].matches.length === 1);
+    const julyOnly = searchPatientsByMedication(patients, visits, 'Anoro', { start: '2026-07-01', end: '2026-07-31' });
+    t.ok('searchPatientsByMedication+dateRange: เดือน ก.ค. ได้ทั้ง p1(visit ที่ 2) และ p3',
+      julyOnly.length === 2 && julyOnly.every(r => r.matches.every(m => m.visitDate >= '2026-07-01')));
+    t.ok('searchPatientsByMedication+dateRange: ไม่ระบุ dateRange = ค้นทั้งทะเบียนเหมือนเดิม (ไม่ breaking change)',
+      searchPatientsByMedication(patients, visits, 'Anoro', null).length === results.length);
+    t.ok('searchPatientsByMedication+dateRange: ช่วงที่ไม่มี match เลย -> คืน array ว่าง ไม่ throw',
+      searchPatientsByMedication(patients, visits, 'Anoro', { start: '2020-01-01', end: '2020-12-31' }).length === 0);
   }
 
   // ─── searchPatientsByMedication: กรณี edge case ───
