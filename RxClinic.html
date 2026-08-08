@@ -1054,6 +1054,82 @@ const RX_KPI_ENUMS = {
 const isTechniquePass = (score) => RX_KPI_ENUMS.TECHNIQUE_PASS.includes(score);
 const isAdherenceGood = (level) => level === RX_KPI_ENUMS.ADHERENCE_GOOD;
 
+// ── ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข (Advanced Patient Query) — ทั้งทะเบียน ไม่จำกัดช่วงวันที่ ──
+// เดิมกรองได้ทีละอย่าง (โรค/ความเสี่ยง/ยา) ต้องผสมเงื่อนไขเองไม่ได้ เช่น "COPD + ยังไม่ได้ LABA/LAMA
+// + เทคนิคไม่ผ่าน + ไม่มาเกิน 90 วัน" — ใช้ visit ล่าสุด "ตลอดกาล" ของแต่ละคนเป็นฐาน (ไม่ใช่ล่าสุดในช่วง
+// เวลาที่เลือก แบบ KPI roster) เพราะโจทย์นี้คือ "ใครในทะเบียนทั้งหมดที่ตรงเงื่อนไขตอนนี้" ไม่ใช่ตัวชี้วัดของช่วงเวลา
+// filters ที่รองรับ (ทุกตัว optional, ไม่ระบุ = ไม่กรอง): diagnosis, riskLevel, hasICS, techniquePass,
+// adherenceGood, medicationContains, notVisitedDays (จำนวนวันที่ไม่มาอย่างน้อยเท่านี้)
+const advancedPatientSearch = (patients, visits, filters, todayStr) => {
+  filters = filters || {};
+  todayStr = todayStr || new Date().toISOString().slice(0, 10);
+  const latestByPatient = new Map();
+  (visits || []).forEach(v => {
+    if (!v.patientId || !v.visitDate) return;
+    const cur = latestByPatient.get(v.patientId);
+    if (!cur || v.visitDate > cur.visitDate) latestByPatient.set(v.patientId, v);
+  });
+
+  const results = [];
+  (patients || []).forEach(p => {
+    if (filters.diagnosis && filters.diagnosis !== 'any' && p.diagnosis !== filters.diagnosis) return;
+    if (filters.riskLevel && filters.riskLevel !== 'any') {
+      const rl = p.riskLevel || 'Low';
+      if (rl !== filters.riskLevel) return;
+    }
+    const lastVisit = latestByPatient.get(p.id);
+    const reasons = [];
+
+    if (filters.hasICS && filters.hasICS !== 'any') {
+      const meds = lastVisit?.medications || [];
+      const hasICS = meds.some(m => (typeof classifyRespiratoryMed === 'function' ? classifyRespiratoryMed(m.name).ICS : false));
+      if ((filters.hasICS === 'yes') !== hasICS) return;
+      reasons.push(hasICS ? 'ได้รับยา ICS' : 'ยังไม่ได้รับยา ICS');
+    }
+    if (filters.techniquePass && filters.techniquePass !== 'any') {
+      const techs = lastVisit?.inhalerTechnique || [];
+      const anyAssessed = techs.length > 0;
+      const pass = anyAssessed && techs.some(t => isTechniquePass(t.overallScore));
+      if (filters.techniquePass === 'never_assessed') {
+        if (anyAssessed) return;
+      } else {
+        if (!anyAssessed) return;
+        if ((filters.techniquePass === 'pass') !== pass) return;
+      }
+      reasons.push(anyAssessed ? (pass ? 'เทคนิคผ่านเกณฑ์' : 'เทคนิคไม่ผ่านเกณฑ์') : 'ยังไม่เคยประเมินเทคนิค');
+    }
+    if (filters.adherenceGood && filters.adherenceGood !== 'any') {
+      const level = lastVisit?.adherence?.level;
+      const good = isAdherenceGood(level);
+      if (filters.adherenceGood === 'never_assessed') {
+        if (level) return;
+      } else {
+        if (!level) return;
+        if ((filters.adherenceGood === 'good') !== good) return;
+      }
+      reasons.push(level ? (good ? 'Adherence ดี' : 'Adherence ไม่ดี') : 'ยังไม่เคยประเมิน Adherence');
+    }
+    if (filters.medicationContains) {
+      const q = filters.medicationContains.trim().toLowerCase();
+      const meds = lastVisit?.medications || [];
+      if (q && !meds.some(m => (m.name || '').toLowerCase().includes(q))) return;
+      if (q) reasons.push(`ใช้ยาที่มีคำว่า "${filters.medicationContains}"`);
+    }
+    if (filters.notVisitedDays) {
+      const days = lastVisit ? Math.floor((new Date(todayStr) - new Date(lastVisit.visitDate)) / 86400000) : Infinity;
+      if (days < filters.notVisitedDays) return;
+      reasons.push(lastVisit ? `ไม่มาแล้ว ${days} วัน` : 'ยังไม่เคยมารับบริการเลย');
+    }
+
+    results.push({
+      id: p.id, hn: p.hn, name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+      diagnosis: p.diagnosis, riskLevel: p.riskLevel || 'Low',
+      lastVisitDate: lastVisit?.visitDate || null, reasons,
+    });
+  });
+  return results.sort((a, b) => (b.lastVisitDate || '').localeCompare(a.lastVisitDate || ''));
+};
+
 // ── Role-based access control ──────────────────────────────────────────
 // 'admin' = หัวหน้า/ผู้ดูแลระบบ (ทุกสิทธิ์) · 'pharmacist' = เภสัชกร (ดู/แก้/ลบข้อมูลทางคลินิกได้ แต่เข้า Settings ไม่ได้)
 // 'assistant' = ผู้ช่วยเภสัชกร (ดูข้อมูลได้อย่างเดียว บันทึก/แก้ไข/ลบไม่ได้)
@@ -4220,6 +4296,93 @@ function autoPCNE(visit, patient) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// DRP Tracker — เดิม detectDRP คำนวณสดทุกครั้งที่ render ไม่เคยถูก "บันทึกเป็นรายการ" เลย
+// (ไม่มี id/สถานะ/คนรับผิดชอบ/วันที่แก้ไข) ทำให้แก้ไขปัญหาให้ตรงจุด/ถูกคน/ติดตามได้ยาก
+//
+// แนวทางที่เลือก: ไม่ duplicate ข้อมูล DRP ที่ตรวจจับได้ไปเก็บซ้ำ (จะ stale ทันทีที่แก้ไข visit)
+// แต่คำนวณ "รายการที่ตรวจพบ" สดจาก detectDRP ทุกครั้ง (การันตี real-time + ถูกต้องกับข้อมูลจริงเสมอ)
+// แล้ว "merge" เข้ากับ data.drpTracker ซึ่งเป็น sparse map เก็บเฉพาะ "ส่วนที่เภสัชกรกรอกเพิ่ม"
+// (สถานะ/คนรับผิดชอบ/action ที่ทำ/วันที่แก้เสร็จ) คีย์ด้วย id ที่ deterministic จาก visitId+code
+// ทำให้ Firestore doc ไม่บวมตามจำนวน DRP ที่ตรวจพบ (เก็บเฉพาะที่ถูกจัดการแล้วเท่านั้น)
+const drpEntryId = (visitId, code) => visitId + '::' + code;
+
+// รวม DRP ที่ตรวจพบจริงจากทุก visit (หรือเฉพาะช่วงวันที่ถ้าระบุ dateRange) เข้ากับสถานะที่บันทึกไว้ใน
+// drpTracker คืนเป็นรายการเดียว เรียง: ยังไม่ปิดก่อน (High > Medium > Low) แล้วตามด้วยที่ปิดแล้ว (ล่าสุดก่อน)
+const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
+  drpTracker = drpTracker || {};
+  const patientById = new Map((patients || []).map(p => [p.id, p]));
+  const entries = [];
+  (visits || []).forEach(v => {
+    if (!v.patientId) return;
+    if (dateRange?.start && (!v.visitDate || v.visitDate < dateRange.start)) return;
+    if (dateRange?.end && (!v.visitDate || v.visitDate > dateRange.end)) return;
+    const p = patientById.get(v.patientId);
+    if (!p) return; // กันผู้ป่วยถูกลบไปแล้วแต่ visit เก่าค้าง
+    const detected = (typeof detectDRP === 'function' ? detectDRP(v, p) : []) || [];
+    detected.forEach(d => {
+      const id = drpEntryId(v.id, d.code);
+      const tracked = drpTracker[id] || {};
+      entries.push({
+        id, patientId: v.patientId, visitId: v.id, visitDate: v.visitDate || '',
+        patient: { id: p.id, hn: p.hn, name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(), diagnosis: p.diagnosis },
+        code: d.code, categoryEn: d.categoryEn, categoryTh: d.categoryTh, severity: d.severity,
+        problemEn: d.problemEn, problemTh: d.problemTh, actionEn: d.actionEn, actionTh: d.actionTh,
+        status: tracked.status || 'open', assignedTo: tracked.assignedTo || '',
+        actionTaken: tracked.actionTaken || '', note: tracked.note || '',
+        dateResolved: tracked.dateResolved || '', resolvedBy: tracked.resolvedBy || '', updatedAt: tracked.updatedAt || '',
+      });
+    });
+  });
+  const sevRank = { High: 0, Medium: 1, Low: 2 };
+  const statusRank = { open: 0, in_progress: 0, resolved: 1 };
+  return entries.sort((a, b) =>
+    (statusRank[a.status] - statusRank[b.status]) ||
+    (sevRank[a.severity] - sevRank[b.severity]) ||
+    (b.visitDate || '').localeCompare(a.visitDate || '')
+  );
+};
+
+// สรุปสถิติของ worklist — ใช้แปะเป็น summary card + เชื่อมกับตัวชี้วัด (resolution rate ที่แม่นจริง
+// นับจากรายการที่ถูกปิดจริง ไม่ใช่แค่ checkbox เดา เหมือน drpResolutionRate เดิม)
+const getDRPWorklistStats = (worklist) => {
+  worklist = worklist || [];
+  const open = worklist.filter(w => w.status === 'open').length;
+  const inProgress = worklist.filter(w => w.status === 'in_progress').length;
+  const resolved = worklist.filter(w => w.status === 'resolved').length;
+  const highOpen = worklist.filter(w => w.status !== 'resolved' && w.severity === 'High').length;
+  const total = worklist.length;
+  return {
+    total, open, inProgress, resolved, highOpen,
+    resolutionRate: total > 0 ? ((resolved / total) * 100).toFixed(1) : '0',
+  };
+};
+
+// นับ DRP severity สูงที่ยังไม่ปิด จาก "visit ล่าสุดของแต่ละคน" เท่านั้น (เบากว่าสแกนทั้งประวัติ) —
+// ใช้แปะ badge บน sidebar ที่ render ทุกหน้า ต้องเร็ว ไม่ใช่รายงานเจาะลึกที่ต้องดูย้อนหลังทั้งหมด
+const countOpenHighDRP = (patients, visits, drpTracker) => {
+  drpTracker = drpTracker || {};
+  const latestByPatient = new Map();
+  (visits || []).forEach(v => {
+    if (!v.patientId || !v.visitDate) return;
+    const cur = latestByPatient.get(v.patientId);
+    if (!cur || v.visitDate > cur.visitDate) latestByPatient.set(v.patientId, v);
+  });
+  const patientById = new Map((patients || []).map(p => [p.id, p]));
+  let count = 0;
+  latestByPatient.forEach((v, pid) => {
+    const p = patientById.get(pid);
+    if (!p) return;
+    const detected = (typeof detectDRP === 'function' ? detectDRP(v, p) : []) || [];
+    detected.forEach(d => {
+      if (d.severity !== 'High') return;
+      const tracked = drpTracker[drpEntryId(v.id, d.code)];
+      if (!tracked || tracked.status !== 'resolved') count++;
+    });
+  });
+  return count;
+};
+
+// ════════════════════════════════════════════════════════════════
 // RxAI — On-device Clinical Intelligence Engine (no external API)
 // ประมวลผลบนเครื่อง ปลอดภัยตาม PDPA · ทำงาน offline ได้เต็มรูปแบบ
 // ════════════════════════════════════════════════════════════════
@@ -4620,6 +4783,7 @@ Object.assign(window, {
   AllergyBanner, InteractionAlerts, RenalAlert, SmokingBadge, VaccinationStatus,
   checkInteractions, getRenalCategory, detectDRP,
   autoGenerateSOAP, autoPharmacistNote, DRUG_DOSE_GUIDE, autoPCNE,
+  computeDRPWorklist, getDRPWorklistStats, countOpenHighDRP, drpEntryId,
 });
 </script>
 <script type="text/babel">
@@ -7283,6 +7447,13 @@ function SmartAlertBanner({ data, navigate }) {
                 </div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, lineHeight: 1.4 }}>{al.detail}</div>
               </div>
+              {al.type === 'drp' && (
+                <span onClick={(e) => { e.stopPropagation(); navigate('drpTracker-focus', al.patientId); }}
+                  style={{
+                    fontSize: 10, color: '#fff', fontWeight: 700, whiteSpace: 'nowrap', marginTop: 1,
+                    background: C.high, borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
+                  }}>📋 ติดตามใน DRP Tracker</span>
+              )}
               <span style={{ fontSize: 10, color: C.primaryLight, fontWeight: 600, whiteSpace: 'nowrap', marginTop: 2 }}>ดูข้อมูล →</span>
             </div>
           ))}
@@ -11286,6 +11457,203 @@ function RiskScreeningView({ data, navigate }) {
   );
 }
 
+// ── DRP Tracker ────────────────────────────────────────
+// แถวเดียวในตาราง = 1 DRP ที่ตรวจพบจริงจากข้อมูล visit (คำนวณสดผ่าน computeDRPWorklist ทุกครั้ง
+// ที่ data เปลี่ยน — ไม่มี stale data) merge กับสถานะที่เภสัชกรกรอกเพิ่ม (status/มอบหมาย/action/note)
+// ซึ่งเก็บใน data.drpTracker (sparse map คีย์ด้วย drpEntryId) กด "แก้ไข" ที่แถวเพื่อขยายดู/บันทึกได้เลย
+const DRP_STATUS_LABEL = { open: '🔴 ยังไม่แก้ไข', in_progress: '🟡 กำลังดำเนินการ', resolved: '✅ แก้ไขแล้ว' };
+const DRP_SEVERITY_COLOR = { High: '#DC2626', Medium: '#D97706', Low: '#6B7280' };
+
+function DRPTrackerRow({ entry, onSave, navigate, users }) {
+  const [open, setOpen] = React.useState(false);
+  const [status, setStatus] = React.useState(entry.status);
+  const [assignedTo, setAssignedTo] = React.useState(entry.assignedTo);
+  const [actionTaken, setActionTaken] = React.useState(entry.actionTaken);
+  const [note, setNote] = React.useState(entry.note);
+
+  const save = () => {
+    onSave(entry.id, {
+      status, assignedTo, actionTaken, note,
+      dateResolved: status === 'resolved' ? (entry.dateResolved || new Date().toISOString().slice(0, 10)) : '',
+      resolvedBy: status === 'resolved' ? (entry.resolvedBy || assignedTo || '') : '',
+      updatedAt: new Date().toISOString().slice(0, 10),
+    });
+    setOpen(false);
+  };
+
+  const sevColor = DRP_SEVERITY_COLOR[entry.severity] || '#6B7280';
+  return (
+    <div style={{
+      border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 8, overflow: 'hidden',
+      borderLeft: `3px solid ${sevColor}`,
+    }}>
+      <div onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer',
+        background: entry.status === 'resolved' ? C.bgAlt : '#fff',
+      }}>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+          color: sevColor, background: `${sevColor}18`, border: `1px solid ${sevColor}40`,
+        }}>{entry.severity}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+            {entry.patient.name || '—'} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {entry.patient.hn}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>
+            {entry.categoryTh || entry.categoryEn} — {entry.problemTh} <span style={{ opacity: 0.7 }}>(visit {entry.visitDate})</span>
+          </div>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{DRP_STATUS_LABEL[entry.status]}</span>
+        {entry.assignedTo && <span style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: 'nowrap' }}>👤 {entry.assignedTo}</span>}
+        <span style={{ fontSize: 11, color: C.textLight, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+      </div>
+      {open && (
+        <div style={{ padding: '12px 14px', borderTop: `1px solid ${C.border}`, background: C.bgAlt, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.6 }}>
+            💡 แนวทางแก้ไขที่แนะนำ: {entry.actionTh || entry.actionEn}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>สถานะ</label>
+              <Select value={status} onChange={setStatus} options={[
+                { value: 'open', label: '🔴 ยังไม่แก้ไข' }, { value: 'in_progress', label: '🟡 กำลังดำเนินการ' }, { value: 'resolved', label: '✅ แก้ไขแล้ว' },
+              ]} style={{ width: 170, padding: '6px 10px', fontSize: 12 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>มอบหมายให้</label>
+              <Select value={assignedTo} onChange={setAssignedTo} options={[
+                { value: '', label: '— ไม่ระบุ —' },
+                ...(users || []).map(u => ({ value: u.name || u.uid || u.id, label: u.name || u.uid || u.id })),
+              ]} style={{ width: 170, padding: '6px 10px', fontSize: 12 }} />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>Action ที่ทำ / แนวทางแก้ไข</label>
+            <textarea value={actionTaken} onChange={e => setActionTaken(e.target.value)} rows={2}
+              placeholder="เช่น โทรแจ้งแพทย์ปรับยา, สอนเทคนิคซ้ำ, ติดตามผลครั้งหน้า..."
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>หมายเหตุเพิ่มเติม</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical' }} />
+          </div>
+          {entry.dateResolved && <div style={{ fontSize: 11, color: C.textMuted }}>✅ ปิดเมื่อ {entry.dateResolved} โดย {entry.resolvedBy || '—'}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Btn size="sm" variant="ghost" onClick={() => navigate?.('history', entry.patientId)}>ดูประวัติผู้ป่วย →</Btn>
+            <Btn size="sm" variant="primary" onClick={save}>💾 บันทึก</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatientId }) {
+  const [statusFilter, setStatusFilter] = React.useState('open'); // 'open' | 'in_progress' | 'resolved' | 'all'
+  const [severityFilter, setSeverityFilter] = React.useState('all');
+  const [search, setSearch] = React.useState('');
+  const [useDateRange, setUseDateRange] = React.useState(false);
+  const [dateRange, setDateRange] = React.useState(() => {
+    const end = new Date().toISOString().slice(0, 10);
+    const start = new Date(); start.setFullYear(start.getFullYear() - 1);
+    return { start: start.toISOString().slice(0, 10), end };
+  });
+
+  const worklist = React.useMemo(
+    () => window.computeDRPWorklist(data.patients, data.visits, data.drpTracker, useDateRange ? dateRange : null),
+    [data.patients, data.visits, data.drpTracker, useDateRange, dateRange]
+  );
+  const stats = React.useMemo(() => window.getDRPWorklistStats(worklist), [worklist]);
+
+  const filtered = React.useMemo(() => {
+    let list = worklist;
+    if (statusFilter !== 'all') list = list.filter(w => w.status === statusFilter);
+    if (severityFilter !== 'all') list = list.filter(w => w.severity === severityFilter);
+    if (initPatientId) list = list.filter(w => w.patientId === initPatientId);
+    const q = search.trim().toLowerCase();
+    if (q) list = list.filter(w => `${w.patient.name} ${w.patient.hn}`.toLowerCase().includes(q));
+    return list;
+  }, [worklist, statusFilter, severityFilter, search, initPatientId]);
+
+  const handleSaveEntry = (entryId, patch) => {
+    const nextTracker = { ...(data.drpTracker || {}), [entryId]: patch };
+    onDataChange({ ...data, drpTracker: nextTracker });
+  };
+
+  return (
+    <div>
+      <PageHeader title="🧪 DRP Tracker" subtitle="ติดตามและแก้ไขปัญหาการใช้ยา (Drug-Related Problems) ให้ตรงจุด ถูกคน รวดเร็ว" />
+
+      {/* ── Summary ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 18 }}>
+        {[
+          { label: 'ยังไม่แก้ไข', value: stats.open, color: '#DC2626', icon: '🔴' },
+          { label: 'กำลังดำเนินการ', value: stats.inProgress, color: '#D97706', icon: '🟡' },
+          { label: 'แก้ไขแล้ว', value: stats.resolved, color: '#059669', icon: '✅' },
+          { label: 'High ที่ยังเปิดอยู่', value: stats.highOpen, color: '#DC2626', icon: '⚠️' },
+          { label: 'อัตราแก้ไขสำเร็จ', value: `${stats.resolutionRate}%`, color: '#2563EB', icon: '📈' },
+        ].map(s => (
+          <Card key={s.label} style={{ padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>{s.icon} {s.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, marginTop: 3 }}>{s.value}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* ── Filters ── */}
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ/HN..."
+            style={{ flex: '1 1 200px', padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit' }} />
+          <Select value={statusFilter} onChange={setStatusFilter} options={[
+            { value: 'open', label: '🔴 ยังไม่แก้ไข' }, { value: 'in_progress', label: '🟡 กำลังดำเนินการ' },
+            { value: 'resolved', label: '✅ แก้ไขแล้ว' }, { value: 'all', label: 'ทั้งหมดทุกสถานะ' },
+          ]} style={{ width: 160, padding: '6px 10px', fontSize: 12 }} />
+          <Select value={severityFilter} onChange={setSeverityFilter} options={[
+            { value: 'all', label: 'ทุกระดับความรุนแรง' }, { value: 'High', label: 'High' }, { value: 'Medium', label: 'Medium' }, { value: 'Low', label: 'Low' },
+          ]} style={{ width: 160, padding: '6px 10px', fontSize: 12 }} />
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: `1.5px solid ${C.border}` }}>
+            <button onClick={() => setUseDateRange(false)} style={{
+              padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+              background: !useDateRange ? C.primary : C.surface, color: !useDateRange ? '#fff' : C.text,
+            }}>📖 ทั้งทะเบียน</button>
+            <button onClick={() => setUseDateRange(true)} style={{
+              padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+              background: useDateRange ? C.primary : C.surface, color: useDateRange ? '#fff' : C.text,
+            }}>📅 จำกัดช่วงวันที่</button>
+          </div>
+          {useDateRange && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="date" value={dateRange.start} onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+                style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
+              <span style={{ color: C.textMuted, fontSize: 11.5 }}>ถึง</span>
+              <input type="date" value={dateRange.end} onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+                style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* ── Worklist ── */}
+      {filtered.length === 0 ? (
+        <Card>
+          <div style={{ padding: 20, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
+            ✅ ไม่มีรายการ DRP ตรงกับตัวกรองนี้
+          </div>
+        </Card>
+      ) : (
+        <div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>พบ {filtered.length} รายการ</div>
+          {filtered.map(entry => (
+            <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TelepharmacyView ──────────────────────────────────
 // ── 3 ฟอร์มย่อยของ Telepharmacy — ย้ายออกมาเป็น top-level component (นอก TelepharmacyView) ──
 // เดิมประกาศเป็น arrow function ข้างใน TelepharmacyView (const SchedForm = () => {...}) ทำให้
@@ -11943,6 +12311,118 @@ function MedicationSearchCard({ data, navigate }) {
   );
 }
 
+// ── ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข — ตั้ง cohort เฉพาะเจาะจงเองได้ ทั้งทะเบียน ──
+function AdvancedPatientQueryCard({ data, navigate }) {
+  const [filters, setFilters] = React.useState({
+    diagnosis: 'any', riskLevel: 'any', hasICS: 'any', techniquePass: 'any',
+    adherenceGood: 'any', medicationContains: '', notVisitedDays: '',
+  });
+  const [ran, setRan] = React.useState(false); // ยังไม่ค้นหาจนกว่าจะกดปุ่ม (กันคำนวณทุกครั้งที่ patients เยอะ)
+
+  const activeFilters = React.useMemo(() => ({
+    ...filters,
+    notVisitedDays: filters.notVisitedDays ? parseInt(filters.notVisitedDays, 10) : 0,
+  }), [filters]);
+
+  const results = React.useMemo(
+    () => ran ? advancedPatientSearch(data.patients, data.visits, activeFilters) : [],
+    [ran, data.patients, data.visits, activeFilters]
+  );
+
+  const hasAnyFilter = filters.diagnosis !== 'any' || filters.riskLevel !== 'any' || filters.hasICS !== 'any'
+    || filters.techniquePass !== 'any' || filters.adherenceGood !== 'any' || filters.medicationContains || filters.notVisitedDays;
+
+  const setF = (key) => (v) => { setFilters(f => ({ ...f, [key]: v })); setRan(false); };
+
+  return (
+    <Card style={{ marginBottom: 24 }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: C.primary }}>🔍 ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข</h3>
+      <p style={{ margin: '0 0 14px', fontSize: 12, color: C.textMuted }}>
+        ผสมเงื่อนไขได้เอง เช่น "COPD + ยังไม่ได้ LABA/LAMA... " — ค้นจากข้อมูล visit ล่าสุดของแต่ละคน ทั้งทะเบียน
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>โรค</label>
+          <Select value={filters.diagnosis} onChange={setF('diagnosis')} options={[
+            { value: 'any', label: 'ทุกโรค' }, { value: 'COPD', label: 'COPD' }, { value: 'Asthma', label: 'Asthma' }, { value: 'Both', label: 'Both' },
+          ]} style={{ width: '100%', padding: '6px 10px', fontSize: 12 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ระดับความเสี่ยง</label>
+          <Select value={filters.riskLevel} onChange={setF('riskLevel')} options={[
+            { value: 'any', label: 'ทุกระดับ' }, { value: 'High', label: 'High' }, { value: 'Medium', label: 'Medium' }, { value: 'Low', label: 'Low' },
+          ]} style={{ width: '100%', padding: '6px 10px', fontSize: 12 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ได้รับยา ICS</label>
+          <Select value={filters.hasICS} onChange={setF('hasICS')} options={[
+            { value: 'any', label: 'ไม่ระบุ' }, { value: 'yes', label: 'ได้รับแล้ว' }, { value: 'no', label: 'ยังไม่ได้รับ' },
+          ]} style={{ width: '100%', padding: '6px 10px', fontSize: 12 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>เทคนิคการใช้ยาพ่น</label>
+          <Select value={filters.techniquePass} onChange={setF('techniquePass')} options={[
+            { value: 'any', label: 'ไม่ระบุ' }, { value: 'pass', label: 'ผ่านเกณฑ์' }, { value: 'fail', label: 'ไม่ผ่านเกณฑ์' }, { value: 'never_assessed', label: 'ยังไม่เคยประเมิน' },
+          ]} style={{ width: '100%', padding: '6px 10px', fontSize: 12 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>Adherence</label>
+          <Select value={filters.adherenceGood} onChange={setF('adherenceGood')} options={[
+            { value: 'any', label: 'ไม่ระบุ' }, { value: 'good', label: 'ดี' }, { value: 'poor', label: 'ไม่ดี' }, { value: 'never_assessed', label: 'ยังไม่เคยประเมิน' },
+          ]} style={{ width: '100%', padding: '6px 10px', fontSize: 12 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ยาที่ใช้ (บางส่วนของชื่อ)</label>
+          <input value={filters.medicationContains} onChange={e => { setFilters(f => ({ ...f, medicationContains: e.target.value })); setRan(false); }}
+            placeholder="เช่น Anoro" style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ไม่มาอย่างน้อย (วัน)</label>
+          <input type="number" min="0" value={filters.notVisitedDays} onChange={e => { setFilters(f => ({ ...f, notVisitedDays: e.target.value })); setRan(false); }}
+            placeholder="เช่น 90" style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Btn size="sm" variant="primary" disabled={!hasAnyFilter} onClick={() => setRan(true)}>🔍 ค้นหา</Btn>
+        {hasAnyFilter && (
+          <Btn size="sm" variant="ghost" onClick={() => {
+            setFilters({ diagnosis: 'any', riskLevel: 'any', hasICS: 'any', techniquePass: 'any', adherenceGood: 'any', medicationContains: '', notVisitedDays: '' });
+            setRan(false);
+          }}>ล้างเงื่อนไข</Btn>
+        )}
+      </div>
+
+      {ran && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: results.length ? C.primary : C.textMuted, marginBottom: 10 }}>
+            พบผู้ป่วยตรงเงื่อนไข {results.length} ราย
+          </div>
+          {results.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 400, overflowY: 'auto' }}>
+              {results.map(r => (
+                <div key={r.id} onClick={() => navigate?.('history', r.id)} className="rx-kpi-row-click" style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9,
+                  background: C.bgAlt, border: `1px solid ${C.border}`, cursor: navigate ? 'pointer' : 'default',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+                      {r.name || '—'} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {r.hn}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>
+                      {r.diagnosis || '—'} · {r.riskLevel} Risk · {r.reasons.join(' · ')}
+                    </div>
+                  </div>
+                  {navigate && <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, flexShrink: 0 }}>ดูประวัติ →</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── ReportsView ───────────────────────────────────────
 function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackupSlots }) {
   const pts = data.patients;
@@ -12287,13 +12767,16 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
       {/* ค้นหาผู้ป่วยตามยา — ทั้งทะเบียน */}
       <MedicationSearchCard data={data} navigate={navigate} />
 
+      {/* ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข — ทั้งทะเบียน */}
+      <AdvancedPatientQueryCard data={data} navigate={navigate} />
+
       {/* Export Section */}
       <ExportSection data={data} onDataChange={onDataChange} onForceBackup={onForceBackup} onLoadBackupSlots={onLoadBackupSlots} />
     </div>
   );
 }
 
-Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard });
+Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DRPTrackerView });
 </script>
 <script type="text/babel">
 // QuickSearch.jsx — Cmd/Ctrl+K Quick Patient Lookup
@@ -18146,6 +18629,7 @@ const NAV = [
   { id: 'dashboard',    icon: '📊', label: 'Dashboard',          sub: 'ภาพรวมคลินิก' },
   { id: 'patients',     icon: '👥', label: 'ทะเบียนผู้ป่วย',     sub: 'Patient List' },
   { id: 'risk',         icon: '🔴', label: 'คัดกรองความเสี่ยง',  sub: 'Risk Screening' },
+  { id: 'drpTracker',   icon: '🧪', label: 'DRP Tracker',         sub: 'ติดตามปัญหาการใช้ยา' },
   { id: 'telepharmacy', icon: '📞', label: 'Telepharmacy',        sub: 'ติดตามทางโทรศัพท์' },
   { id: 'history',      icon: '📅', label: 'ประวัติการเยี่ยม',   sub: 'Visit History' },
   { id: 'reports',      icon: '📈', label: 'รายงาน & Export',     sub: 'Reports' },
@@ -18159,7 +18643,12 @@ const NAV = [
 function Sidebar({ view, navigate, data, syncStatus, currentUser, mobile = false, open = false, onClose, collapsed = false, onToggleCollapse }) {
   const highRisk = data.patients.filter(p => p.riskLevel === 'High').length;
   const pending  = data.telepharmacy.filter(t => t.status === 'Pending').length;
-  const badges   = { risk: highRisk, telepharmacy: pending };
+  // เบาพอให้ render ได้ทุกหน้า (สแกนแค่ visit ล่าสุดของแต่ละคน ไม่ใช่ทั้งประวัติ) — ดู countOpenHighDRP
+  const openHighDRP = React.useMemo(
+    () => window.countOpenHighDRP?.(data.patients, data.visits, data.drpTracker) || 0,
+    [data.patients, data.visits, data.drpTracker]
+  );
+  const badges   = { risk: highRisk, telepharmacy: pending, drpTracker: openHighDRP };
 
   const syncCfg = {
     synced:  { dot: '#4ADE80', label: 'ซิงค์แล้ว' },
@@ -19628,6 +20117,7 @@ function App() {
   const [view,         setView]         = useState('dashboard');
   const [selectedPtId, setSelectedPtId] = useState(null);
   const [teleAddPtId,  setTeleAddPtId]  = useState(null);
+  const [drpFocusPtId, setDrpFocusPtId] = useState(null); // เปิด DRP Tracker แบบกรองเฉพาะคนนี้ (มาจาก SmartAlertBanner)
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [notifOpen,    setNotifOpen]    = useState(false);
   const [editVisitId,  setEditVisitId]  = useState(null);
@@ -20044,10 +20534,15 @@ function App() {
       setEditVisitId(extra);
       setSelectedPtId(patientId);
       setView('visit-form');
+    } else if (target === 'drpTracker-focus') {
+      // เปิด DRP Tracker กรองเฉพาะผู้ป่วยคนนี้ (จาก SmartAlertBanner) — คนละสถานะกับ selectedPtId
+      // เพราะ selectedPtId ค้างจากหน้าอื่นได้ ถ้าใช้ตัวเดียวกันจะกรองผิดคนตอนเข้า DRP Tracker ปกติจาก sidebar
+      setDrpFocusPtId(patientId); setView('drpTracker');
     } else {
       setView(target); setSelectedPtId(patientId);
       if (target !== 'visit-form') setEditVisitId(null);
       if (target !== 'telepharmacy') setTeleAddPtId(null);
+      if (target !== 'drpTracker') setDrpFocusPtId(null);
     }
     const ms = document.getElementById('main-scroll');
     ms?.scrollTo({ top: 0 });
@@ -20223,6 +20718,8 @@ function App() {
           : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'risk':
         return <RiskScreeningView data={data} navigate={navigate} />;
+      case 'drpTracker':
+        return <DRPTrackerView data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} initPatientId={drpFocusPtId} />;
       case 'telepharmacy':
         return <TelepharmacyView data={data} onDataChange={handleDataChange} navigate={navigate} initPatientId={teleAddPtId} currentUser={currentUser} />;
       case 'reports':
