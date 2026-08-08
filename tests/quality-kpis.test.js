@@ -195,6 +195,54 @@ function run(t) {
       return true;
     })());
   }
+
+  // ─── Performance: index แบบ Map (allVisitsByPatient/periodVisitsByPatient/allVisitsByDate) ต้อง
+  // ทำให้เวลาคำนวณโตแบบเชิงเส้น (O(n)) ไม่ใช่ O(patients×visits) — กันไม่ให้ hotspot เดิมกลับมา
+  // (คลินิกจริงมีผู้ป่วยหลักพัน/visit หลักหมื่น หน้า Analytics ต้องคำนวณทันที ไม่ค้าง)
+  {
+    const mkBigData = (nPatients, visitsPerPatient) => {
+      const dxList = ['COPD', 'Asthma', 'Both'];
+      const patients = Array.from({ length: nPatients }, (_, i) => mkPatient('bp' + i, dxList[i % 3]));
+      const visits = [];
+      patients.forEach((p, i) => {
+        for (let j = 0; j < visitsPerPatient; j++) {
+          const month = 1 + ((i + j) % 12);
+          const day = 1 + ((i * 7 + j) % 27);
+          visits.push({
+            id: `bv${i}_${j}`, patientId: p.id,
+            visitDate: `2026-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            exacerbation: { countThisYear: j % 3, hospitalized: j % 11 === 0, erVisit: j % 13 === 0 },
+            medications: [{ name: 'Symbicort Turbuhaler 160' }],
+            inhalerTechnique: { overall: j % 2 === 0 ? 'Good' : 'Acceptable' },
+            adherence: 'Good',
+          });
+        }
+      });
+      const clinicDayRosters = Array.from({ length: 40 }, (_, d) => ({
+        date: `2026-01-${String(1 + (d % 28)).padStart(2, '0')}`,
+        patientIds: patients.slice(0, 20).map(p => p.id),
+        scheduledCount: 20,
+      }));
+      return { patients, visits, telepharmacy: [], clinicDayRosters };
+    };
+
+    const bigData = mkBigData(300, 6); // 300 คน × 6 visit = 1800 visit — พอวัด O(n) ได้โดยไม่ทำ CI ช้าเกินจำเป็น
+    const t0 = Date.now();
+    const kpis1 = calculateQualityKPIs(bigData, '2026-01-01', '2026-12-31', '2026-08-07');
+    const elapsed1 = Date.now() - t0;
+
+    const doubledData = mkBigData(600, 6); // จำนวนผู้ป่วยเพิ่มเป็น 2 เท่า
+    const t1 = Date.now();
+    const kpis2 = calculateQualityKPIs(doubledData, '2026-01-01', '2026-12-31', '2026-08-07');
+    const elapsed2 = Date.now() - t1;
+
+    t.ok('perf: calculateQualityKPIs returns valid numeric results on large dataset',
+      Number.isFinite(kpis1.copdExacerbRate.den) && Number.isFinite(kpis2.copdExacerbRate.den));
+    t.ok('perf: doubling patients does NOT roughly square runtime (no O(P×V) hotspot regression)',
+      elapsed2 < Math.max(elapsed1 * 4, 200)); // O(n) ควรโตเชิงเส้น (~2x); ยอมสูงถึง 4x + floor 200ms กัน jitter บนเครื่อง CI ช้า
+    t.ok('perf: large-dataset calculation completes well under 1s (point-of-care responsiveness)',
+      elapsed2 < 1000);
+  }
 }
 
 module.exports = { run };

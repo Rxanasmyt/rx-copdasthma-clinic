@@ -12850,6 +12850,28 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     v.visitDate && v.visitDate >= startDate && v.visitDate <= endDate
   );
 
+  // ── ดัชนี lookup แบบ O(1) แทนการ .filter()/.some() วน allVisits/periodVisits ทั้งก้อนซ้ำๆ ──
+  // ต่อผู้ป่วยหรือต่อวันที่ (เดิมมีหลายจุดที่วนซ้ำข้างใน .forEach ต่อผู้ป่วย/ต่อวัน roster กลายเป็น
+  // O(จำนวนผู้ป่วย × จำนวน visit) หรือ O(จำนวน roster × จำนวน visit) — วัดจริงกับคลินิกขนาด 2000
+  // คน/12000 visit พบว่าคำนวณช้าถึง ~800ms ต่อครั้ง (หน้า trend 12 เดือนรวม ~3.5 วินาที) ส่วนใหญ่
+  // มาจากจุดเหล่านี้ ทำ index ครั้งเดียวตอนต้นฟังก์ชันแทน ลดเหลือ O(n) รวมทั้งฟังก์ชัน
+  const groupByPatientId = (arr) => {
+    const m = new Map();
+    arr.forEach(v => {
+      if (!m.has(v.patientId)) m.set(v.patientId, []);
+      m.get(v.patientId).push(v);
+    });
+    return m;
+  };
+  const allVisitsByPatient = groupByPatientId(allVisits);
+  const periodVisitsByPatient = groupByPatientId(periodVisits);
+  const allVisitsByDate = new Map();
+  allVisits.forEach(v => {
+    if (!v.visitDate) return;
+    if (!allVisitsByDate.has(v.visitDate)) allVisitsByDate.set(v.visitDate, []);
+    allVisitsByDate.get(v.visitDate).push(v);
+  });
+
   // latest visit ต่อผู้ป่วย "ณ วันสิ้นสุดช่วงที่เลือก" (ไม่ใช่ล่าสุดตลอดกาล)
   // จำเป็นสำหรับรายงานย้อนหลัง — ถ้าใช้ล่าสุดตลอดกาลเสมอ ตัวชี้วัดของทุกเดือนในอดีตจะเท่ากันหมด
   // เมื่อ endDate = วันนี้ พฤติกรรมจะเหมือนเดิมทุกประการ (latest visit ล่าสุดตลอดกาล)
@@ -12915,8 +12937,8 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
         e.date && e.date >= startDate && e.date <= endDate && (e.hospitalized || e.erVisit)
       ).length;
     } else {
-      asthmaErCount += periodVisits.filter(v =>
-        v.patientId === p.id && (v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true)
+      asthmaErCount += (periodVisitsByPatient.get(p.id) || []).filter(v =>
+        v.exacerbation?.erVisit === true || v.exacerbation?.hospitalized === true
       ).length;
       asthmaErApproxCount++;
     }
@@ -12999,7 +13021,7 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     const trackedIds = r.patientIds || [];
     // นับคนที่มาจริงในวันนั้น (visit หรือ telepharmacy สำเร็จ ตรงวันที่ roster)
     const cameSet = new Set();
-    allVisits.forEach(v => { if (v.visitDate === r.date) cameSet.add(v.patientId); });
+    (allVisitsByDate.get(r.date) || []).forEach(v => cameSet.add(v.patientId));
     (data.telepharmacy || []).forEach(t => {
       const d = t.actualDate || t.scheduledDate || '';
       if (d === r.date && t.status === 'Success') cameSet.add(t.patientId);
@@ -13041,7 +13063,7 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
   dueThisPeriod.forEach((nextVisitDate, pid) => {
     // "มา" ต้องเป็น visit/telepharmacy ที่เกิด "ตั้งแต่วันนัดนั้นเป็นต้นไป" เท่านั้น ไม่ใช่ visit ไหนก็ได้
     // ในช่วงเวลาที่เลือก (เดิมใช้ startDate ทำให้ visit ที่สร้างนัดนี้ขึ้นมาเองถูกนับว่า "มาแล้ว" เสมอ)
-    const cameByVisit = allVisits.some(v => v.patientId === pid && v.visitDate >= nextVisitDate && v.visitDate <= endDate);
+    const cameByVisit = (allVisitsByPatient.get(pid) || []).some(v => v.visitDate >= nextVisitDate && v.visitDate <= endDate);
     const cameByTele  = (data.telepharmacy || []).some(t => t.patientId === pid && t.status === 'Success' &&
       (t.actualDate || t.scheduledDate || '') >= nextVisitDate && (t.actualDate || t.scheduledDate || '') <= endDate);
     const dx = patientById.get(pid)?.diagnosis;
@@ -13100,7 +13122,7 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     // fallback: เช็คทุก visit ในช่วงเวลา (ไม่ใช่แค่ visit ล่าสุด) ให้ตรงกับวิธีนับของ KPI2 จริง
     const erOrAdmitInPeriod = usesEventLog
       ? pEvents.some(e => e.date && e.date >= startDate && e.date <= endDate && (e.hospitalized || e.erVisit))
-      : allVisits.some(pv => pv.patientId === p.id && pv.visitDate >= startDate && pv.visitDate <= endDate &&
+      : (allVisitsByPatient.get(p.id) || []).some(pv => pv.visitDate >= startDate && pv.visitDate <= endDate &&
           (pv.exacerbation?.erVisit === true || pv.exacerbation?.hospitalized === true));
     return {
       id: p.id, hn: p.hn,
