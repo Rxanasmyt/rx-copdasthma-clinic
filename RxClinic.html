@@ -8444,7 +8444,100 @@ function VisitCompareModal({ open, patient, visitA, visitB, onClose }) {
   );
 }
 
-function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
+// ── Patient Trend Hub — รวมภาพรวมของผู้ป่วยคนเดียวไว้ที่จุดเดียว ──────────────
+// เดิม DRP/แนวโน้ม/ประวัติกำเริบ/เปลี่ยนยาของผู้ป่วยคนหนึ่งกระจัดกระจายอยู่คนละ tab (timeline/
+// visits/outcomes/medtimeline) ต้องสลับไปมาหลายที่กว่าจะเห็นภาพรวม แท็บนี้ดึงมารวมไว้ที่เดียว:
+// DRP ของคนนี้ (แก้ไขสถานะได้ตรงนี้เลย reuse DRPTrackerRow เดียวกับหน้า DRP Tracker — ไม่ต้อง
+// เขียนโค้ดแก้ DRP ซ้ำ 2 ที่) + timeline อาการกำเริบ + ปุ่มลัดไปยัง tab ที่มีแนวโน้ม/ยาอยู่แล้ว
+// (TrendsSection ด้านบน tab bar มีกราฟ adherence/technique/CAT/ACT อยู่แล้ว ไม่ต้องสร้างซ้ำ)
+function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitchTab }) {
+  // ส่ง [patient] + visits ที่กรองเฉพาะคนนี้แล้ว (ไม่ใช่ data.patients/data.visits ทั้งก้อน) —
+  // ถูกกว่าการคำนวณ worklist ทั้งคลินิกแล้วมากรองทีหลังมาก โดยเฉพาะคลินิกขนาดใหญ่
+  const worklist = React.useMemo(
+    () => window.computeDRPWorklist([patient], visits, data.drpTracker, null),
+    [patient, visits, data.drpTracker]
+  );
+  const stats = React.useMemo(() => window.getDRPWorklistStats(worklist), [worklist]);
+
+  const handleSaveEntry = (entryId, patch) => {
+    const nextTracker = { ...(data.drpTracker || {}), [entryId]: patch };
+    onDataChange?.({ ...data, drpTracker: nextTracker });
+  };
+
+  const exacEvents = React.useMemo(
+    () => [...(patient.exacerbationEvents || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    [patient.exacerbationEvents]
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* ── DRP ของผู้ป่วยคนนี้ ── */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.primary }}>🧪 DRP ของผู้ป่วยคนนี้</h3>
+          <div style={{ display: 'flex', gap: 10, fontSize: 11.5, color: C.textMuted }}>
+            <span>🔴 {stats.open} ยังไม่แก้ไข</span>
+            <span>🟡 {stats.inProgress} กำลังดำเนินการ</span>
+            <span>✅ {stats.resolved} แก้ไขแล้ว</span>
+          </div>
+        </div>
+        {worklist.length === 0 ? (
+          <div style={{ padding: '12px 16px', borderRadius: 10, background: '#F0FDF4', border: '1px solid #BBF7D0', fontSize: 12.5, color: '#059669', fontWeight: 600 }}>
+            ✅ ไม่พบ DRP ในประวัติของผู้ป่วยคนนี้
+          </div>
+        ) : (
+          <div>
+            {worklist.map(entry => (
+              <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users} />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Timeline อาการกำเริบ ── */}
+      <Card>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: C.primary }}>💨 Timeline อาการกำเริบ (Exacerbation)</h3>
+        {exacEvents.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: C.textMuted }}>ไม่มีประวัติอาการกำเริบที่บันทึกไว้</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {exacEvents.map(ev => (
+              <div key={ev.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
+                background: C.bgAlt, border: `1px solid ${C.border}`,
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.text, minWidth: 90 }}>{ev.date}</span>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                  color: ev.severity === 'Severe' ? '#DC2626' : ev.severity === 'Moderate' ? '#D97706' : '#6B7280',
+                  background: ev.severity === 'Severe' ? '#FEF2F2' : ev.severity === 'Moderate' ? '#FFFBEB' : '#F3F4F6',
+                }}>{ev.severity || '—'}</span>
+                {ev.hospitalized && <span style={{ fontSize: 10.5, color: '#DC2626', fontWeight: 700 }}>🏥 นอนโรงพยาบาล</span>}
+                {ev.erVisit && <span style={{ fontSize: 10.5, color: '#DC2626', fontWeight: 700 }}>🚑 ER</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* ── ปุ่มลัดไปดูแนวโน้ม/ประวัติยา (ข้อมูลอยู่แล้วใน tab อื่น ไม่สร้างซ้ำ) ── */}
+      <Card>
+        <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: C.primary }}>🔗 ดูเพิ่มเติม</h3>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+          กราฟแนวโน้ม Adherence / เทคนิคการใช้ยาพ่น / CAT / ACT อยู่ด้านบนสุดของหน้านี้แล้ว (เหนือแท็บ) —
+          ปุ่มด้านล่างพาไปดูรายละเอียดเพิ่มเติมของผู้ป่วยคนนี้
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn size="sm" variant="ghost" onClick={() => onSwitchTab?.('medtimeline')}>💊 Timeline การเปลี่ยนยา</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => onSwitchTab?.('outcomes')}>📊 กราฟผลลัพธ์ทางคลินิก</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => onSwitchTab?.('visits')}>📋 บันทึกการเยี่ยมทั้งหมด</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onDataChange }) {
   const canEdit = AppStore.canEditClinical(currentUser);
   const patient = data.patients.find(p => p.id === patientId);
   const visits  = data.visits.filter(v => v.patientId === patientId)
@@ -8571,6 +8664,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
       <Tabs
         tabs={[
           { id: 'timeline', label: '🕐 Timeline รวม' },
+          { id: 'hub',      label: '🧭 ภาพรวม/DRP' },
           { id: 'visits',   label: `บันทึกการเยี่ยม (${visits.length})` },
           { id: 'outcomes', label: '📊 ผลลัพธ์' },
           { id: 'medtimeline', label: '💊 Timeline ยา' },
@@ -8581,6 +8675,10 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser }) {
 
       {tab === 'timeline' && (
         <PatientTimeline patient={patient} visits={visits} telepharmacy={tele} onViewVisit={setViewingVisitId} />
+      )}
+
+      {tab === 'hub' && (
+        <PatientHubTab data={data} patient={patient} visits={visits} navigate={navigate} onDataChange={onDataChange} onSwitchTab={setTab} />
       )}
 
       {tab === 'visits' && (
@@ -20708,6 +20806,7 @@ function App() {
       case 'history':
         return selectedPtId
           ? <VisitHistory data={data} patientId={selectedPtId} navigate={navigate} currentUser={currentUser}
+              onDataChange={handleDataChange}
               onEditVisit={(vid) => navigate('visit-form-edit', selectedPtId, vid)} />
           : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'visit-form':

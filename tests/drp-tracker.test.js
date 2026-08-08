@@ -129,6 +129,16 @@ function run(t) {
     const countAfterResolve = countOpenHighDRP(patients, visits, drpTracker);
     t.ok('countOpenHighDRP: ตัดรายการที่ resolved ออกจากจำนวนที่ยังเปิดอยู่', countAfterResolve === 0);
   }
+
+  // ─── computeDRPWorklist: ใช้ในโหมด "ต่อผู้ป่วยคนเดียว" (Patient Hub) — ส่ง [patient] เดี่ยว + visits
+  // ที่กรองมาแล้วเฉพาะคนนั้น (ถูกกว่าคำนวณทั้งคลินิกแล้วมากรองทีหลัง) ต้องได้ผลเหมือนกับกรองจาก worklist เต็ม ───
+  {
+    const fullWorklist = computeDRPWorklist(patients, visits, {}, null).filter(w => w.patientId === 'p1');
+    const singlePatientVisits = visits.filter(v => v.patientId === 'p1');
+    const scopedWorklist = computeDRPWorklist([patients[0]], singlePatientVisits, {}, null);
+    t.ok('computeDRPWorklist: โหมดผู้ป่วยคนเดียว ([patient]+visits ที่กรองแล้ว) ให้ผลเหมือนกรองจาก worklist เต็มทุกประการ',
+      JSON.stringify(scopedWorklist.map(w => w.id).sort()) === JSON.stringify(fullWorklist.map(w => w.id).sort()));
+  }
 }
 
 module.exports = { run };
