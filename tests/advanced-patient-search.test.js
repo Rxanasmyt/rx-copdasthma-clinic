@@ -80,6 +80,14 @@ function run(t) {
     t.ok('advancedPatientSearch notVisitedDays: รวมทั้งคนไม่มานานและคนไม่เคยมาเลย',
       r.includes('p2') && r.includes('p4') && !r.includes('p1'));
   }
+  {
+    // regression: notVisitedDays=0 เคยถูกมองว่า "falsy" (if (filters.notVisitedDays)) แล้วข้าม filter
+    // นี้ไปทั้งบล็อกเงียบๆ (ทั้งที่ผู้ใช้ตั้งใจตั้งค่า 0 ไว้) — สังเกตได้จาก "reasons" ที่ควรติดมาด้วยเสมอ
+    // เมื่อ filter นี้ active จริง แต่บั๊กเดิมจะไม่มี reason นี้ติดมาเลยเมื่อกรอก 0
+    const rZero = advancedPatientSearch(patients, visits, { notVisitedDays: 0 }, TODAY);
+    t.ok('advancedPatientSearch notVisitedDays=0: filter ต้องถูก apply จริง (ไม่ถูกมองข้ามเหมือน falsy) — เห็นได้จาก reason ที่ติดมาด้วย',
+      rZero.length > 0 && rZero.every(x => x.reasons.some(r => r.includes('ไม่มาแล้ว') || r.includes('ยังไม่เคยมารับบริการเลย'))));
+  }
 
   // ─── reasons: ต้องมีคำอธิบายเหตุผลติดมาด้วยเมื่อ filter นั้น active ───
   {
