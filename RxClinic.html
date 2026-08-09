@@ -5712,6 +5712,7 @@ function AuditLogView({ data }) {
     'create-visit': { icon: '➕', label: 'สร้าง Visit', color: C.low },
     'edit-visit':   { icon: '✏️', label: 'แก้ไข Visit', color: C.primary },
     'delete-visit': { icon: '🗑️', label: 'ลบ Visit',   color: C.high },
+    'drp-update':   { icon: '🧪', label: 'อัปเดต DRP', color: C.accent },
   };
 
   const filtered = log.filter(e => {
@@ -5746,6 +5747,7 @@ function AuditLogView({ data }) {
           { value:'create-visit', label:'สร้าง Visit' },
           { value:'edit-visit', label:'แก้ไข Visit' },
           { value:'delete-visit', label:'ลบ Visit' },
+          { value:'drp-update', label:'อัปเดต DRP' },
         ]} style={{ width:150 }} />
       </div>
       {filtered.length === 0 ? (
@@ -8525,7 +8527,7 @@ function VisitCompareModal({ open, patient, visitA, visitB, onClose }) {
 // DRP ของคนนี้ (แก้ไขสถานะได้ตรงนี้เลย reuse DRPTrackerRow เดียวกับหน้า DRP Tracker — ไม่ต้อง
 // เขียนโค้ดแก้ DRP ซ้ำ 2 ที่) + timeline อาการกำเริบ + ปุ่มลัดไปยัง tab ที่มีแนวโน้ม/ยาอยู่แล้ว
 // (TrendsSection ด้านบน tab bar มีกราฟ adherence/technique/CAT/ACT อยู่แล้ว ไม่ต้องสร้างซ้ำ)
-function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitchTab }) {
+function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitchTab, currentUser }) {
   // ส่ง [patient] + visits ที่กรองเฉพาะคนนี้แล้ว (ไม่ใช่ data.patients/data.visits ทั้งก้อน) —
   // ถูกกว่าการคำนวณ worklist ทั้งคลินิกแล้วมากรองทีหลังมาก โดยเฉพาะคลินิกขนาดใหญ่
   const worklist = React.useMemo(
@@ -8534,10 +8536,8 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
   );
   const stats = React.useMemo(() => window.getDRPWorklistStats(worklist), [worklist]);
 
-  const handleSaveEntry = (entryId, patch) => {
-    const nextTracker = { ...(data.drpTracker || {}), [entryId]: patch };
-    onDataChange?.({ ...data, drpTracker: nextTracker });
-  };
+  const handleSaveEntry = (entryId, patch, entry) =>
+    window.saveDRPEntryWithAudit(data, onDataChange, currentUser, entryId, patch, entry);
 
   const exacEvents = React.useMemo(
     () => [...(patient.exacerbationEvents || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
@@ -8753,7 +8753,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
       )}
 
       {tab === 'hub' && (
-        <PatientHubTab data={data} patient={patient} visits={visits} navigate={navigate} onDataChange={onDataChange} onSwitchTab={setTab} />
+        <PatientHubTab data={data} patient={patient} visits={visits} navigate={navigate} onDataChange={onDataChange} onSwitchTab={setTab} currentUser={currentUser} />
       )}
 
       {tab === 'visits' && (
@@ -10458,6 +10458,14 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         detail: `${medsMissingDose.map(m => m.name).join(', ')} — ควรระบุขนาดยาและความถี่เพื่อป้องกัน DRP`,
       });
     }
+    // เตือนตั้งแต่ตอนบันทึก (proactive) แทนที่จะให้ Data Completeness Dashboard ไปเจอทีหลัง —
+    // riskLevel ใช้กรองใน RiskScreening, notification, และเป็นตัวหารของหลาย KPI ถ้าไม่มีจะหลุดจากการนับ
+    if (!patient?.riskLevel) {
+      warnings.push({
+        title: 'ผู้ป่วยยังไม่มีระดับความเสี่ยง (Risk Level)',
+        detail: 'ยังไม่ได้ประเมินความเสี่ยงของผู้ป่วยคนนี้ — ตัวชี้วัดและระบบคัดกรองความเสี่ยงจะไม่นับคนนี้จนกว่าจะประเมิน ควรไปหน้าข้อมูลผู้ป่วยเพื่อประเมิน',
+      });
+    }
     return warnings;
   };
 
@@ -11637,6 +11645,22 @@ function RiskScreeningView({ data, navigate }) {
 const DRP_STATUS_LABEL = { open: '🔴 ยังไม่แก้ไข', in_progress: '🟡 กำลังดำเนินการ', resolved: '✅ แก้ไขแล้ว' };
 const DRP_SEVERITY_COLOR = { High: '#DC2626', Medium: '#D97706', Low: '#6B7280' };
 
+// ── audit trail ของ DRP Tracker — เดิมเก็บแค่สถานะล่าสุด ไม่มีประวัติว่าใครเปลี่ยนอะไรเมื่อไหร่
+// (เช่น เปลี่ยนคนรับผิดชอบ, เปลี่ยนสถานะ) ใช้ appendAudit ตัวเดียวกับที่ VisitForm ใช้อยู่แล้ว
+// (data.auditLog เดิม) ให้ตรวจสอบย้อนหลังได้ครบตามที่ HA Accreditation ต้องการ — เรียกจากทั้ง
+// DRPTrackerView (มุมมองรวม) และ PatientHubTab (มุมมองต่อผู้ป่วย) ที่ใช้ DRPTrackerRow ร่วมกัน
+const saveDRPEntryWithAudit = (data, onDataChange, currentUser, entryId, patch, entry) => {
+  const nextTracker = { ...(data.drpTracker || {}), [entryId]: patch };
+  let nextData = { ...data, drpTracker: nextTracker };
+  const userLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() || 'unknown' : 'unknown';
+  const assignPart = patch.assignedTo ? ` · มอบหมาย: ${patch.assignedTo}` : '';
+  nextData = appendAudit(nextData, {
+    user: userLabel, action: 'drp-update', patientId: entry?.patientId,
+    summary: `อัปเดต DRP (${entry?.categoryTh || entry?.categoryEn || ''} — ${entry?.problemTh || entryId}) ของ ${entry?.patient?.name || ''} · HN ${entry?.patient?.hn || ''} → ${DRP_STATUS_LABEL[patch.status] || patch.status}${assignPart}`,
+  });
+  onDataChange?.(nextData);
+};
+
 function DRPTrackerRow({ entry, onSave, navigate, users }) {
   const [open, setOpen] = React.useState(false);
   const [status, setStatus] = React.useState(entry.status);
@@ -11650,7 +11674,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
       dateResolved: status === 'resolved' ? (entry.dateResolved || new Date().toISOString().slice(0, 10)) : '',
       resolvedBy: status === 'resolved' ? (entry.resolvedBy || assignedTo || '') : '',
       updatedAt: new Date().toISOString().slice(0, 10),
-    });
+    }, entry); // ส่ง entry เดิมไปด้วย — ใช้ทำ audit log summary (ผู้ป่วยคนไหน/ปัญหาอะไร) ไม่ต้อง lookup ซ้ำ
     setOpen(false);
   };
 
@@ -11772,10 +11796,7 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
     return list;
   }, [worklist, statusFilter, severityFilter, search, initPatientId]);
 
-  const handleSaveEntry = (entryId, patch) => {
-    const nextTracker = { ...(data.drpTracker || {}), [entryId]: patch };
-    onDataChange({ ...data, drpTracker: nextTracker });
-  };
+  const handleSaveEntry = (entryId, patch, entry) => saveDRPEntryWithAudit(data, onDataChange, currentUser, entryId, patch, entry);
 
   return (
     <div>
@@ -13040,7 +13061,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
   );
 }
 
-Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DataCompletenessCard, DRPTrackerView });
+Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DataCompletenessCard, DRPTrackerView, saveDRPEntryWithAudit });
 </script>
 <script type="text/babel">
 // QuickSearch.jsx — Cmd/Ctrl+K Quick Patient Lookup
@@ -15566,38 +15587,50 @@ const computeInsights = (data) => {
   const today    = new Date().toISOString().slice(0, 10);
   const ptById   = Object.fromEntries(patients.map(p => [p.id, p]));
 
-  // ── DRP Intelligence: run detectDRP across all visits ──
-  const drpByCat = {};       // categoryTh → count
+  // ── DRP Intelligence: population-level pattern analysis ── ใช้ computeDRPWorklist (ผูกกับสถานะ
+  // ที่บันทึกไว้ใน data.drpTracker จริง) แทนการ scan detectDRP สดๆ แล้วมโนอัตราแก้ไขจาก checkbox
+  // แยกต่างหาก (drpResolveRate เดิม) — เดิมสองระบบนี้ไม่เชื่อมกันเลย ทำให้ "ตรวจพบ" กับ "แก้ไขสำเร็จ"
+  // เป็นคนละแหล่งข้อมูล มาที่นี่รวมเป็นแหล่งเดียว ให้เห็นว่าปัญหาไหนเกิดซ้ำบ่อย และแก้ได้จริงกี่ %
+  // (ใช้สนับสนุนการทำ Quality Improvement Cycle เช่น ถ้าหมวดไหนเกิดกับผู้ป่วยเกิน 30% อาจไม่ใช่ปัญหา
+  // รายคน แต่เป็นปัญหาเชิงระบบที่ต้องปรับ protocol ทั้งคลินิก)
+  const drpWorklist = (typeof window.computeDRPWorklist === 'function')
+    ? window.computeDRPWorklist(patients, visits, data.drpTracker, null) : [];
+  const drpByCat = {};       // categoryTh → count (ทั้งหมด ไม่ว่าสถานะไหน)
   const drpBySev = { High: 0, Medium: 0, Low: 0 };
   const drpByCode = {};      // PCNE code → count
-  const interactionPairs = {};
-  let totalDRP = 0;
-  visits.forEach(v => {
-    const pt = ptById[v.patientId];
-    if (!pt || typeof window.detectDRP !== 'function') return;
-    const drps = window.detectDRP(v, pt);
-    drps.forEach(d => {
-      totalDRP++;
-      drpByCat[d.categoryTh] = (drpByCat[d.categoryTh] || 0) + 1;
-      if (drpBySev[d.severity] != null) drpBySev[d.severity]++;
-      drpByCode[d.code] = (drpByCode[d.code] || 0) + 1;
-    });
-    // drug interactions
-    if (typeof window.checkInteractions === 'function') {
-      window.checkInteractions(v.medications || [], pt).forEach(ix => {
-        const key = `${ix.drug1} ↔ ${ix.drug2}`;
-        interactionPairs[key] = (interactionPairs[key] || 0) + 1;
-      });
-    }
+  const drpCatStatus = {};   // categoryTh → { total, resolved }
+  drpWorklist.forEach(w => {
+    const cat = w.categoryTh || w.categoryEn || '—';
+    drpByCat[cat] = (drpByCat[cat] || 0) + 1;
+    if (drpBySev[w.severity] != null) drpBySev[w.severity]++;
+    drpByCode[w.code] = (drpByCode[w.code] || 0) + 1;
+    if (!drpCatStatus[cat]) drpCatStatus[cat] = { total: 0, resolved: 0 };
+    drpCatStatus[cat].total++;
+    if (w.status === 'resolved') drpCatStatus[cat].resolved++;
   });
+  const totalDRP = drpWorklist.length;
   const drpCatList = Object.entries(drpByCat).map(([k,v]) => ({ label: k, value: v })).sort((a,b) => b.value - a.value);
-  const topInteractions = Object.entries(interactionPairs).map(([k,v]) => ({ label: k, value: v })).sort((a,b) => b.value - a.value).slice(0, 6);
+  // รายหมวด พร้อม % แก้ไขสำเร็จของหมวดนั้นๆ โดยเฉพาะ — เห็นได้ทันทีว่าหมวดไหน "เกิดบ่อย" และ "แก้ยาก" พร้อมกัน
+  const drpCatStatusList = Object.entries(drpCatStatus)
+    .map(([label, s]) => ({ label, total: s.total, resolved: s.resolved, resolvedPct: s.total > 0 ? Math.round((s.resolved / s.total) * 100) : 0 }))
+    .sort((a, b) => b.total - a.total);
   const drpCodeList = Object.entries(drpByCode).map(([k,v]) => ({ label: k, value: v })).sort((a,b) => b.value - a.value).slice(0, 8);
 
-  // manual DRP resolution rate
-  const manualDRP = visits.filter(v => v.drp?.noDRP === false);
-  const resolved  = manualDRP.filter(v => v.drp?.resolved === true || v.drp?.pcne?.resolved === true).length;
-  const drpResolveRate = manualDRP.length ? Math.round((resolved / manualDRP.length) * 100) : 0;
+  const interactionPairs = {};
+  visits.forEach(v => {
+    const pt = ptById[v.patientId];
+    if (!pt || typeof window.checkInteractions !== 'function') return;
+    window.checkInteractions(v.medications || [], pt).forEach(ix => {
+      const key = `${ix.drug1} ↔ ${ix.drug2}`;
+      interactionPairs[key] = (interactionPairs[key] || 0) + 1;
+    });
+  });
+  const topInteractions = Object.entries(interactionPairs).map(([k,v]) => ({ label: k, value: v })).sort((a,b) => b.value - a.value).slice(0, 6);
+
+  // อัตราแก้ไขสำเร็จจริง (จาก drpTracker) แทนของเดิมที่นับแค่ checkbox v.drp.resolved ต่อ visit
+  // ซึ่งไม่ผูกกับ DRP รายตัวเลย (visit หนึ่งอาจมีหลาย DRP แต่มี checkbox เดียว)
+  const drpResolveRate = (typeof window.getDRPWorklistStats === 'function')
+    ? parseFloat(window.getDRPWorklistStats(drpWorklist).resolutionRate) : 0;
 
   // ── Clinical Outcomes ──
   // Technique improvement: among patients with ≥2 visits, % whose latest technique improved from first Poor
@@ -15660,7 +15693,7 @@ const computeInsights = (data) => {
 
   return {
     patientCount: patients.length, visitCount: visits.length, totalDRP,
-    drpCatList, topInteractions, drpCodeList, drpBySev, drpResolveRate,
+    drpCatList, drpCatStatusList, topInteractions, drpCodeList, drpBySev, drpResolveRate,
     techImprovePct, techImproved, techEligible,
     adhImprovePct, adhImproved, adhEligible, avgExacerb, adhDist,
     pharmList, followupRate, teleDone, teleOverdue, teleTotal, overdueHighRisk,
@@ -15691,7 +15724,7 @@ const InsightsDashboard = ({ data }) => {
 
   const card = { background: '#fff', borderRadius: 14, padding: 20, border: `1px solid ${C.border}` };
 
-  const maxCat = Math.max(...ins.drpCatList.map(d => d.value), 1);
+  const maxCat = Math.max(...ins.drpCatStatusList.map(d => d.total), 1);
   const maxIx  = Math.max(...ins.topInteractions.map(d => d.value), 1);
   const totalSev = ins.drpBySev.High + ins.drpBySev.Medium + ins.drpBySev.Low;
   const maxAdh = Math.max(ins.adhDist.Good, ins.adhDist.Fair, ins.adhDist.Poor, 1);
@@ -15725,9 +15758,13 @@ const InsightsDashboard = ({ data }) => {
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24 }} className="rx-insights-grid">
           {/* category breakdown */}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: 'uppercase' }}>DRP แยกตามประเภท</div>
-            {ins.drpCatList.length ? ins.drpCatList.map((d, i) => (
-              <InsightBar key={d.label} label={d.label} value={d.value} max={maxCat} color={catPalette[i % catPalette.length]} idx={i} />
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 2, textTransform: 'uppercase' }}>DRP แยกตามประเภท</div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+              % ในวงเล็บ = แก้ไขสำเร็จจริง (ยืนยันจาก DRP Tracker) — หมวดไหนเกิดบ่อยแต่แก้ยาก อาจไม่ใช่ปัญหารายคน แต่เป็นปัญหาเชิงระบบ
+            </div>
+            {ins.drpCatStatusList.length ? ins.drpCatStatusList.map((d, i) => (
+              <InsightBar key={d.label} label={d.label} value={d.total} max={maxCat} color={catPalette[i % catPalette.length]} idx={i}
+                suffix={` (${d.resolvedPct}% แก้แล้ว)`} />
             )) : <div style={{ fontSize: 13, color: C.textMuted }}>ยังไม่มีข้อมูล DRP</div>}
           </div>
           {/* severity ring + codes */}
@@ -15974,9 +16011,12 @@ window.HAIndicators = HAIndicators;
 const { useState, useMemo } = React;
 
 // ============ Calculate Notifications ============
-const calculateNotifications = (data) => {
+// currentUser: optional — ถ้าระบุ จะเพิ่มแจ้งเตือน "DRP มอบหมายให้คุณ" เฉพาะของคนนั้น (ไม่ระบุ = ข้ามส่วนนี้
+// เพื่อไม่ให้ที่เรียกใช้แบบเดิมที่ยังไม่ได้ส่ง currentUser มา พัง — เช่น badge บน sidebar ที่แค่นับรวม)
+const calculateNotifications = (data, currentUser) => {
   const today = new Date().toISOString().slice(0, 10);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const notifications = [];
 
@@ -16051,6 +16091,45 @@ const calculateNotifications = (data) => {
     }
   });
 
+  // 4. DRP Tracker — เดิม DRP Tracker มีอยู่แล้วแต่มอบหมายงานให้ใครแล้วเขาไม่รู้ตัวจนกว่าจะเปิดแอพมาเช็คเอง
+  // คำนวณจาก computeDRPWorklist (ทั้งทะเบียน ไม่จำกัดช่วงวันที่) เอาเฉพาะรายการที่ยังไม่ปิด
+  if (typeof window.computeDRPWorklist === 'function') {
+    const worklist = window.computeDRPWorklist(data.patients, data.visits, data.drpTracker, null)
+      .filter(w => w.status !== 'resolved');
+    const currentUserLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() : null;
+
+    worklist.forEach(w => {
+      // 4a. มอบหมายให้ฉันโดยเฉพาะ — ขึ้นเฉพาะของ currentUser คนที่ล็อกอินอยู่เท่านั้น (ไม่ใช่ของทุกคน)
+      if (currentUserLabel && w.assignedTo === currentUserLabel) {
+        notifications.push({
+          id: `drp-assigned-${w.id}`,
+          type: 'drp-assigned',
+          severity: w.severity === 'High' ? 'high' : w.severity === 'Medium' ? 'medium' : 'low',
+          icon: '🧪',
+          title: 'DRP ที่มอบหมายให้คุณ',
+          message: `${w.patient.hn} ${w.patient.name} — ${w.categoryTh || w.categoryEn}: ${w.problemTh}`,
+          patientId: w.patientId,
+          actionLabel: 'เปิดใน DRP Tracker',
+          action: () => window.AppNavigate && window.AppNavigate('drpTracker-focus', w.patientId),
+        });
+      }
+      // 4b. DRP รุนแรง (High) ที่ยังไม่แก้ไขเกิน 7 วัน — เตือนทุกคน ไม่จำกัดว่ามอบหมายใครไว้หรือยัง
+      else if (w.severity === 'High' && w.visitDate && w.visitDate < sevenDaysAgo) {
+        notifications.push({
+          id: `drp-overdue-${w.id}`,
+          type: 'drp-assigned',
+          severity: 'high',
+          icon: '⚠️',
+          title: 'DRP รุนแรงค้างเกิน 7 วัน',
+          message: `${w.patient.hn} ${w.patient.name} — ${w.problemTh} (พบเมื่อ ${w.visitDate})`,
+          patientId: w.patientId,
+          actionLabel: 'เปิดใน DRP Tracker',
+          action: () => window.AppNavigate && window.AppNavigate('drpTracker-focus', w.patientId),
+        });
+      }
+    });
+  }
+
   return notifications;
 };
 
@@ -16095,13 +16174,13 @@ const NotificationItem = ({ notif, onDismiss }) => {
 };
 
 // ============ NotificationCenter (Modal) ============
-const NotificationCenter = ({ data, open, onClose }) => {
+const NotificationCenter = ({ data, open, onClose, currentUser }) => {
   const [dismissed, setDismissed] = useState([]);
-  
+
   const notifications = useMemo(() => {
-    const all = calculateNotifications(data);
+    const all = calculateNotifications(data, currentUser);
     return all.filter(n => !dismissed.includes(n.id));
-  }, [data, dismissed]);
+  }, [data, currentUser, dismissed]);
 
   const handleDismiss = (id) => {
     setDismissed([...dismissed, id]);
@@ -16133,8 +16212,8 @@ const NotificationCenter = ({ data, open, onClose }) => {
 };
 
 // ============ NotificationPreview (for Dashboard) ============
-const NotificationPreview = ({ data, onOpenFull }) => {
-  const notifications = useMemo(() => calculateNotifications(data).slice(0, 3), [data]);
+const NotificationPreview = ({ data, onOpenFull, currentUser }) => {
+  const notifications = useMemo(() => calculateNotifications(data, currentUser).slice(0, 3), [data, currentUser]);
 
   if (notifications.length === 0) {
     return (
@@ -16159,10 +16238,10 @@ const NotificationPreview = ({ data, onOpenFull }) => {
           <NotificationItem key={n.id} notif={n} onDismiss={() => {}} />
         ))}
       </div>
-      {calculateNotifications(data).length > 3 && (
+      {calculateNotifications(data, currentUser).length > 3 && (
         <div style={{ marginTop: 10, textAlign: 'center' }}>
           <Btn size="sm" variant="ghost" onClick={onOpenFull}>
-            ดูอีก {calculateNotifications(data).length - 3} รายการ
+            ดูอีก {calculateNotifications(data, currentUser).length - 3} รายการ
           </Btn>
         </div>
       )}
@@ -21228,7 +21307,7 @@ function App() {
 
             {/* Notification bell */}
             {(() => {
-              const notifCount = window.calculateNotifications ? window.calculateNotifications(data).length : 0;
+              const notifCount = window.calculateNotifications ? window.calculateNotifications(data, currentUser).length : 0;
               return (
                 <button onClick={() => setNotifOpen(true)} aria-label="การแจ้งเตือน" title="การแจ้งเตือน" style={{
                   position: 'relative', width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
@@ -21316,7 +21395,7 @@ function App() {
       <QuickSearch data={data} navigate={navigate}
         isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      <NotificationCenter data={data} open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <NotificationCenter data={data} open={notifOpen} onClose={() => setNotifOpen(false)} currentUser={currentUser} />
 
       <RxToastHost />
 
