@@ -1115,7 +1115,7 @@ const advancedPatientSearch = (patients, visits, filters, todayStr) => {
       if (q && !meds.some(m => (m.name || '').toLowerCase().includes(q))) return;
       if (q) reasons.push(`ใช้ยาที่มีคำว่า "${filters.medicationContains}"`);
     }
-    if (filters.notVisitedDays) {
+    if (filters.notVisitedDays != null && filters.notVisitedDays !== '') {
       const days = lastVisit ? Math.floor((new Date(todayStr) - new Date(lastVisit.visitDate)) / 86400000) : Infinity;
       if (days < filters.notVisitedDays) return;
       reasons.push(lastVisit ? `ไม่มาแล้ว ${days} วัน` : 'ยังไม่เคยมารับบริการเลย');
@@ -11668,6 +11668,18 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
   const [actionTaken, setActionTaken] = React.useState(entry.actionTaken);
   const [note, setNote] = React.useState(entry.note);
 
+  // แถวนี้ mount ค้างไว้ทั้ง worklist (ไม่ unmount ตอนพับ) แล้ว seed state จาก entry แค่ครั้งเดียวตอน
+  // mount — ถ้าคนอื่นแก้ DRP ตัวนี้ไปพร้อมกัน (sync จากเครื่องอื่น) แล้วเรากดเปิดแถวมาแก้ต่อ จะเห็น
+  // ค่าเก่าค้างและ save ทับข้อมูลใหม่ของคนอื่นโดยไม่รู้ตัว — sync ใหม่จาก entry ทุกครั้งที่ "เปิด" แถว
+  // (ไม่ sync ตอนพับ/กำลังพิมพ์อยู่ กันข้อมูลที่กำลังกรอกหายไปเฉยๆ)
+  React.useEffect(() => {
+    if (open) {
+      setStatus(entry.status); setAssignedTo(entry.assignedTo);
+      setActionTaken(entry.actionTaken); setNote(entry.note);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const save = () => {
     onSave(entry.id, {
       status, assignedTo, actionTaken, note,
@@ -12545,7 +12557,7 @@ function AdvancedPatientQueryCard({ data, navigate }) {
 
   const activeFilters = React.useMemo(() => ({
     ...filters,
-    notVisitedDays: filters.notVisitedDays ? parseInt(filters.notVisitedDays, 10) : 0,
+    notVisitedDays: filters.notVisitedDays !== '' ? parseInt(filters.notVisitedDays, 10) : null,
   }), [filters]);
 
   const results = React.useMemo(
