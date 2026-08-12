@@ -1115,7 +1115,10 @@ const advancedPatientSearch = (patients, visits, filters, todayStr) => {
       if (q && !meds.some(m => (m.name || '').toLowerCase().includes(q))) return;
       if (q) reasons.push(`ใช้ยาที่มีคำว่า "${filters.medicationContains}"`);
     }
-    if (filters.notVisitedDays != null && filters.notVisitedDays !== '') {
+    // ต้องเป็นตัวเลขจริงและไม่ติดลบ — กรอก -5 หรือค่าที่ parseInt แล้วได้ NaN (เช่นพิมพ์ตัวอักษรปน) เดิม
+    // จะทำให้เงื่อนไข "days < ค่าติดลบ" เป็นเท็จเสมอทุกคน กลายเป็นคืนทั้งทะเบียนมาโดยไม่ได้กรองอะไรเลย
+    // แต่ผู้ใช้เข้าใจว่ากรองแล้ว (แนบ reason "ไม่มาแล้ว N วัน" ให้ทุกคนอย่างเข้าใจผิดด้วย)
+    if (filters.notVisitedDays != null && filters.notVisitedDays !== '' && Number.isFinite(Number(filters.notVisitedDays)) && Number(filters.notVisitedDays) >= 0) {
       const days = lastVisit ? Math.floor((new Date(todayStr) - new Date(lastVisit.visitDate)) / 86400000) : Infinity;
       if (days < filters.notVisitedDays) return;
       reasons.push(lastVisit ? `ไม่มาแล้ว ${days} วัน` : 'ยังไม่เคยมารับบริการเลย');
@@ -1145,10 +1148,13 @@ const computeDataCompleteness = (patients, visits) => {
   (patients || []).forEach(p => {
     const lastVisit = latestByPatient.get(p.id);
     const row = { id: p.id, hn: p.hn, name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(), diagnosis: p.diagnosis };
-    if (!lastVisit) { neverVisited.push(row); return; } // ยังไม่มี visit เลย — ประเมินอะไรไม่ได้ทั้งหมด นับแยกไม่ปนกับที่เหลือ
+    // riskLevel อยู่ระดับผู้ป่วย ไม่ขึ้นกับว่ามี visit หรือยัง — ต้องเช็คก่อน early return ไม่งั้นผู้ป่วย
+    // ที่ยังไม่เคยมา (ซึ่งไม่มี riskLevel แน่ๆ) จะหลุดจากรายการนี้ไปเงียบๆ ทั้งที่ label ไม่ได้จำกัดว่า
+    // ต้องมี visit ก่อน ("ยังไม่ได้ประเมินระดับความเสี่ยง" ใช้ได้กับทุกคนที่ยังไม่มี riskLevel)
+    if (!p.riskLevel) missingRiskLevel.push(row);
+    if (!lastVisit) { neverVisited.push(row); return; } // ยังไม่มี visit เลย — ประเมินเทคนิค/adherence ไม่ได้ นับแยกไม่ปนกับที่เหลือ
     if (!(lastVisit.inhalerTechnique || []).length) missingTechnique.push(row);
     if (!lastVisit.adherence?.level) missingAdherence.push(row);
-    if (!p.riskLevel) missingRiskLevel.push(row);
   });
 
   const total = (patients || []).length;
@@ -4335,7 +4341,14 @@ function autoPCNE(visit, patient) {
 // แล้ว "merge" เข้ากับ data.drpTracker ซึ่งเป็น sparse map เก็บเฉพาะ "ส่วนที่เภสัชกรกรอกเพิ่ม"
 // (สถานะ/คนรับผิดชอบ/action ที่ทำ/วันที่แก้เสร็จ) คีย์ด้วย id ที่ deterministic จาก visitId+code
 // ทำให้ Firestore doc ไม่บวมตามจำนวน DRP ที่ตรวจพบ (เก็บเฉพาะที่ถูกจัดการแล้วเท่านั้น)
-const drpEntryId = (visitId, code) => visitId + '::' + code;
+// detectDRP ใช้ PCNE code เดียวกันซ้ำกับปัญหาคนละเรื่องได้ (เช่น P1.2 ใช้ทั้ง "ไม่มี SABA", "SABA เดี่ยว
+// ไม่มี ICS", "COPD กำเริบไม่มี LABA/LAMA", "สูบบุหรี่" ฯลฯ) ถ้าใช้แค่ visitId+code เป็น id จะชนกันเอง
+// ในวิสิตเดียวที่ตรวจพบหลายปัญหาโค้ดเดียวกัน — แก้ไข/ปิดปัญหาหนึ่งจะไปทับสถานะของอีกปัญหาโดยไม่ตั้งใจ
+// จึงต้องผนวก "ลายเซ็นปัญหา" (problemEn ตัดตัวเลขที่แปรผันได้ เช่นจำนวนยา/ค่า eGFR/คะแนน ACT ออก)
+// เข้าไปด้วย — ตัดตัวเลขออกเพื่อให้ verifyDRPOutcome เทียบ "ปัญหาเดิมหรือไม่" ข้าม visit ได้ถูกต้อง
+// (ไม่งั้นแค่จำนวนยาเปลี่ยนจาก 9→8 เม็ด topic เดิมจะถูกมองว่าเป็นปัญหาคนละเรื่อง กลายเป็นยืนยันผิดว่าดีขึ้นแล้ว)
+const normalizeDrpProblem = (problemEn) => (problemEn || '').replace(/\d+(\.\d+)?/g, '#').trim();
+const drpEntryId = (visitId, code, problemEn) => visitId + '::' + code + '::' + normalizeDrpProblem(problemEn);
 
 // ── จัดกลุ่ม visit ตามผู้ป่วย + เรียงตามวันที่ (เก่า→ใหม่) ใช้หา "visit ถัดไป" เพื่อยืนยันผล ──
 const groupVisitsByPatientSorted = (visits) => {
@@ -4359,10 +4372,13 @@ const groupVisitsByPatientSorted = (visits) => {
 const verifyDRPOutcome = (entry, visitsByPatient, patient) => {
   if (entry.status !== 'resolved') return { checked: false, followUpVisitDate: null, stillDetected: null };
   const pVisits = visitsByPatient.get(entry.patientId) || [];
+  // entry.visitDate อาจว่างเปล่าได้ (visit เก่าไม่มี visitDate) — ถ้าไม่มีวันที่อ้างอิงจริง ห้ามเทียบ
+  // เพราะ (v.visitDate||'') > '' จะจริงเสมอสำหรับ visit แรกสุดที่มีวันที่ กลายเป็นหยิบ visit ผิดตัว
+  if (!entry.visitDate) return { checked: false, followUpVisitDate: null, stillDetected: null };
   const followUp = pVisits.find(v => (v.visitDate || '') > entry.visitDate);
   if (!followUp) return { checked: false, followUpVisitDate: null, stillDetected: null };
   const stillDetected = ((typeof detectDRP === 'function' ? detectDRP(followUp, patient) : []) || [])
-    .some(d => d.problemEn === entry.problemEn);
+    .some(d => normalizeDrpProblem(d.problemEn) === normalizeDrpProblem(entry.problemEn));
   return { checked: true, followUpVisitDate: followUp.visitDate || '', stillDetected };
 };
 
@@ -4383,7 +4399,7 @@ const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
     if (!p) return; // กันผู้ป่วยถูกลบไปแล้วแต่ visit เก่าค้าง
     const detected = (typeof detectDRP === 'function' ? detectDRP(v, p) : []) || [];
     detected.forEach(d => {
-      const id = drpEntryId(v.id, d.code);
+      const id = drpEntryId(v.id, d.code, d.problemEn);
       const tracked = drpTracker[id] || {};
       const entry = {
         id, patientId: v.patientId, visitId: v.id, visitDate: v.visitDate || '',
@@ -4450,7 +4466,7 @@ const countOpenHighDRP = (patients, visits, drpTracker) => {
     const detected = (typeof detectDRP === 'function' ? detectDRP(v, p) : []) || [];
     detected.forEach(d => {
       if (d.severity !== 'High') return;
-      const tracked = drpTracker[drpEntryId(v.id, d.code)];
+      const tracked = drpTracker[drpEntryId(v.id, d.code, d.problemEn)];
       if (!tracked || tracked.status !== 'resolved') count++;
     });
   });
@@ -6007,6 +6023,13 @@ function exportTelepharmacy(tele, patients) {
       ];
     })
   );
+}
+
+// ── ป้องกัน HTML/script injection เวลาแทรกข้อความที่ผู้ใช้พิมพ์เอง (เช่น Action ที่ทำ/หมายเหตุ ใน DRP
+// Tracker) ลงในเอกสารพิมพ์ผ่าน document.write — ถ้าไม่ escape ผู้ป่วยคนหนึ่งพิมพ์ "<img src=x onerror=...>"
+// ในช่องหมายเหตุ จะรันสคริปต์ในหน้าต่างพิมพ์ (same-origin) ทุกครั้งที่ใครเปิด export ที่มีรายการนั้น
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ── PDF helper (open print window) ───────────────────
@@ -8563,7 +8586,8 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
         ) : (
           <div>
             {worklist.map(entry => (
-              <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users} />
+              <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users}
+                canEdit={AppStore.canEditClinical(currentUser)} currentUser={currentUser} />
             ))}
           </div>
         )}
@@ -11661,7 +11685,7 @@ const saveDRPEntryWithAudit = (data, onDataChange, currentUser, entryId, patch, 
   onDataChange?.(nextData);
 };
 
-function DRPTrackerRow({ entry, onSave, navigate, users }) {
+function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, currentUser }) {
   const [open, setOpen] = React.useState(false);
   const [status, setStatus] = React.useState(entry.status);
   const [assignedTo, setAssignedTo] = React.useState(entry.assignedTo);
@@ -11681,10 +11705,14 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
   }, [open]);
 
   const save = () => {
+    if (!canEdit) return; // ผู้ช่วยเภสัชกร (ดูอย่างเดียว) ห้ามเขียนสถานะ DRP — กันไว้อีกชั้นแม้ปุ่มจะถูกซ่อน/ปิดแล้ว
+    // ผู้ที่กด "แก้ไขแล้ว" มักไม่ใช่คนที่ถูก assign ไว้ (เช่น เภสัชกรอีกคนเป็นคนแก้จริง) — เดิมถ้าไม่มี
+    // assignedTo เลย resolvedBy จะว่างเปล่า ทั้งที่รู้ตัวคนที่กดบันทึกอยู่แล้วจาก currentUser
+    const meLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() : '';
     onSave(entry.id, {
       status, assignedTo, actionTaken, note,
       dateResolved: status === 'resolved' ? (entry.dateResolved || new Date().toISOString().slice(0, 10)) : '',
-      resolvedBy: status === 'resolved' ? (entry.resolvedBy || assignedTo || '') : '',
+      resolvedBy: status === 'resolved' ? (entry.resolvedBy || assignedTo || meLabel || '') : '',
       updatedAt: new Date().toISOString().slice(0, 10),
     }, entry); // ส่ง entry เดิมไปด้วย — ใช้ทำ audit log summary (ผู้ป่วยคนไหน/ปัญหาอะไร) ไม่ต้อง lookup ซ้ำ
     setOpen(false);
@@ -11744,16 +11772,21 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
               🔁 ปิดวงจร: ยังไม่มี visit ถัดไปหลัง {entry.visitDate} ให้ตรวจสอบว่าดีขึ้นจริงหรือไม่ — ระบบจะเช็คให้อัตโนมัติเมื่อผู้ป่วยมา visit ครั้งหน้า
             </div>
           )}
+          {!canEdit && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 11.5, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+              🔒 บทบาทผู้ช่วยเภสัชกรดูข้อมูลได้อย่างเดียว ไม่สามารถแก้ไขสถานะ DRP ได้
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>สถานะ</label>
-              <Select value={status} onChange={setStatus} options={[
+              <Select value={status} onChange={setStatus} disabled={!canEdit} options={[
                 { value: 'open', label: '🔴 ยังไม่แก้ไข' }, { value: 'in_progress', label: '🟡 กำลังดำเนินการ' }, { value: 'resolved', label: '✅ แก้ไขแล้ว' },
               ]} style={{ width: 170, padding: '6px 10px', fontSize: 12 }} />
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>มอบหมายให้</label>
-              <Select value={assignedTo} onChange={setAssignedTo} options={[
+              <Select value={assignedTo} onChange={setAssignedTo} disabled={!canEdit} options={[
                 { value: '', label: '— ไม่ระบุ —' },
                 ...(users || []).map(u => ({ value: u.name || u.uid || u.id, label: u.name || u.uid || u.id })),
               ]} style={{ width: 170, padding: '6px 10px', fontSize: 12 }} />
@@ -11761,19 +11794,19 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>Action ที่ทำ / แนวทางแก้ไข</label>
-            <textarea value={actionTaken} onChange={e => setActionTaken(e.target.value)} rows={2}
+            <textarea value={actionTaken} onChange={e => setActionTaken(e.target.value)} rows={2} disabled={!canEdit}
               placeholder="เช่น โทรแจ้งแพทย์ปรับยา, สอนเทคนิคซ้ำ, ติดตามผลครั้งหน้า..."
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical' }} />
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical', background: canEdit ? '#fff' : '#F3F4F6' }} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>หมายเหตุเพิ่มเติม</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical' }} />
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} disabled={!canEdit}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'inherit', resize: 'vertical', background: canEdit ? '#fff' : '#F3F4F6' }} />
           </div>
           {entry.dateResolved && <div style={{ fontSize: 11, color: C.textMuted }}>✅ ปิดเมื่อ {entry.dateResolved} โดย {entry.resolvedBy || '—'}</div>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Btn size="sm" variant="ghost" onClick={() => navigate?.('history', entry.patientId)}>ดูประวัติผู้ป่วย →</Btn>
-            <Btn size="sm" variant="primary" onClick={save}>💾 บันทึก</Btn>
+            {canEdit && <Btn size="sm" variant="primary" onClick={save}>💾 บันทึก</Btn>}
           </div>
         </div>
       )}
@@ -11782,7 +11815,10 @@ function DRPTrackerRow({ entry, onSave, navigate, users }) {
 }
 
 function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatientId }) {
-  const [statusFilter, setStatusFilter] = React.useState('open'); // 'open' | 'in_progress' | 'resolved' | 'all'
+  // มาจาก "ติดตามใน DRP Tracker" (notification/alert) มักเป็นรายการ in_progress หรือ resolved-แต่ยัง
+  // ไม่ยืนยันผล ไม่ใช่แค่ open — ถ้าเริ่มด้วย filter 'open' เหมือนเดิม ผู้ป่วยที่กดมาจะไม่เห็นรายการที่
+  // ตัวเองเพิ่งคลิกมาเลย (filtered ว่างเปล่า) ให้เริ่มด้วย 'all' เมื่อมาแบบ focus ผู้ป่วยคนเดียว
+  const [statusFilter, setStatusFilter] = React.useState(initPatientId ? 'all' : 'open'); // 'open' | 'in_progress' | 'resolved' | 'all'
   const [severityFilter, setSeverityFilter] = React.useState('all');
   const [search, setSearch] = React.useState('');
   const [useDateRange, setUseDateRange] = React.useState(false);
@@ -11882,7 +11918,8 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
         <div>
           <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>พบ {filtered.length} รายการ</div>
           {filtered.map(entry => (
-            <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users} />
+            <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users}
+              canEdit={AppStore.canEditClinical(currentUser)} currentUser={currentUser} />
           ))}
         </div>
       )}
@@ -12504,7 +12541,10 @@ function MedicationSearchCard({ data, navigate }) {
                     r.patient.hn, `${r.patient.prefix || ''}${r.patient.firstName || ''} ${r.patient.lastName || ''}`.trim(),
                     r.patient.diagnosis || '', m.name, m.dose, m.adherence, m.visitDate,
                   ]))];
-                const csv = '﻿' + rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+                // ป้องกัน CSV formula injection — ชื่อยา/ผู้ป่วย เป็นข้อความอิสระที่พิมพ์เอง ถ้าขึ้นต้น
+                // ด้วย =/+/-/@ โปรแกรมสเปรดชีตบางตัวจะรันเป็นสูตรทันทีตอนเปิดไฟล์ นำหน้าด้วย ' กันไว้
+                const csvSafe = (v) => { const s = String(v ?? ''); return /^[=+\-@]/.test(s) ? "'" + s : s; };
+                const csv = '﻿' + rows.map(row => row.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
                 const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = Object.assign(document.createElement('a'), { href: url, download: `ผู้ป่วยใช้ยา_${q}.csv` });
@@ -13958,6 +13998,11 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
   let dueCount = 0;
   let cameCount = 0;
   const noShowRoster = [];
+  // รายชื่อผู้ป่วยที่ "มาจริง" แบบระบุตัวตนได้ — ใช้เป็นฝั่ง "ผ่านเกณฑ์" ของ carePercent แทนการยืม
+  // roster (ผู้ป่วยที่ได้รับการบริบาลทั้งหมด) ซึ่งเป็นคนละประชากรกับตัวหาร/ตัวเศษของ KPI นี้จริงๆ
+  // (roster = ทุกคนที่มี visit ในช่วง, ตัวชี้วัดนี้ = เฉพาะคนที่มีนัด/ถึงกำหนดแล้ว) — หมายเหตุ: อาจนับ
+  // ได้น้อยกว่า cameCount ตัวเลขจริงเล็กน้อย เพราะ walk-in ส่วนเกินจาก scheduledCount ไม่รู้ตัวตน
+  const cameRoster = [];
   // breakdown แยก COPD เดี่ยว/Asthma เดี่ยว — คำนวณได้เฉพาะส่วนที่รู้ตัวตนผู้ป่วย (trackedIds/nextVisit fallback)
   // ส่วน extraCount (walk-in ที่ยังไม่ลงทะเบียน) ไม่รู้ diagnosis จึงนับได้แค่ในตัวเลขรวม ไม่รวมใน breakdown
   const dueCountByDx  = { COPD: 0, Asthma: 0 };
@@ -13985,11 +14030,18 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
         if (cameSet.has(pid)) cameCountByDx[dx]++;
       }
     });
-    // สร้างรายชื่อไม่มาเฉพาะกรณีที่ระบุรายชื่อผู้ป่วยที่นัด (trackedIds) ไว้ด้วย
+    // สร้างรายชื่อไม่มา/มาแล้ว เฉพาะกรณีที่ระบุรายชื่อผู้ป่วยที่นัด (trackedIds) ไว้ด้วย
     trackedIds.forEach(pid => {
-      if (!cameSet.has(pid)) {
-        const p = patients.find(pt => pt.id === pid);
-        if (p) noShowRoster.push({
+      const p = patients.find(pt => pt.id === pid);
+      if (!p) return;
+      if (cameSet.has(pid)) {
+        cameRoster.push({
+          id: p.id, hn: p.hn,
+          name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+          diagnosis: p.diagnosis, nextVisit: r.date,
+        });
+      } else {
+        noShowRoster.push({
           id: p.id, hn: p.hn,
           name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
           diagnosis: p.diagnosis, nextVisit: r.date,
@@ -14020,6 +14072,12 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     if (cameByVisit || cameByTele) {
       cameCount++;
       if (dx === 'COPD' || dx === 'Asthma') cameCountByDx[dx]++;
+      const p = patients.find(pt => pt.id === pid);
+      if (p) cameRoster.push({
+        id: p.id, hn: p.hn,
+        name: `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim(),
+        diagnosis: p.diagnosis, nextVisit: nextVisitDate,
+      });
     } else {
       const p = patients.find(pt => pt.id === pid);
       if (p) noShowRoster.push({
@@ -14109,6 +14167,7 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     asthmaCount: asthmaPts.length,
     roster,
     noShowRoster,
+    cameRoster,
   };
 };
 window.calculateQualityKPIs = calculateQualityKPIs; // ใช้จาก Dashboard.jsx (คนละ script block) สำหรับ banner แจ้งเตือน
@@ -14349,8 +14408,8 @@ const getProblemPatients = (metricKey, roster, noShowRoster) => {
 
 // ── ฝั่งตรงข้าม getProblemPatients — ผู้ป่วยที่ "ผ่านเกณฑ์" ของตัวชี้วัดนั้น (เดิมดูได้แต่ฝั่งไม่ผ่าน) ──
 // ให้ครบทั้ง numerator (ผ่าน) และ denominator เต็ม (ผ่าน+ไม่ผ่านรวมกัน) ไว้วิเคราะห์เปรียบเทียบได้
-const getPassingPatients = (metricKey, roster, noShowRoster) => {
-  roster = roster || []; noShowRoster = noShowRoster || [];
+const getPassingPatients = (metricKey, roster, noShowRoster, cameRoster) => {
+  roster = roster || []; noShowRoster = noShowRoster || []; cameRoster = cameRoster || [];
   switch (metricKey) {
     case 'copdExacerbRate':
       return roster.filter(r => r.diagnosis === 'COPD' && !(r.exacerbationCount > 0))
@@ -14368,9 +14427,10 @@ const getPassingPatients = (metricKey, roster, noShowRoster) => {
       return roster.filter(r => r.techniquePass === true)
         .map(r => ({ ...r, reason: 'เทคนิคการใช้ยาพ่นล่าสุด ผ่านเกณฑ์' }));
     case 'carePercent':
-      // "ผ่าน" ของ KPI นี้ = มาตามนัดจริง — ไม่ได้อยู่ใน noShowRoster และอยู่ในกลุ่มที่ถูกบริบาลช่วงนี้
-      { const noShowIds = new Set(noShowRoster.map(r => r.id));
-        return roster.filter(r => !noShowIds.has(r.id)).map(r => ({ ...r, reason: 'มารับบริการตามนัด/ในช่วงเวลานี้' })); }
+      // "ผ่าน" ของ KPI นี้ = มาตามนัดจริง — ใช้ cameRoster ที่ระบุตัวตนได้จริงจากทั้งสองแหล่งข้อมูล
+      // (clinicDayRosters + nextVisit fallback) เดิมเคยใช้ "roster" (ทุกคนที่ได้รับการบริบาลช่วงนี้)
+      // ซึ่งเป็นคนละประชากรกับตัวเศษ/ตัวส่วนจริงของ KPI นี้ไปเลย ทำให้ตัวเลขในรายชื่อไม่ตรงกับ num/den
+      return cameRoster.map(r => ({ ...r, reason: 'มารับบริการตามนัด/ในช่วงเวลานี้' }));
     case 'adherenceGoodPercent':
       return roster.filter(r => r.adherenceGood === true)
         .map(r => ({ ...r, reason: 'ความร่วมมือในการใช้ยาพ่น (Adherence) อยู่ในระดับดี' }));
@@ -14398,7 +14458,7 @@ const getAllProblemPatients = (metrics, kpis) => {
   return [...byId.values()].sort((a, b) => b.issues.length - a.issues.length || (a.name || '').localeCompare(b.name || '', 'th'));
 };
 
-const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor, roster, noShowRoster, dateRange, navigate }) => {
+const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor, roster, noShowRoster, cameRoster, dateRange, navigate }) => {
   const monthlyTrend = React.useMemo(() => {
     if (!open || !metricKey) return null;
     return calculateQualityKPIsTrend(data, 'month', 12);
@@ -14411,8 +14471,8 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
   // ── ฝั่งที่ผ่านเกณฑ์ — เดิมดูได้แต่รายชื่อที่ "ไม่ผ่าน" เท่านั้น สลับดูฝั่งผ่านได้ด้วยปุ่มด้านล่าง ──
   const [showPassing, setShowPassing] = React.useState(false);
   const passingPatients = React.useMemo(
-    () => (open && metricKey) ? getPassingPatients(metricKey, roster, noShowRoster) : [],
-    [open, metricKey, roster, noShowRoster]
+    () => (open && metricKey) ? getPassingPatients(metricKey, roster, noShowRoster, cameRoster) : [],
+    [open, metricKey, roster, noShowRoster, cameRoster]
   );
   React.useEffect(() => { if (open) setShowPassing(false); }, [open, metricKey]); // รีเซ็ตทุกครั้งที่เปิด KPI ใหม่
   const shownList = showPassing ? passingPatients : problemPatients;
@@ -14984,7 +15044,7 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
             icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
             desc={metrics.find(m => m.key === detailKey)?.desc} color={metrics.find(m => m.key === detailKey)?.color}
             numLabel={metrics.find(m => m.key === detailKey)?.numLabel} denLabel={metrics.find(m => m.key === detailKey)?.denLabel}
-            roster={kpis.roster} noShowRoster={kpis.noShowRoster} dateRange={dateRange} navigate={navigate} />
+            roster={kpis.roster} noShowRoster={kpis.noShowRoster} cameRoster={kpis.cameRoster} dateRange={dateRange} navigate={navigate} />
 
           {/* ─── Summary Table ───────────────────── */}
           <Card>
@@ -15414,16 +15474,32 @@ function printAccreditationBundle(data, dateRange) {
     </tr>`;
   }).join('');
 
+  // ใช้ worklist "ทั้งประวัติ" (ไม่กรอง dateRange ตรงนี้) แล้วค่อยกรอง "แก้ไขแล้ว" ด้วย dateResolved เอง
+  // — ถ้ากรอง computeDRPWorklist ด้วย dateRange จะกรองตาม visitDate (วันที่ "พบ" ปัญหา) ไม่ใช่วันที่
+  // "แก้ไข" ทำให้ DRP ที่พบนอกช่วงแต่แก้ในช่วงนี้หายไปจากรายงาน และ DRP ที่พบในช่วงแต่เพิ่งแก้ทีหลัง
+  // ก็ปนเข้ามาผิดช่วง — รายงานหัวข้อ "DRP Resolution Log" ต้องอิงวันที่แก้ไข ไม่ใช่วันที่พบปัญหา
+  const worklistAll = computeDRPWorklist(data.patients, data.visits, data.drpTracker, null);
+  const resolvedInRange = worklistAll.filter(w =>
+    w.status === 'resolved' &&
+    (!dateRange.start || (w.dateResolved || '') >= dateRange.start) &&
+    (!dateRange.end || (w.dateResolved || '') <= dateRange.end)
+  );
+  // สถิติสรุป (จำนวนเปิด/High ที่ยังค้าง) ยังอิงช่วงเวลาที่เลือกตามเดิม (นับจาก DRP ที่ "พบ" ในช่วงนี้)
   const worklist = computeDRPWorklist(data.patients, data.visits, data.drpTracker, dateRange);
   const drpStats = getDRPWorklistStats(worklist);
-  const resolvedInRange = worklist.filter(w => w.status === 'resolved');
+  // อัตรายืนยันได้ผลจริง คำนวณจาก resolvedInRange (ชุดเดียวกับตารางด้านล่าง) ไม่ใช่จาก worklist ที่กรอง
+  // คนละแบบ — กันตัวเลขสรุปกับตารางไม่ตรงกันในเอกสารฉบับเดียวกัน
+  const verifiedCount = resolvedInRange.filter(w => w.outcome?.checked && !w.outcome.stillDetected).length;
+  const regressedCount = resolvedInRange.filter(w => w.outcome?.checked && w.outcome.stillDetected).length;
+  const resolvedVerifiedRate = (verifiedCount + regressedCount) > 0
+    ? `${Math.round((verifiedCount / (verifiedCount + regressedCount)) * 100)}%` : '—';
   const drpRows = resolvedInRange.map(w => `<tr>
-    <td>${w.patient.hn} — ${w.patient.name}</td>
-    <td>${w.categoryTh || w.categoryEn}</td>
-    <td>${w.problemTh}</td>
-    <td>${w.actionTaken || '—'}</td>
-    <td>${w.resolvedBy || '—'}</td>
-    <td>${w.dateResolved || '—'}</td>
+    <td>${escapeHtml(w.patient.hn)} — ${escapeHtml(w.patient.name)}</td>
+    <td>${escapeHtml(w.categoryTh || w.categoryEn)}</td>
+    <td>${escapeHtml(w.problemTh)}</td>
+    <td>${escapeHtml(w.actionTaken) || '—'}</td>
+    <td>${escapeHtml(w.resolvedBy) || '—'}</td>
+    <td>${escapeHtml(w.dateResolved) || '—'}</td>
     <td style="font-weight:700;color:${w.outcome?.checked ? (w.outcome.stillDetected ? '#DC2626' : '#059669') : '#6B7280'}">
       ${w.outcome?.checked ? (w.outcome.stillDetected ? '⚠ ยังไม่ดีขึ้น' : '✅ ยืนยันดีขึ้น') : '⏳ รอตรวจสอบ'}
     </td>
@@ -15431,10 +15507,13 @@ function printAccreditationBundle(data, dateRange) {
 
   const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
   const inRange = (r) => (!dateRange.start || (r.date || '') >= dateRange.start) && (!dateRange.end || (r.date || '') <= dateRange.end);
+  // ADR record เก็บวันที่ในฟิลด์ "reportDate" (ดู ADRReportModal.handleSave) ไม่ใช่ "date" เหมือน record
+  // ประเภทอื่น — ถ้าใช้ r.date เฉยๆ จะว่างเสมอ ตัดออกจากช่วงวันที่ทุกครั้ง กลายเป็นรายงานว่า ADR = 0 เสมอ
+  const inRangeADR = (r) => { const d = r.date || r.reportDate || ''; return (!dateRange.start || d >= dateRange.start) && (!dateRange.end || d <= dateRange.end); };
   const haStats = {
     medRec: (ha.medRec || []).filter(inRange).length,
-    adr: (ha.adr || []).filter(inRange).length,
-    severeADR: (ha.adr || []).filter(inRange).filter(r => r.severity === 'severe' || r.severity === 'fatal').length,
+    adr: (ha.adr || []).filter(inRangeADR).length,
+    severeADR: (ha.adr || []).filter(inRangeADR).filter(r => r.severity === 'severe' || r.severity === 'fatal').length,
     referrals: (ha.referrals || []).filter(inRange).length,
     referralsWithFeedback: (ha.referrals || []).filter(inRange).filter(r => r.feedbackReceived).length,
     discharge: (ha.discharge || []).filter(inRange).length,
@@ -15459,10 +15538,10 @@ function printAccreditationBundle(data, dateRange) {
 
     <h2>🧪 ส่วนที่ 2 — DRP Resolution Log (ปิดวงจร: ยืนยันได้ผลจริงหรือไม่)</h2>
     <div class="stat-row">
-      <div class="stat"><div class="n">${drpStats.resolved}</div><div class="l">DRP ที่แก้ไขแล้ว</div></div>
-      <div class="stat"><div class="n">${drpStats.resolutionRate}%</div><div class="l">อัตราแก้ไขสำเร็จ</div></div>
-      <div class="stat"><div class="n">${drpStats.outcomeVerifiedRate !== null ? drpStats.outcomeVerifiedRate + '%' : '—'}</div><div class="l">ยืนยันได้ผลจริง</div></div>
-      <div class="stat"><div class="n">${drpStats.highOpen}</div><div class="l">High ที่ยังเปิดอยู่</div></div>
+      <div class="stat"><div class="n">${resolvedInRange.length}</div><div class="l">DRP ที่แก้ไขแล้วในช่วงนี้</div></div>
+      <div class="stat"><div class="n">${resolvedVerifiedRate}</div><div class="l">ยืนยันได้ผลจริง</div></div>
+      <div class="stat"><div class="n">${drpStats.highOpen}</div><div class="l">High ที่ยังเปิดอยู่ (พบในช่วงนี้)</div></div>
+      <div class="stat"><div class="n">${drpStats.total}</div><div class="l">DRP ที่พบทั้งหมดในช่วงนี้</div></div>
     </div>
     ${resolvedInRange.length > 0 ? `<table>
       <thead><tr><th>ผู้ป่วย</th><th>หมวด</th><th>ปัญหา</th><th>Action ที่ทำ</th><th>โดย</th><th>วันที่ปิด</th><th>ผลยืนยัน</th></tr></thead>
@@ -15699,8 +15778,8 @@ const computeInsights = (data) => {
   // Overdue high-risk
   const thirtyAgo = new Date(Date.now() - 30*864e5).toISOString().slice(0,10);
   const overdueHighRisk = patients.filter(p => p.riskLevel === 'High').filter(p => {
-    const pv = visits.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
-    return !pv[0] || pv[0].visitDate < thirtyAgo;
+    const pv = visits.filter(v => v.patientId === p.id).sort((a,b) => (b.visitDate || '').localeCompare(a.visitDate || ''));
+    return !pv[0] || (pv[0].visitDate || '') < thirtyAgo;
   });
 
   return {
@@ -16052,9 +16131,9 @@ const calculateNotifications = (data, currentUser) => {
 
   // 2. Missing Follow-up (High Risk ไม่มี Visit >30 วัน)
   data.patients.filter(p => p.riskLevel === 'High').forEach(p => {
-    const visits = (data.visits || []).filter(v => v.patientId === p.id).sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const visits = (data.visits || []).filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''));
     const lastVisit = visits[0];
-    if (!lastVisit || lastVisit.visitDate < thirtyDaysAgo) {
+    if (!lastVisit || (lastVisit.visitDate || '') < thirtyDaysAgo) {
       notifications.push({
         id: `followup-${p.id}`,
         type: 'missing-followup',
@@ -16108,7 +16187,10 @@ const calculateNotifications = (data, currentUser) => {
   if (typeof window.computeDRPWorklist === 'function') {
     const worklist = window.computeDRPWorklist(data.patients, data.visits, data.drpTracker, null)
       .filter(w => w.status !== 'resolved');
-    const currentUserLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() : null;
+    // ต้องตรงกับค่าที่ dropdown "มอบหมายให้" ใน DRPTrackerRow เก็บจริง (u.name || u.uid || u.id — ไม่มี
+    // คำนำหน้า) ไม่ใช่ prefix+name แบบที่ใช้แสดงผล/audit log — ไม่งั้นเทียบไม่ตรงกันเลยเพราะ ProfileSetup
+    // ตั้ง prefix แยกจาก name เสมอ ทำให้แจ้งเตือนนี้ไม่เคยขึ้นเลยสำหรับผู้ใช้จริงคนไหน
+    const currentUserLabel = currentUser ? (currentUser.name || currentUser.uid || currentUser.id || null) : null;
 
     worklist.forEach(w => {
       // 4a. มอบหมายให้ฉันโดยเฉพาะ — ขึ้นเฉพาะของ currentUser คนที่ล็อกอินอยู่เท่านั้น (ไม่ใช่ของทุกคน)
@@ -18967,7 +19049,15 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
             <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
             <input type="date" value={bundleRange.end} onChange={e => setBundleRange(r => ({ ...r, end: e.target.value }))}
               style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
-            <Btn onClick={() => window.printAccreditationBundle?.(data, bundleRange)}>📦 Export ชุดข้อมูล</Btn>
+            <Btn onClick={() => {
+              // ถ้าลบวันที่ในช่องออกจนว่างเปล่า calculateQualityKPIs จะกรอง visit ทั้งหมดทิ้งหมด (เทียบ
+              // กับ '' แล้วเป็นเท็จเสมอ) ได้เอกสารตัวเลข 0 ทุกช่องแบบเงียบๆ กันไว้ก่อนเรียก export จริง
+              if (!bundleRange.start || !bundleRange.end) {
+                window.rxToast?.('กรุณาเลือกช่วงวันที่ให้ครบทั้งวันเริ่มต้นและวันสิ้นสุดก่อน Export', 'error');
+                return;
+              }
+              window.printAccreditationBundle?.(data, bundleRange);
+            }}>📦 Export ชุดข้อมูล</Btn>
           </div>
         </div>
       </Card>
@@ -21021,7 +21111,10 @@ function App() {
       setView(target); setSelectedPtId(patientId);
       if (target !== 'visit-form') setEditVisitId(null);
       if (target !== 'telepharmacy') setTeleAddPtId(null);
-      if (target !== 'drpTracker') setDrpFocusPtId(null);
+      // 'drpTracker-focus' ถูกดักไว้ใน else if ด้านบนแล้วเสมอ ไม่มีทางไหลมาถึง branch นี้ได้ — ดังนั้น
+      // ทุก target ที่มาถึงตรงนี้ (รวมถึง 'drpTracker' ธรรมดาจาก sidebar) ต้องล้าง drpFocusPtId เสมอ ไม่งั้น
+      // เข้า DRP Tracker จาก sidebar หลังเคยกด "ติดตามใน DRP Tracker" มาก่อน จะยังกรองเหลือคนเดิมค้างอยู่เงียบๆ
+      setDrpFocusPtId(null);
     }
     const ms = document.getElementById('main-scroll');
     ms?.scrollTo({ top: 0 });

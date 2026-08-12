@@ -6,7 +6,7 @@ const { readApp, extractBlocks } = require('./extract');
 const src = readApp();
 const code = extractBlocks(src, [
   'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
-  'checkInteractions', 'detectDRP', 'drpEntryId', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
+  'checkInteractions', 'detectDRP', 'drpEntryId', 'normalizeDrpProblem', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
   'computeDRPWorklist', 'calculateNotifications',
 ]);
 // eslint-disable-next-line no-eval
@@ -25,12 +25,14 @@ function run(t) {
     { id: 'v1', patientId: 'p1', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] }, // High severity DRP, เก่ามาก (>7 วันจากวันนี้แน่นอน)
     { id: 'v2', patientId: 'p2', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] },
   ];
-  const drpP1Id = global.drpEntryId('v1', 'P1.2');
-  const drpP2Id = global.drpEntryId('v2', 'P1.2');
+  // ต้องระบุ problemEn ให้ตรงกับที่ detectDRP สร้างจริง (ใช้ทำ id ให้ตรงกัน — ดู normalizeDrpProblem)
+  const SABA_ONLY_PROBLEM = 'SABA-only treatment in asthma without ICS controller (against GINA)';
+  const drpP1Id = global.drpEntryId('v1', 'P1.2', SABA_ONLY_PROBLEM);
+  const drpP2Id = global.drpEntryId('v2', 'P1.2', SABA_ONLY_PROBLEM);
 
   // ─── 4a: แจ้งเตือน "มอบหมายให้ฉัน" ต้องขึ้นเฉพาะของ currentUser คนนั้น ไม่ปนของคนอื่น ───
   {
-    const drpTracker = { [drpP1Id]: { status: 'open', assignedTo: 'ภญ.สมศรี' } };
+    const drpTracker = { [drpP1Id]: { status: 'open', assignedTo: 'สมศรี' } };
     const dataP1 = { patients, visits, telepharmacy: [], drpTracker };
     const notifsForAssignee = calculateNotifications(dataP1, { name: 'สมศรี', prefix: 'ภญ.' });
     t.ok('calculateNotifications: แจ้งเตือน DRP มอบหมายให้ฉัน ขึ้นเมื่อ assignedTo ตรงกับ currentUser',
@@ -56,7 +58,7 @@ function run(t) {
 
   // ─── DRP ที่ resolved แล้วต้องไม่ขึ้นแจ้งเตือนอีก (ทั้งสองแบบ) ───
   {
-    const drpTracker = { [drpP1Id]: { status: 'resolved', assignedTo: 'ภญ.สมศรี' } };
+    const drpTracker = { [drpP1Id]: { status: 'resolved', assignedTo: 'สมศรี' } };
     const data = { patients: [patients[0]], visits: [visits[0]], telepharmacy: [], drpTracker };
     const notifs = calculateNotifications(data, { name: 'สมศรี', prefix: 'ภญ.' });
     t.ok('calculateNotifications: DRP ที่แก้ไขแล้ว (resolved) ไม่ขึ้นแจ้งเตือนอีก (ไม่นับแจ้งเตือนประเภทอื่น เช่น วัคซีน)',
@@ -65,7 +67,7 @@ function run(t) {
 
   // ─── แต่ละแจ้งเตือน DRP ต้องมี action ที่พาไปหน้า DRP Tracker แบบ focus ที่ผู้ป่วยคนนั้น ───
   {
-    const drpTracker = { [drpP1Id]: { status: 'open', assignedTo: 'ภญ.สมศรี' } };
+    const drpTracker = { [drpP1Id]: { status: 'open', assignedTo: 'สมศรี' } };
     const data = { patients, visits, telepharmacy: [], drpTracker };
     const notif = calculateNotifications(data, { name: 'สมศรี', prefix: 'ภญ.' }).find(n => n.id === `drp-assigned-${drpP1Id}`);
     t.ok('calculateNotifications: แจ้งเตือน DRP มี action เป็นฟังก์ชัน (คลิกแล้วนำทางได้)', typeof notif.action === 'function');
