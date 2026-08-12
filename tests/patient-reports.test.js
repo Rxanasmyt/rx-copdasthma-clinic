@@ -82,11 +82,13 @@ function run(t) {
     t.ok('getPassingPatients: techniquePass=null (ยังไม่ประเมิน) ไม่ถูกนับเป็นฝั่งผ่าน', passTech.length === 1 && passTech[0].id === 'p1');
     t.ok('getPassingPatients: techniquePass=null ไม่ถูกนับเป็นฝั่งไม่ผ่านเช่นกัน (สอดคล้องของเดิม)', failTech.length === 1 && failTech[0].id === 'p2');
 
-    // carePercent: ฝั่งผ่าน = มาตามนัดจริง (ไม่อยู่ใน noShowRoster)
-    const careRoster = [{ id: 'p1', hn: 'HN1', name: 'A' }, { id: 'p2', hn: 'HN2', name: 'B' }];
-    const noShow = [{ id: 'p2', hn: 'HN2', name: 'B', nextVisit: '2026-07-01' }];
-    const carePass = getPassingPatients('carePercent', careRoster, noShow);
-    t.ok('getPassingPatients carePercent: ผู้ป่วยที่ไม่ได้อยู่ใน no-show roster ถือว่ามาตามนัด', carePass.length === 1 && carePass[0].id === 'p1');
+    // carePercent: ฝั่งผ่าน = มาตามนัดจริง — ต้องมาจาก cameRoster (ระบุตัวตนคนที่มาจริง) ไม่ใช่เดาจาก
+    // "roster ทั้งหมดที่ไม่อยู่ใน noShowRoster" (roster คือทุกคนที่ได้รับการบริบาลช่วงนี้ คนละประชากร
+    // กับตัวเศษ/ตัวส่วนของ carePercent จริง — ดู cameRoster ใน calculateQualityKPIs)
+    const cameRoster = [{ id: 'p1', hn: 'HN1', name: 'A' }];
+    const carePass = getPassingPatients('carePercent', [], [], cameRoster);
+    t.ok('getPassingPatients carePercent: ใช้ cameRoster ตรงๆ (ระบุตัวตนคนที่มาจริง)', carePass.length === 1 && carePass[0].id === 'p1');
+    t.ok('getPassingPatients carePercent: ไม่ระบุ cameRoster เลย -> ไม่ throw คืน array ว่าง', getPassingPatients('carePercent', [], []).length === 0);
   }
 }
 

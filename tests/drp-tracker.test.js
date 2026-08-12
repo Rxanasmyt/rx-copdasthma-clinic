@@ -7,7 +7,7 @@ const { readApp, extractBlocks } = require('./extract');
 const src = readApp();
 const code = extractBlocks(src, [
   'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
-  'checkInteractions', 'detectDRP', 'drpEntryId', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
+  'checkInteractions', 'detectDRP', 'drpEntryId', 'normalizeDrpProblem', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
   'computeDRPWorklist', 'getDRPWorklistStats', 'countOpenHighDRP',
 ]);
 // eslint-disable-next-line no-eval
@@ -45,7 +45,12 @@ function run(t) {
   {
     const worklist = computeDRPWorklist(patients, visits, {}, null);
     t.ok('computeDRPWorklist: ตรวจพบ DRP อย่างน้อย 1 รายการจากข้อมูลจำลอง', worklist.length > 0);
-    t.ok('computeDRPWorklist: ทุกรายการมี id ที่ deterministic (visitId::code)', worklist.every(w => w.id === `${w.visitId}::${w.code}`));
+    // id ต้องมี visitId+code เป็น prefix เสมอ (deterministic) แต่ตอนนี้มีส่วนต่อท้ายเพิ่ม (normalized
+    // problemEn) เพื่อแยกปัญหาคนละเรื่องที่ใช้ code เดียวกันในวิสิตเดียวกันออกจากกัน — ดู normalizeDrpProblem
+    t.ok('computeDRPWorklist: ทุกรายการมี id ที่ deterministic ขึ้นต้นด้วย visitId::code เสมอ',
+      worklist.every(w => w.id.startsWith(`${w.visitId}::${w.code}::`)));
+    t.ok('computeDRPWorklist: id ไม่ชนกันเองแม้ในผู้ป่วยที่ตรวจพบหลาย DRP โค้ดเดียวกันในวิสิตเดียว (unique ทุกตัว)',
+      new Set(worklist.map(w => w.id)).size === worklist.length);
     t.ok('computeDRPWorklist: แนบข้อมูลผู้ป่วย (ชื่อ/HN) มาด้วยครบ', worklist.every(w => w.patient && w.patient.hn));
     t.ok('computeDRPWorklist: ไม่มี override ใน drpTracker -> สถานะเริ่มต้นเป็น open ทุกรายการ', worklist.every(w => w.status === 'open'));
   }
@@ -178,6 +183,28 @@ function run(t) {
     t.ok('getDRPWorklistStats: outcomePending นับรายการที่รอ visit ถัดไปถูกต้อง และ outcomeVerifiedRate เป็น null เมื่อยังไม่มีอะไรให้ตรวจสอบ',
       statsPending.outcomePending === 1 && statsPending.outcomeVerifiedRate === null);
     t.ok('getDRPWorklistStats: outcomeVerifiedRate คำนวณถูกต้องเมื่อยืนยันครบ 100%', statsFixed.outcomeVerifiedRate === '100.0');
+  }
+
+  // ─── regression: 2 DRP คนละเรื่องแต่ใช้ PCNE code เดียวกันในวิสิตเดียวกัน ต้องไม่ id ชนกัน ───
+  // (สถานการณ์จริง: ผู้ป่วยหืดที่ยังสูบบุหรี่ + ใช้ SABA เดี่ยวไม่มี ICS — ทั้งสองเรื่องเป็น P1.2)
+  // เดิม (ก่อนแก้) จะได้ id เดียวกันทั้งคู่ (visitId::code) แก้ปัญหาหนึ่งจะไปทับสถานะอีกปัญหาโดยไม่ตั้งใจ
+  {
+    const smokerPatient = mkPatient('cs1', 'Asthma', { smokingStatus: 'Current' });
+    const v = { id: 'csv1', patientId: 'cs1', visitDate: '2026-03-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] };
+    const worklist = computeDRPWorklist([smokerPatient], [v], {}, null);
+    const sameCodeEntries = worklist.filter(w => w.code === 'P1.2');
+    t.ok('regression: ตรวจพบ 2 ปัญหาคนละเรื่องที่ใช้ code P1.2 ร่วมกันในวิสิตเดียว (สูบบุหรี่ + SABA-only)', sameCodeEntries.length === 2);
+    t.ok('regression: id ของทั้งสองปัญหาต้องไม่ชนกัน แม้ code เดียวกัน', new Set(sameCodeEntries.map(e => e.id)).size === 2);
+
+    // แก้ปัญหาหนึ่ง (SABA-only) เป็น resolved -> อีกปัญหา (สูบบุหรี่) ต้องยังเป็น open อยู่ ไม่ถูกทับสถานะ
+    const sabaEntry = sameCodeEntries.find(e => e.problemEn.includes('SABA-only'));
+    const smokingEntry = sameCodeEntries.find(e => e.problemEn.includes('smoker'));
+    const drpTracker2 = { [sabaEntry.id]: { status: 'resolved', dateResolved: '2026-03-05' } };
+    const worklist2 = computeDRPWorklist([smokerPatient], [v], drpTracker2, null);
+    const sabaAfter = worklist2.find(w => w.id === sabaEntry.id);
+    const smokingAfter = worklist2.find(w => w.id === smokingEntry.id);
+    t.ok('regression: แก้ปัญหา SABA-only แล้ว ปัญหานั้นเป็น resolved จริง', sabaAfter.status === 'resolved');
+    t.ok('regression: ปัญหาสูบบุหรี่ (คนละเรื่อง แต่ code เดียวกัน) ต้องยังเป็น open ไม่ถูกทับสถานะไปด้วย', smokingAfter.status === 'open');
   }
 }
 

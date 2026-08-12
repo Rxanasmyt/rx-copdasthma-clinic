@@ -6,7 +6,7 @@ const { readApp, extractBlocks } = require('./extract');
 const src = readApp();
 const code = extractBlocks(src, [
   'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
-  'RX_KPI_ENUMS', 'checkInteractions', 'detectDRP', 'drpEntryId', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
+  'RX_KPI_ENUMS', 'checkInteractions', 'detectDRP', 'drpEntryId', 'normalizeDrpProblem', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
   'computeDRPWorklist', 'getDRPWorklistStats', 'computeInsights',
 ]);
 // eslint-disable-next-line no-eval
@@ -27,7 +27,8 @@ function run(t) {
     { id: 'v2', patientId: 'p2', visitDate: '2026-01-02', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] },
     { id: 'v3', patientId: 'p3', visitDate: '2026-01-03', medications: [] },
   ];
-  const drpP1Id = global.drpEntryId('v1', 'P1.2');
+  const SABA_ONLY_PROBLEM = 'SABA-only treatment in asthma without ICS controller (against GINA)';
+  const drpP1Id = global.drpEntryId('v1', 'P1.2', SABA_ONLY_PROBLEM);
 
   // ─── ยังไม่มีอะไร resolved -> totalDRP นับจาก worklist จริง ไม่ใช่ manual checkbox เดิม ───
   {
@@ -53,7 +54,7 @@ function run(t) {
   {
     const singleCatPatients = [mkPatient('sp1', 'Asthma')];
     const singleCatVisits = [{ id: 'sv1', patientId: 'sp1', visitDate: '2026-01-01', medications: [{ name: 'Salbutamol MDI 100 mcg/dose' }] }];
-    const targetId = global.drpEntryId('sv1', 'P1.2');
+    const targetId = global.drpEntryId('sv1', 'P1.2', SABA_ONLY_PROBLEM);
     const data = { patients: singleCatPatients, visits: singleCatVisits, telepharmacy: [], drpTracker: { [targetId]: { status: 'resolved' } } };
     const ins = computeInsights(data);
     t.ok('computeInsights: drpCatStatusList ให้ resolvedPct = 100 เมื่อทุกรายการในหมวดนั้น resolved หมด',
