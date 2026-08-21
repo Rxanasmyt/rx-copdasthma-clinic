@@ -13893,6 +13893,8 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
   // ตกอยู่ในช่วงเวลาที่เลือกจริง (แม่นยำ ไม่ซ้ำซ้อน ไม่มีปัญหา recall window ทับซ้อนกัน)
   // ถ้ายังไม่มี event log เลย (ผู้ป่วยเก่า/ยังไม่เริ่มใช้ฟีเจอร์นี้) fallback เป็นค่า countThisYear
   // จาก visit ล่าสุด (ค่าประมาณแบบเดิม) เพื่อไม่ให้ตัวเลขหายไปทั้งหมดระหว่างเปลี่ยนผ่าน
+  // ความยาวช่วงเวลาที่เลือก (วัน) — ใช้ปรับสัดส่วนค่า fallback (ดูด้านล่าง)
+  const periodDaysKPI1 = Math.max(1, Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1);
   let copdExacerbCount = 0;
   let copdExacerbApproxCount = 0; // จำนวนผู้ป่วยที่ยังใช้ค่าประมาณ (ไม่มี event log) — ไว้แจ้งเตือนความแม่นยำ
   copdExacerbBasePts.forEach(p => {
@@ -13900,9 +13902,17 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     if (events.length > 0) {
       copdExacerbCount += events.filter(e => e.date && e.date >= startDate && e.date <= endDate).length;
     } else {
-      const v = latestVisit[p.id];
-      copdExacerbCount += (v?.exacerbation?.countThisYear || 0);
-      copdExacerbApproxCount++;
+      // ไม่มี event log เลย -> fallback เป็นค่าประมาณจาก countThisYear ของ visit ที่ "อยู่ในช่วงเวลาที่
+      // เลือกจริง" เท่านั้น (เดิมใช้ latestVisit ซึ่งอาจเป็น visit เก่ากว่าช่วงที่เลือกไปหลายปี ทำให้บวก
+      // ค่าที่ไม่เกี่ยวกับช่วงเวลานี้เข้าไปเลย) — และ countThisYear จริงๆ แล้วเป็นค่า recall "6 เดือน
+      // ล่าสุด" ตามฟอร์ม (ไม่ใช่รายปีตามชื่อฟิลด์) จึงต้องปรับสัดส่วนตามความยาวช่วงเวลาที่เลือกเทียบกับ
+      // หน้าต่าง recall 6 เดือน (182 วัน) จริงของฟิลด์นี้ ไม่ใช่บวกค่าดิบเข้าไปตรงๆ
+      const pv = (periodVisitsByPatient.get(p.id) || []).sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''))[0];
+      if (pv) {
+        const recallCount = pv.exacerbation?.countThisYear || 0;
+        copdExacerbCount += Math.round(recallCount * (periodDaysKPI1 / 182));
+        copdExacerbApproxCount++;
+      }
     }
   });
   const copdExacerbRate = copdExacerbBasePts.length > 0
@@ -14020,9 +14030,15 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
       const d = t.actualDate || t.scheduledDate || '';
       if (d === r.date && t.status === 'Success') cameSet.add(t.patientId);
     });
-    // เพดานจำนวนที่มา ≤ จำนวนที่นัดไว้ (scheduledCount) — กันตัวชี้วัดเกิน 100% เวลามีผู้ป่วย
-    // walk-in ที่ไม่ได้อยู่ใน trackedIds/extraCount มาในวันเดียวกัน (ไม่ใช่ตัวหารของตัวชี้วัดนี้)
-    cameCount += Math.min(cameSet.size, scheduled);
+    // ต้องนับเฉพาะคนที่ "มีนัดจริง" ว่ามาหรือไม่ ไม่ใช่แค่ "มีคนมากี่คนวันนั้น" — เดิมใช้ cameSet.size
+    // ตรงๆ (มี Math.min กับ scheduled กันแค่ไม่ให้เกิน 100%) ทำให้ walk-in ที่ไม่ได้นัดไว้เลยถูกนับแทน
+    // คนที่นัดไว้แต่ไม่มา (no-show) กลายเป็นตัวชี้วัดขึ้นสูงเกินจริงทั้งที่ noShowRoster ด้านล่างยังคง
+    // มีรายชื่อคนไม่มาอยู่ — ขัดแย้งกันเอง ต้องนับ "มาจริงในกลุ่มที่นัดไว้" (trackedIds) ก่อน แล้วเติม
+    // เฉพาะส่วนที่นัดไว้แต่ไม่รู้ตัวตน (extraCount) ด้วย walk-in ที่เหลือได้ไม่เกินโควตานั้นเท่านั้น
+    const cameFromTracked = trackedIds.filter(pid => cameSet.has(pid)).length;
+    const untrackedWalkIns = Math.max(0, cameSet.size - cameFromTracked);
+    const cameFromExtra = Math.min(untrackedWalkIns, Number(r.extraCount) || 0);
+    cameCount += cameFromTracked + cameFromExtra;
     trackedIds.forEach(pid => {
       const dx = patientById.get(pid)?.diagnosis;
       if (dx === 'COPD' || dx === 'Asthma') {
@@ -14252,13 +14268,20 @@ const MiniSparkline = ({ values, color = '#2563EB', width = 120, height = 32 }) 
 };
 
 const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, denLabel, sparkValues }) => {
+  // den=0 (ไม่มีผู้ป่วยกลุ่มนี้ในช่วงเวลาที่เลือกเลย) เดิมแสดงเป็นการ์ดสีแดง "0% ⚠ ต้องปรับ" เหมือนล้มเหลว
+  // จริง ทั้งที่จริงๆ คือ "ยังไม่มีข้อมูลให้วัด" คนละความหมายกัน — ทำให้คลินิกที่ไม่มีผู้ป่วยกลุ่มนี้เลย
+  // (เช่น ยังไม่มีเคส Asthma ที่กำเริบ) เห็นตัวชี้วัดเป็นสีแดงล้มเหลวโดยไม่มีเหตุผลอันควร
+  const noData = !(metric.den > 0);
   const isPass = metric.status === 'pass';
   const passColor  = '#059669';
   const warnColor  = '#DC2626';
-  const borderColor = isPass ? passColor : warnColor;
-  const bgGrad     = isPass
-    ? 'linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)'
-    : 'linear-gradient(135deg,#FEF2F2 0%,#FECACA 100%)';
+  const noDataColor = '#6B7280';
+  const borderColor = noData ? noDataColor : (isPass ? passColor : warnColor);
+  const bgGrad     = noData
+    ? 'linear-gradient(135deg,#F9FAFB 0%,#F3F4F6 100%)'
+    : isPass
+      ? 'linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)'
+      : 'linear-gradient(135deg,#FEF2F2 0%,#FECACA 100%)';
 
   // Progress bar: for lower-is-better KPIs, full bar = value/target (< target = good)
   //               for higher-is-better KPIs, full bar = value/target (> target = good)
@@ -14277,7 +14300,7 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, de
       borderLeft: `5px solid ${borderColor}`,
       borderRadius: 14, padding: '17px 19px',
       display: 'flex', flexDirection: 'column', gap: 12,
-      boxShadow: isPass ? '0 2px 10px rgba(5,150,105,0.1)' : '0 2px 10px rgba(220,38,38,0.1)',
+      boxShadow: noData ? '0 2px 10px rgba(107,114,128,0.08)' : isPass ? '0 2px 10px rgba(5,150,105,0.1)' : '0 2px 10px rgba(220,38,38,0.1)',
       cursor: onClick ? 'pointer' : 'default', transition: 'transform 0.18s cubic-bezier(0.16,1,0.3,1), box-shadow 0.18s',
     }}>
       {/* Header */}
@@ -14293,23 +14316,25 @@ const QualityKPICard = ({ metric, icon, desc, targetLabel, onClick, numLabel, de
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <span style={{ fontSize: 36, fontWeight: 800, color: borderColor, lineHeight: 1, letterSpacing: '-0.01em' }}>{metric.value}</span>
-            <span style={{ fontSize: 14, color: '#6B7280', fontWeight: 600 }}>{metric.unit}</span>
+            <span style={{ fontSize: 36, fontWeight: 800, color: borderColor, lineHeight: 1, letterSpacing: '-0.01em' }}>{noData ? '—' : metric.value}</span>
+            {!noData && <span style={{ fontSize: 14, color: '#6B7280', fontWeight: 600 }}>{metric.unit}</span>}
           </div>
-          {metric.den > 0 && (
+          {metric.den > 0 ? (
             <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }} title={`${numLabel || 'ตัวเศษ'}: ${metric.num} · ${denLabel || 'ตัวส่วน'}: ${metric.den}`}>
               {metric.num} / {metric.den} {metric.unit.includes('%') ? 'ราย' : 'ครั้ง/ราย'}
               {denLabel && <span style={{ display: 'block', fontSize: 10, marginTop: 1, color: '#B0B7C3' }}>{denLabel}</span>}
             </div>
+          ) : (
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>ยังไม่มีผู้ป่วยกลุ่มนี้ในช่วงเวลาที่เลือก</div>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
           <div style={{
             padding: '5px 11px', borderRadius: 20,
-            background: isPass ? '#059669' : '#DC2626',
+            background: noData ? '#6B7280' : isPass ? '#059669' : '#DC2626',
             color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
           }}>
-            {isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}
+            {noData ? '— ไม่มีข้อมูล' : isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}
           </div>
           {sparkValues && sparkValues.length >= 2 && (
             <div title="แนวโน้ม 6 เดือนล่าสุด">
@@ -14458,7 +14483,7 @@ const getAllProblemPatients = (metrics, kpis) => {
   return [...byId.values()].sort((a, b) => b.issues.length - a.issues.length || (a.name || '').localeCompare(b.name || '', 'th'));
 };
 
-const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, desc, numLabel, denLabel, color: accentColor, roster, noShowRoster, cameRoster, dateRange, navigate }) => {
+const KPIDetailModal = ({ open, onClose, data, metricKey, metric, icon, targetLabel, desc, numLabel, denLabel, color: accentColor, roster, noShowRoster, cameRoster, dateRange, navigate }) => {
   const monthlyTrend = React.useMemo(() => {
     if (!open || !metricKey) return null;
     return calculateQualityKPIsTrend(data, 'month', 12);
@@ -14477,17 +14502,20 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
   React.useEffect(() => { if (open) setShowPassing(false); }, [open, metricKey]); // รีเซ็ตทุกครั้งที่เปิด KPI ใหม่
   const shownList = showPassing ? passingPatients : problemPatients;
 
-  if (!open || !metricKey || !monthlyTrend) return null;
-  const latest = monthlyTrend[monthlyTrend.length - 1].kpis[metricKey];
-  const isPass = latest.status === 'pass';
+  if (!open || !metricKey || !monthlyTrend || !metric) return null;
+  // Hero ต้องใช้ metric (kpis[metricKey] ที่คำนวณจาก dateRange ที่เลือกอยู่จริง — ค่าเดียวกับที่การ์ด
+  // ที่กดเข้ามาแสดงเป๊ะๆ) ไม่ใช่ "เดือนล่าสุด" จาก monthlyTrend เหมือนเดิม — เดิมสองค่านี้คนละช่วงเวลากัน
+  // (การ์ด/รายชื่อผู้ป่วยด้านล่างเป็นตาม dateRange ที่เลือก แต่ hero เป็นเดือนปัจจุบันเสมอ) ทำให้ตัวเลข
+  // hero กับรายชื่อผู้ป่วยในหน้าต่างเดียวกันขัดแย้งกันเอง — monthlyTrend ยังใช้กับกราฟ/ตารางแนวโน้มด้านล่างได้
+  const isPass = metric.status === 'pass';
   const color = isPass ? '#059669' : '#DC2626';
   const chartColor = accentColor || '#2563EB';
   const goToPatient = (id) => { onClose(); navigate?.('history', id); };
 
   return (
-    <Modal open={open} onClose={onClose} title={`${icon} ${latest.label}`} width={900}>
+    <Modal open={open} onClose={onClose} title={`${icon} ${metric.label}`} width={900}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-        {/* ─── Hero: ค่าปัจจุบัน (เดือนล่าสุด) ─── */}
+        {/* ─── Hero: ค่าของช่วงเวลาที่กำลังเลือกดูอยู่ (ตรงกับการ์ด/รายชื่อผู้ป่วยด้านล่างเป๊ะ) ─── */}
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch',
         }}>
@@ -14499,17 +14527,17 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
           }} className="rx-insight-card">
             <div className="rx-hero-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
             <div style={{ position: 'relative', fontSize: 11, fontWeight: 700, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              เดือนล่าสุด: {monthlyTrend[monthlyTrend.length - 1].label}
+              {dateRange ? `ช่วงที่เลือก: ${dateRange.start} ถึง ${dateRange.end}` : `เดือนล่าสุด: ${monthlyTrend[monthlyTrend.length - 1].label}`}
             </div>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>
-                <AnimatedNumber value={parseFloat(latest.value) || 0} decimals={String(latest.value).includes('.') ? 1 : 0} />
+                <AnimatedNumber value={parseFloat(metric.value) || 0} decimals={String(metric.value).includes('.') ? 1 : 0} />
               </span>
-              <span style={{ fontSize: 16, fontWeight: 600, opacity: 0.9 }}>{latest.unit}</span>
+              <span style={{ fontSize: 16, fontWeight: 600, opacity: 0.9 }}>{metric.unit}</span>
             </div>
             <div style={{ position: 'relative', fontSize: 12, opacity: 0.9, marginTop: 6, lineHeight: 1.6 }}>
-              {numLabel && <div>🔺 {numLabel}: <strong>{latest.num}</strong></div>}
-              {denLabel && <div>🔻 {denLabel}: <strong>{latest.den}</strong></div>}
+              {numLabel && <div>🔺 {numLabel}: <strong>{metric.num}</strong></div>}
+              {denLabel && <div>🔻 {denLabel}: <strong>{metric.den}</strong></div>}
               <div style={{ marginTop: 3, opacity: 0.85 }}>เป้าหมาย {targetLabel}</div>
             </div>
             <div style={{
@@ -14537,20 +14565,20 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
           </div>
         </div>
 
-        {/* ─── แยกดูแนวโน้ม COPD เดี่ยว / Asthma เดี่ยว (ตัวเลขหลักด้านบนยังรวมทุกคน) ─── */}
-        {latest.breakdown && (
+        {/* ─── แยกดูตามโรค COPD เดี่ยว / Asthma เดี่ยว ของช่วงเวลาที่เลือกอยู่ (ตัวเลขหลักด้านบนรวมทุกคน) ─── */}
+        {metric.breakdown && (
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>🔬 แยกตามโรค (เฉพาะวินิจฉัยเดี่ยว)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {[{ dx: 'copd', label: 'COPD', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE' },
                 { dx: 'asthma', label: 'Asthma', color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE' }].map(({ dx, label, color: c, bg, border }) => {
-                const b = latest.breakdown[dx];
+                const b = metric.breakdown[dx];
                 return (
                   <div key={dx} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: '12px 16px' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: c, marginBottom: 4 }}>{label}</div>
                     {b.den > 0 ? (
                       <>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: c }}>{b.value}{latest.unit}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: c }}>{b.value}{metric.unit}</div>
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{b.num} / {b.den}</div>
                       </>
                     ) : (
@@ -14613,7 +14641,7 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
         {/* ─── กราฟแนวโน้มรายเดือน (12 เดือนล่าสุด) ─── */}
         <div>
           <div style={{ fontSize: 13.5, fontWeight: 800, color: C.primary, marginBottom: 10 }}>📈 แนวโน้มรายเดือน (12 เดือนล่าสุด)</div>
-          <KPIComboChart trend={monthlyTrend} metricKey={metricKey} icon={icon} label={latest.label}
+          <KPIComboChart trend={monthlyTrend} metricKey={metricKey} icon={icon} label={metric.label}
             numColor={chartColor} denColor={`${chartColor}55`} lineColor={chartColor} numLabel={numLabel} denLabel={denLabel} />
         </div>
 
@@ -14630,7 +14658,7 @@ const KPIDetailModal = ({ open, onClose, data, metricKey, icon, targetLabel, des
               const csv = '﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
               const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
               const url = URL.createObjectURL(blob);
-              const a = Object.assign(document.createElement('a'), { href: url, download: `${latest.label.replace(/\s+/g, '_')}_${metricKey}.csv` });
+              const a = Object.assign(document.createElement('a'), { href: url, download: `${metric.label.replace(/\s+/g, '_')}_${metricKey}.csv` });
               a.click();
               setTimeout(() => URL.revokeObjectURL(url), 1000);
             }} style={{
@@ -15040,7 +15068,7 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
             ))}
           </div>
 
-          <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey}
+          <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey} metric={detailKey ? kpis[detailKey] : null}
             icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
             desc={metrics.find(m => m.key === detailKey)?.desc} color={metrics.find(m => m.key === detailKey)?.color}
             numLabel={metrics.find(m => m.key === detailKey)?.numLabel} denLabel={metrics.find(m => m.key === detailKey)?.denLabel}
@@ -20818,6 +20846,45 @@ function App() {
     }
   }, []);
 
+  // ข้อมูลล่าสุดที่ยังเขียนขึ้น cloud ไม่สำเร็จ — ประกาศไว้ตรงนี้ (ก่อน initFirestore) เพราะ
+  // onSnapshot handler ข้างในต้องใช้ตรวจว่ามีการแก้ไขค้าง sync อยู่ไหมก่อนจะ setData ทับ
+  const pendingData = useRef(null);
+  const [pendingSync, setPendingSync] = useState(false);  // มีงานค้าง sync หรือไม่
+  // เอกสารจาก onSnapshot ที่มาถึงระหว่างที่ยังมีการแก้ไขค้าง sync อยู่ — พักไว้ก่อน ไม่ใช้ setData ทันที
+  // (ดู onSnapshot handler ด้านล่าง) แล้วค่อยเอามาใช้ทีหลังเมื่อ flush เสร็จ กันข้อมูลของอีกเครื่องที่
+  // เพิ่งมาถึง "ทับ" การแก้ไขที่ยังไม่ sync ของเราเองใน React state — ถ้าโดนทับแล้วผู้ใช้พิมพ์อะไรต่อ
+  // การแก้ไขที่ยังไม่ sync จะหายถาวรเพราะ handleDataChange ครั้งถัดไปจะสร้าง nd ใหม่จาก state ที่ถูกทับไปแล้ว
+  const pendingRemoteDoc = useRef(null);
+
+  // ── ใช้เอกสารจาก Firestore (onSnapshot) จริงๆ — เรียกได้ทั้งตอนไม่มีอะไรค้าง sync และหลัง flush
+  // สำเร็จ (เอาเอกสารที่พักไว้ระหว่างรอ มาใช้ทีหลัง) รวมโค้ดไว้จุดเดียวกันทั้งสองที่เรียก ──
+  const applyRemoteDoc = useCallback((d) => {
+    const me = currentUserRef.current?.name || currentUserRef.current?.username;
+    if (d._editedBy && me && d._editedBy !== me && d._savedAt && (Date.now() - d._savedAt) < 60000) {
+      setAppToast({ msg: `🔄 ข้อมูลถูกอัปเดตโดย ${d._editedBy} (อีกเครื่อง) — หน้าจอรีเฟรชแล้ว`, type: 'info' });
+    }
+    lastRemoteSig.current = dataSig(d);
+    setData(d);
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      const fresh = d.users?.find(u => u.id === prev.id);
+      if (!fresh || (fresh.role === prev.role && fresh.name === prev.name)) return prev;
+      return { ...prev, ...fresh };
+    });
+    setSyncStatus('synced');
+  }, []);
+
+  // เรียกทันทีหลัง flush สำเร็จ (pendingData.current เคลียร์แล้ว = ไม่มีอะไรค้าง sync ตอนนี้) — ถ้ามี
+  // เอกสารจากอีกเครื่องที่พักไว้ระหว่างรอ ให้เอามาใช้ตอนนี้แทนที่จะทิ้งไปเฉยๆ (ไม่งั้นข้อมูลของอีกเครื่อง
+  // จะไม่ถูกแสดงเลยจนกว่าจะมีการแก้ไขใหม่มาทำให้ onSnapshot ยิงอีกรอบ)
+  const applyBufferedRemoteIfAny = useCallback(() => {
+    if (pendingRemoteDoc.current && !pendingData.current) {
+      const d = pendingRemoteDoc.current;
+      pendingRemoteDoc.current = null;
+      applyRemoteDoc(d);
+    }
+  }, [applyRemoteDoc]);
+
   const initFirestore = useCallback(async (attempt = 0) => {
     if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
     clearTimeout(retryRef.current);
@@ -20903,19 +20970,16 @@ function App() {
           const d = doc.data();
           // Shape validation — reject obviously corrupt snapshots
           if (!d || typeof d !== 'object' || !Array.isArray(d.patients)) return;
-          const me = currentUserRef.current?.name || currentUserRef.current?.username;
-          if (d._editedBy && me && d._editedBy !== me && d._savedAt && (Date.now() - d._savedAt) < 60000) {
-            setAppToast({ msg: `🔄 ข้อมูลถูกอัปเดตโดย ${d._editedBy} (อีกเครื่อง) — หน้าจอรีเฟรชแล้ว`, type: 'info' });
+          // มีการแก้ไขของเราเองที่ยัง sync ไม่เสร็จอยู่ — ห้าม setData(d) ทับตอนนี้ ไม่งั้นการแก้ไขที่
+          // ยังไม่ sync จะหายไปจาก React state ทันที (แม้ pendingData.current ยังอ้างถึงค่าที่ถูกต้อง
+          // อยู่ก็ตาม) แล้วถ้าผู้ใช้แก้ไขอะไรต่อ handleDataChange จะสร้างข้อมูลใหม่จาก state ที่ถูกทับไป
+          // แล้ว เขียนทับ pendingData.current ให้กลายเป็นข้อมูลที่ขาดการแก้ไขเดิม — พักไว้ก่อน เอามาใช้
+          // หลัง flush เสร็จแทน (ดู flushToCloud ทั้งสองโหมด)
+          if (pendingData.current) {
+            pendingRemoteDoc.current = d;
+            return;
           }
-          lastRemoteSig.current = dataSig(d);
-          setData(d);
-          setCurrentUser(prev => {
-            if (!prev) return prev;
-            const fresh = d.users?.find(u => u.id === prev.id);
-            if (!fresh || (fresh.role === prev.role && fresh.name === prev.name)) return prev;
-            return { ...prev, ...fresh };
-          });
-          setSyncStatus('synced');
+          applyRemoteDoc(d);
         },
         err => {
           console.error('Firebase snapshot error:', err);
@@ -20928,7 +20992,7 @@ function App() {
       setSyncStatus('error');
       if (attempt < 5) retryRef.current = setTimeout(() => initFirestore(attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
     }
-  }, [maybeAutoBackup]);
+  }, [maybeAutoBackup, applyRemoteDoc]);
 
   useEffect(() => {
     const cfg = loadFBConfig();
@@ -20938,8 +21002,6 @@ function App() {
 
   // ── เขียนข้อมูลขึ้น Firebase เท่านั้น ──────────────
   const saveTimer = useRef(null);
-  const pendingData = useRef(null);     // ข้อมูลล่าสุดที่ยังเขียนขึ้น cloud ไม่สำเร็จ
-  const [pendingSync, setPendingSync] = useState(false);  // มีงานค้าง sync หรือไม่
 
   const flushToCloud = useCallback((nd) => {
     const sig = dataSig(nd);
@@ -20966,6 +21028,7 @@ function App() {
           if (pendingData.current === nd) {
             pendingData.current = null; setPendingSync(false);
             try { localStorage.removeItem('rx_offline_draft'); } catch {}
+            applyBufferedRemoteIfAny();
           }
           setSyncStatus('synced');
         })
@@ -20987,6 +21050,7 @@ function App() {
         if (pendingData.current === nd) {
           pendingData.current = null; setPendingSync(false);
           try { localStorage.removeItem('rx_offline_draft'); } catch {}
+          applyBufferedRemoteIfAny();
         }
         setSyncStatus('synced');
         maybeAutoBackup(dbRef.current, payload);
@@ -20996,7 +21060,7 @@ function App() {
         pendingData.current = nd; setPendingSync(true);  // เก็บไว้รอ retry เมื่อกลับมาออนไลน์ (draft ใน localStorage ยังอยู่)
         setSyncStatus('error');
       });
-  }, [maybeAutoBackup]);
+  }, [maybeAutoBackup, applyBufferedRemoteIfAny]);
 
   const handleDataChange = useCallback((nd) => {
     setData(nd);

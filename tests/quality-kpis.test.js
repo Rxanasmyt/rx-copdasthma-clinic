@@ -32,7 +32,9 @@ function run(t) {
     };
     const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
     t.ok('KPI1 den excludes Both diagnosis', kpis.copdExacerbRate.den === 1);
-    t.ok('KPI1 num = only COPD patient\'s events', kpis.copdExacerbRate.num === 2);
+    // fallback (ไม่มี exacerbationEvents) ปรับสัดส่วนตามความยาวช่วงเวลาที่เลือกเทียบกับหน้าต่าง recall
+    // 6 เดือน (182 วัน) ของฟิลด์ countThisYear — ช่วง 31 วันจาก countThisYear=2 -> round(2*31/182) = 0
+    t.ok('KPI1 num = ค่า countThisYear ปรับสัดส่วนตามความยาวช่วงเวลาที่เลือก (fallback, ไม่มี event log)', kpis.copdExacerbRate.num === 0);
     t.ok('KPI2 den excludes Both diagnosis', kpis.asthmaErRate.den === 1);
     t.ok('KPI2 num = only Asthma patient\'s ER/admit', kpis.asthmaErRate.num === 1);
   }
@@ -165,6 +167,42 @@ function run(t) {
     t.ok('KPI6: num capped at scheduledCount (2), not 3', kpis.carePercent.num === 2);
   }
 
+  // ── regression: walk-in must NOT substitute for a genuine no-show (real inflation bug, not just
+  // the >100% cap) — เดิมนับ cameSet.size ตรงๆ (แค่ capped ที่ scheduledCount) ทำให้ walk-in ที่ไม่ได้
+  // นัดไว้เข้ามาแทนที่คนที่นัดไว้จริงแต่ไม่มา กลายเป็น 100% ทั้งที่ noShowRoster ยังมีรายชื่อคนไม่มาอยู่ ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD'), mkPatient('p2', 'COPD'), mkPatient('p3', 'COPD')],
+      visits: [
+        { id: 'v1', patientId: 'p1', visitDate: '2026-07-06' }, // p1 มาตามนัด
+        // p2 นัดไว้แต่ไม่มาเลย (no-show จริง)
+        { id: 'v3', patientId: 'p3', visitDate: '2026-07-06' }, // p3 walk-in ไม่ได้นัดไว้ ไม่อยู่ใน extraCount
+      ],
+      telepharmacy: [],
+      clinicDayRosters: [{ id: 'r1', date: '2026-07-06', scheduledCount: 2, patientIds: ['p1', 'p2'], extraCount: 0 }],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
+    t.ok('regression KPI6: walk-in (p3) ต้องไม่ถูกนับแทนคนที่นัดไว้จริงแต่ไม่มา (p2) — num ต้องเป็น 1 ไม่ใช่ 2',
+      kpis.carePercent.num === 1);
+    t.ok('regression KPI6: p2 ต้องยังอยู่ใน noShowRoster (ไม่ถูกกลบด้วย walk-in)',
+      kpis.noShowRoster.some(r => r.id === 'p2'));
+  }
+
+  // ── walk-in ที่อยู่ในโควตา extraCount (นัดไว้แต่ไม่รู้ตัวตนล่วงหน้า) ต้องนับเป็น "มา" ได้ ──
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD'), mkPatient('p2', 'COPD')],
+      visits: [
+        { id: 'v1', patientId: 'p1', visitDate: '2026-07-06' },
+        { id: 'v2', patientId: 'p2', visitDate: '2026-07-06' }, // p2 ไม่ได้อยู่ใน patientIds แต่มีโควตา extraCount รองรับ
+      ],
+      telepharmacy: [],
+      clinicDayRosters: [{ id: 'r1', date: '2026-07-06', scheduledCount: 2, patientIds: ['p1'], extraCount: 1 }],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
+    t.ok('KPI6: walk-in ที่อยู่ในโควตา extraCount ถูกนับเป็น "มา" ได้ (num=2)', kpis.carePercent.num === 2);
+  }
+
   // ─── TECHNIQUE_SCORE_RANK: 'Acceptable' must be a distinct rank, not dropped/merged with 'Poor' ───
   // บั๊กที่พบ: หลายจุดในไฟล์เคยใช้ map ที่ไม่มี 'Acceptable' เอง ทำให้ถูกนับเป็น 0 เท่ากับ 'Poor'
   // หรือหลุดออกจากผลรวมไปเลย (?? null) — ตอนนี้รวมเป็น RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK ตัวเดียว
@@ -242,6 +280,41 @@ function run(t) {
       elapsed2 < Math.max(elapsed1 * 4, 200)); // O(n) ควรโตเชิงเส้น (~2x); ยอมสูงถึง 4x + floor 200ms กัน jitter บนเครื่อง CI ช้า
     t.ok('perf: large-dataset calculation completes well under 1s (point-of-care responsiveness)',
       elapsed2 < 1000);
+  }
+
+  // ─── regression: KPI1 fallback (ไม่มี exacerbationEvents) ต้องไม่นับ visit ที่อยู่นอกช่วงเวลาที่เลือก ───
+  // เดิมใช้ latestVisit (visit ล่าสุดเท่าที่มี ไม่สนช่วงเวลา) ทำให้ visit เก่ากว่าช่วงที่เลือกไปหลายปี
+  // ยังถูกบวกเข้า numerator อยู่ — ทั้งที่ผู้ใช้กำลังดูรายงานของช่วงเวลาที่ไม่เกี่ยวข้องกับ visit นั้นเลย
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD')],
+      visits: [
+        // visit เดียวของผู้ป่วยคนนี้อยู่ปี 2019 (ไม่มี exacerbationEvents -> fallback)
+        { id: 'v1', patientId: 'p1', visitDate: '2019-03-02', exacerbation: { countThisYear: 4, hospitalized: false, erVisit: false } },
+      ],
+      telepharmacy: [], clinicDayRosters: [],
+    };
+    // ดูรายงานช่วง ม.ค.-ก.พ. 2026 — ไม่มี visit ไหนอยู่ในช่วงนี้เลย
+    const kpis = calculateQualityKPIs(data, '2026-01-01', '2026-02-28');
+    t.ok('regression KPI1: ผู้ป่วยยังอยู่ใน denominator (มี visit ก่อนหน้า endDate)', kpis.copdExacerbRate.den === 1);
+    t.ok('regression KPI1: numerator ต้องเป็น 0 เพราะไม่มี visit ไหนอยู่ในช่วงที่เลือกจริงๆ (ไม่ใช่ 4 จาก visit ปี 2019)',
+      kpis.copdExacerbRate.num === 0);
+  }
+
+  // ─── regression: KPI1 fallback ปรับสัดส่วน countThisYear ตามความยาวช่วงเวลาที่เลือก (ฟิลด์นี้จริงๆ
+  // เป็นค่า recall 6 เดือนล่าสุดตามฟอร์ม ไม่ใช่รายปีตามชื่อฟิลด์) ───
+  {
+    const patients = [mkPatient('p1', 'COPD')];
+    const visits = [{ id: 'v1', patientId: 'p1', visitDate: '2026-06-15', exacerbation: { countThisYear: 6, hospitalized: false, erVisit: false } }];
+    const data = { patients, visits, telepharmacy: [], clinicDayRosters: [] };
+    // ช่วงยาวเท่าหน้าต่าง recall จริง (~182 วัน, 6 เดือน) -> ควรได้ค่าประมาณเดิมคืนมาเกือบเต็ม
+    const kpisFullWindow = calculateQualityKPIs(data, '2026-01-01', '2026-07-02'); // 183 วัน
+    t.ok('regression KPI1: ช่วงเวลาเท่าหน้าต่าง recall (~6 เดือน) ได้ค่าใกล้เคียง countThisYear เดิม',
+      kpisFullWindow.copdExacerbRate.num === 6);
+    // ช่วงสั้นกว่ามาก (1 เดือน ~30 วัน) ต้องได้ค่าน้อยกว่าเดิมมาก ไม่ใช่ 6 เต็มๆ เหมือนเดิม
+    const kpisShortWindow = calculateQualityKPIs(data, '2026-06-01', '2026-06-30');
+    t.ok('regression KPI1: ช่วงเวลาสั้นกว่าหน้าต่าง recall มาก ต้องได้ค่าน้อยกว่าเดิมตามสัดส่วน (ไม่ใช่ 6 เต็มๆ)',
+      kpisShortWindow.copdExacerbRate.num < 6 && kpisShortWindow.copdExacerbRate.num >= 0);
   }
 }
 
