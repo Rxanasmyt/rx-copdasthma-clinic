@@ -4132,7 +4132,9 @@ function detectDRP(visit, patient) {
   }
 
   // ── Category 12: Renal-specific dose adjustments ──
-  if (patient?.eGFR) {
+  // เดิมเช็คแบบ truthy (if (patient?.eGFR)) ทำให้ eGFR = 0 (ไตวายระยะสุดท้าย/ฟอกไต — อันตรายที่สุด)
+  // ถูกมองว่า "ไม่มีค่า" แล้วข้ามการเช็คข้อห้ามใช้ยาทางไตทั้งหมดไปเงียบๆ ทั้งที่ควรเตือนรุนแรงที่สุด
+  if (patient?.eGFR != null && patient.eGFR !== '') {
     const egfr = Number(patient.eGFR);
     if (!isNaN(egfr)) {
       if (egfr < 30 && has('metformin')) {
@@ -18043,8 +18045,11 @@ const exportDeIDCSV = (data) => {
   
   // Patients CSV
   const ptHeader = 'ID,Age,Gender,Diagnosis,Comorbidities,SmokingStatus,PackYears,eGFR,RiskLevel\n';
-  const ptRows = deID.patients.map(p => 
-    `${p.id},${p.age},${p.gender},${p.diagnosis},"${(p.comorbidities || []).join('; ')}",${p.smokingStatus || ''},${p.packYears || ''},${p.eGFR || ''},${p.riskLevel}`
+  // ระวัง: p.packYears || '' และ p.eGFR || '' เดิมทำให้ค่า 0 จริง (เช่น eGFR=0 = ไตวายระยะสุดท้าย)
+  // กลายเป็นช่องว่างในไฟล์ CSV เหมือนไม่มีข้อมูล ทั้งที่ 0 เป็นค่าที่มีความหมายทางคลินิกชัดเจน
+  const numOrEmpty = (v) => (v === 0 || (v != null && v !== '')) ? v : '';
+  const ptRows = deID.patients.map(p =>
+    `${p.id},${p.age},${p.gender},${p.diagnosis},"${(p.comorbidities || []).join('; ')}",${p.smokingStatus || ''},${numOrEmpty(p.packYears)},${numOrEmpty(p.eGFR)},${p.riskLevel}`
   ).join('\n');
   
   // Visits CSV
