@@ -761,9 +761,11 @@
 <script>
 (function(){
   var cfg = {"apiKey":"AIzaSyCN1LiuPXgHeWfc21OhQ5IuR951JX5Bltk","authDomain":"rxcopdasthmaclinic.firebaseapp.com","projectId":"rxcopdasthmaclinic","storageBucket":"rxcopdasthmaclinic.firebasestorage.app","messagingSenderId":"765957793019","appId":"1:765957793019:web:e876c9c2b49eca6e8dbc5e"};
-  if(!localStorage.getItem('copd_firebase_v1')){
-    localStorage.setItem('copd_firebase_v1', JSON.stringify(cfg));
-  }
+  try {
+    if(!localStorage.getItem('copd_firebase_v1')){
+      localStorage.setItem('copd_firebase_v1', JSON.stringify(cfg));
+    }
+  } catch (e) { /* localStorage blocked (private mode / policy) — app still boots, config just won't persist */ }
 })();
 </script>
 </head>
@@ -1901,7 +1903,7 @@ const AppStore = {
   },
 
   reset() {
-    localStorage.removeItem(STORE_KEY);
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
     return this.load();
   }
 };
@@ -2747,7 +2749,7 @@ const loadTemplates = () => {
   } catch {}
   return DEFAULT_TEMPLATES;
 };
-const saveTemplatesToStorage = (list) => localStorage.setItem(TPL_KEY, JSON.stringify(list));
+const saveTemplatesToStorage = (list) => { try { localStorage.setItem(TPL_KEY, JSON.stringify(list)); } catch (e) {} };
 
 // ── Snippet picker (small popover inside SOAP field) ──
 function TemplatePicker({ field, onInsert }) {
@@ -6241,7 +6243,7 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
   React.useEffect(() => { dataRef.current = data; }, [data]);
 
   const months = Array.from(new Set(
-    data.visits.map(v => v.visitDate.slice(0,7))
+    data.visits.filter(v => v.visitDate).map(v => v.visitDate.slice(0,7))
   )).sort().reverse();
   if (!months.includes(selMonth)) months.unshift(selMonth);
 
@@ -12935,7 +12937,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
 
       {/* Monthly Time-series Analytics */}
       {(() => {
-        const monthSet = new Set(vis.map(v => v.visitDate.slice(0, 7)));
+        const monthSet = new Set(vis.filter(v => v.visitDate).map(v => v.visitDate.slice(0, 7)));
         const months = [...monthSet].sort().slice(-12);
         if (months.length < 2) return null;
         const thM = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -20015,9 +20017,10 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   }, []);
 
   const highRisk = pts.filter(p => p.riskLevel === 'High');
-  const pending  = tel.filter(t => t.status === 'Pending')
-    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)).slice(0, 4);
-  const recentV  = [...vis].sort((a, b) => b.visitDate.localeCompare(a.visitDate)).slice(0, 5);
+  const pending  = tel.filter(t => t.status === 'Pending' && t.scheduledDate)
+    .sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '')).slice(0, 4);
+  const recentV  = vis.filter(v => v.visitDate)
+    .sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || '')).slice(0, 5);
   const getPt    = id => pts.find(p => p.id === id);
   const today    = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 
