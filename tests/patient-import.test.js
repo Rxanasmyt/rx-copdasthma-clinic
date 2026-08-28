@@ -116,6 +116,27 @@ function run(t) {
     t.ok('real 147-row dataset: "-" phone rows normalized to empty (HN 38957, 17945, 17351, 5244, 11224, 16724, 12527)',
       dashPhoneRows.length === 7 && ['38957', '17945', '17351', '5244', '11224', '16724', '12527'].every(hn => dashPhoneRows.some(row => row.hn === hn)));
   }
+
+  // ─── regression: diagnosis normalization — ข้อความไทย/ICD จาก HOSxP ต้อง map เข้า enum ที่แอปใช้จริง ───
+  // เดิมเอาข้อความดิบไปใส่ diagnosis ตรงๆ ถ้าไม่ตรง 'COPD'/'Asthma'/'Both' เป๊ะ ผู้ป่วยจะไม่ถูกนับใน
+  // KPI/รายงานไหนเลยแบบเงียบๆ (ทุกจุดเทียบด้วย === exact match)
+  {
+    const csv = [
+      'HN,FirstName,LastName,Diagnosis',
+      '1001,ก,ข,ปอดอุดกั้นเรื้อรัง',
+      '1002,ค,ง,หอบหืด',
+      '1003,จ,ฉ,J44.9',
+      '1004,ช,ซ,Asthma',
+      '1005,ญ,ฎ,เบาหวาน', // โรคที่ไม่เกี่ยวข้องเลย — ไม่ควรเดามั่ว ต้องติดธง unrecognized
+    ].join('\n');
+    const r = parsePatientImportTable(csv);
+    t.ok('regression: Thai "ปอดอุดกั้นเรื้อรัง" normalizes to COPD', r.rows[0].diagnosis === 'COPD' && !r.rows[0]._dxUnrecognized);
+    t.ok('regression: Thai "หอบหืด" normalizes to Asthma', r.rows[1].diagnosis === 'Asthma' && !r.rows[1]._dxUnrecognized);
+    t.ok('regression: ICD code "J44.9" normalizes to COPD', r.rows[2].diagnosis === 'COPD' && !r.rows[2]._dxUnrecognized);
+    t.ok('regression: literal "Asthma" still works, not flagged unrecognized', r.rows[3].diagnosis === 'Asthma' && !r.rows[3]._dxUnrecognized);
+    t.ok('regression: unrelated disease text falls back to COPD but IS flagged unrecognized for review',
+      r.rows[4].diagnosis === 'COPD' && r.rows[4]._dxUnrecognized === true);
+  }
 }
 
 module.exports = { run };

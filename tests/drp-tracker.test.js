@@ -206,6 +206,22 @@ function run(t) {
     t.ok('regression: แก้ปัญหา SABA-only แล้ว ปัญหานั้นเป็น resolved จริง', sabaAfter.status === 'resolved');
     t.ok('regression: ปัญหาสูบบุหรี่ (คนละเรื่อง แต่ code เดียวกัน) ต้องยังเป็น open ไม่ถูกทับสถานะไปด้วย', smokingAfter.status === 'open');
   }
+
+  // ─── regression: eGFR = 0 (ไตวายระยะสุดท้าย/ฟอกไต) ต้องยังตรวจข้อห้ามใช้ยาทางไตได้ปกติ ───
+  // เดิม detectDRP เช็คด้วย `if (patient?.eGFR)` แบบ truthy ทำให้ eGFR=0 ถูกมองว่า "ไม่มีค่า"
+  // แล้วข้ามการเช็ค renal-dose-adjustment ทั้งหมดไปเงียบๆ ทั้งที่เป็นกลุ่มอันตรายที่สุด
+  {
+    const renalPatient = mkPatient('r1', 'COPD', { eGFR: 0 });
+    const v = { id: 'rv1', patientId: 'r1', visitDate: '2026-05-01', medications: [{ name: 'Metformin 500 mg' }] };
+    const found = detectDRP(v, renalPatient);
+    t.ok('regression: eGFR=0 + Metformin ต้อง detect ข้อห้ามใช้ในไตบกพร่อง (P2.2) เหมือน eGFR=29',
+      found.some(d => d.code === 'P2.2' && d.categoryEn === 'Contraindication (renal)'));
+
+    // เทียบกับ eGFR ปกติ (ไม่บกพร่อง) ต้องไม่ detect ปัญหานี้ — ยืนยันว่า fix ไม่ได้ทำให้ over-trigger
+    const normalRenalPatient = mkPatient('r2', 'COPD', { eGFR: 90 });
+    const foundNormal = detectDRP({ ...v, patientId: 'r2' }, normalRenalPatient);
+    t.ok('regression: eGFR=90 (ปกติ) + Metformin ไม่ควร detect ข้อห้ามใช้ในไตบกพร่อง', !foundNormal.some(d => d.code === 'P2.2'));
+  }
 }
 
 module.exports = { run };
