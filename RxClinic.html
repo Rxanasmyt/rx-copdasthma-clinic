@@ -163,6 +163,9 @@
     .rx-page-pad { padding-left: 14px !important; padding-right: 14px !important; }
     /* touch targets ≥44px on mobile */
     .rx-btn { min-height: 44px; }
+    /* ปุ่มไอคอนเล็ก (แก้ไข/ลบ/ปิด modal/เปลี่ยนหน้า) เดิม 30-32px บนมือถือ/แท็บเล็ต — เล็กกว่ามาตรฐาน
+       touch target ~40-44px กดพลาดง่าย โดยเฉพาะปุ่มลบที่อยู่ติดปุ่มแก้ไขในรายชื่อผู้ป่วย */
+    .rx-icon-btn { min-width: 40px !important; min-height: 40px !important; }
     /* roomier modal/card padding on narrow screens */
     .rx-modal-card { padding-left: 18px !important; padding-right: 18px !important; }
   }
@@ -2009,11 +2012,18 @@ function TechniqueBadge({ score }) {
 
 // ── Modal ─────────────────────────────────────────────
 function Modal({ open, onClose, title, children, footer, width = 640, cardClassName = '' }) {
+  const titleId = React.useId ? React.useId() : undefined;
+  const cardRef = React.useRef(null);
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     if (open) document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [open, onClose]);
+  useEffect(() => {
+    // ย้าย focus เข้าไปในกล่อง dialog ตอนเปิด — เดิมไม่มี Modal ไหนย้าย focus เลย ทำให้
+    // keyboard/screen-reader user เปิด modal แล้ว focus ยังค้างอยู่ที่ปุ่มด้านหลัง overlay
+    if (open && cardRef.current) cardRef.current.focus();
+  }, [open]);
   if (!open) return null;
   return (
     <div onClick={onClose} className="rx-modal-bg" style={{
@@ -2021,18 +2031,19 @@ function Modal({ open, onClose, title, children, footer, width = 640, cardClassN
       backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
-      <div onClick={e => e.stopPropagation()} className={`rx-modal-card${cardClassName ? ' ' + cardClassName : ''}`} style={{
+      <div ref={cardRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        onClick={e => e.stopPropagation()} className={`rx-modal-card${cardClassName ? ' ' + cardClassName : ''}`} style={{
         background: C.surface, borderRadius: 18, width: '100%', maxWidth: width,
         maxHeight: '92vh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 64px rgba(15,23,42,0.3), 0 4px 16px rgba(15,23,42,0.15)',
-        border: `1px solid ${C.border}`,
+        border: `1px solid ${C.border}`, outline: 'none',
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '18px 24px', borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         }}>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: C.primary }}>{title}</h2>
-          <button onClick={onClose} style={{
+          <h2 id={titleId} style={{ margin: 0, fontSize: 17, fontWeight: 800, color: C.primary }}>{title}</h2>
+          <button onClick={onClose} className="rx-icon-btn" style={{
             width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.border}`,
             background: C.bgAlt, cursor: 'pointer', fontSize: 16, color: C.textMuted,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -6059,6 +6070,8 @@ function openPrintWindow(html, title) {
       .flags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
       .flag{font-size:10px;color:#DC2626;background:#FEF2F2;padding:2px 7px;border-radius:20px;}
       table{width:100%;border-collapse:collapse;font-size:11px;}
+      thead{display:table-header-group;} /* หัวตารางซ้ำทุกหน้าเมื่อตารางยาวข้ามหน้ากระดาษ */
+      tr{break-inside:avoid;} /* กันแถวตารางถูกตัดครึ่งคาบเกี่ยวสองหน้าตอนพิมพ์ */
       th{background:#F1F5F9;padding:6px 8px;text-align:left;font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #DDE3EC;}
       td{padding:6px 8px;border-bottom:1px solid #EEF2F7;line-height:1.4;}
       .risk-H{color:#DC2626;font-weight:700;} .risk-M{color:#D97706;font-weight:700;} .risk-L{color:#059669;font-weight:700;}
@@ -7903,13 +7916,13 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
           {canEdit && <Btn size="sm" variant="accent" onClick={() => navigate('visit-form', p.id)}>+ บันทึก</Btn>}
           <Btn size="sm" variant="ghost"  onClick={() => navigate('history', p.id)}>ประวัติ</Btn>
           {canEdit && (
-            <button title="แก้ไขข้อมูลผู้ป่วย" onClick={() => setEditPt(p)}
+            <button title="แก้ไขข้อมูลผู้ป่วย" onClick={() => setEditPt(p)} className="rx-icon-btn"
               style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
               onMouseEnter={e=>{e.currentTarget.style.background=C.bgAlt;e.currentTarget.style.color=C.primary;e.currentTarget.style.borderColor=C.primary;}}
               onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>✏️</button>
           )}
           {canEdit && (
-            <button title="ลบผู้ป่วย" onClick={() => setDelId(p.id)}
+            <button title="ลบผู้ป่วย" onClick={() => setDelId(p.id)} className="rx-icon-btn"
               style={{ width:30, height:30, borderRadius:8, border:`1px solid ${C.border}`, background:C.surface, color:C.textMuted, cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
               onMouseEnter={e=>{e.currentTarget.style.background=C.highBg;e.currentTarget.style.color=C.high;e.currentTarget.style.borderColor=C.highBorder;}}
               onMouseLeave={e=>{e.currentTarget.style.background=C.surface;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.borderColor=C.border;}}>🗑️</button>
@@ -8000,7 +8013,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
               style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: page===1?C.textMuted:C.text, cursor: page===1?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>← ก่อนหน้า</button>
             {Array.from({ length: totalPages }, (_, i) => i+1).filter(p => p===1 || p===totalPages || Math.abs(p-page)<=1).reduce((acc, p, i, arr) => {
               if (i > 0 && arr[i-1] < p-1) acc.push(<span key={`e${p}`} style={{ fontSize: 12, color: C.textMuted }}>…</span>);
-              acc.push(<button key={p} onClick={() => setPage(p)} style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${p===page?C.primary:C.border}`, background: p===page?C.primary:C.surface, color: p===page?'#fff':C.text, cursor: 'pointer', fontWeight: p===page?700:400, fontSize: 12 }}>{p}</button>);
+              acc.push(<button key={p} onClick={() => setPage(p)} className="rx-icon-btn" style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${p===page?C.primary:C.border}`, background: p===page?C.primary:C.surface, color: p===page?'#fff':C.text, cursor: 'pointer', fontWeight: p===page?700:400, fontSize: 12 }}>{p}</button>);
               return acc;
             }, [])}
             <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
@@ -12047,13 +12060,14 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
   const pt = getPatient(rec.patientId);
   const today = new Date().toISOString().slice(0, 10);
   const nowTime = new Date().toTimeString().slice(0, 5);
-  const [rf, setRf] = trState({
+  const initialRf = {
     actualDate: rec.actualDate || today, callTime: rec.callTime || nowTime, status: rec.status === 'Pending' ? 'Success' : rec.status,
     symptoms: rec.symptoms || '', exacerbation: rec.exacerbation || false,
     rescueUse: rec.rescueUse || '', medicationProblems: rec.medicationProblems || '',
     counseling: rec.counseling || '', nextFollowup: rec.nextFollowup || '',
     pharmacistNote: rec.pharmacistNote || '', callDuration: rec.callDuration || 0,
-  });
+  };
+  const [rf, setRf] = trState(initialRf);
   const setR = (k, v) => setRf(p => ({ ...p, [k]: v }));
 
   // Call timer
@@ -12072,6 +12086,16 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
   const startCall = () => { if (!rf.callTime) setR('callTime', new Date().toTimeString().slice(0, 5)); setTimerRunning(true); };
   const stopCall = () => { setTimerRunning(false); setR('callDuration', elapsed); };
 
+  // เดิม Modal ผูก onClose (Escape/คลิกนอกกรอบ/ปุ่ม ✕) ตรงๆ ไม่มีการเช็คว่ากรอกอะไรไปแล้วหรือยัง
+  // ต่างจาก PatientForm/VisitForm ที่มี guard — ฟอร์มนี้เสี่ยงกว่าเพื่อนเพราะเป็นการบันทึกสด
+  // ระหว่างคุยโทรศัพท์กับผู้ป่วยจริง พลาดคลิกนอกกรอบครั้งเดียวคือข้อมูลการโทรทั้งหมดหาย
+  const guardedClose = () => {
+    const isDirty = JSON.stringify(rf) !== JSON.stringify(initialRf) || elapsed > 0 || timerRunning;
+    if (isDirty && !window.confirm('มีข้อมูลการโทรที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    if (timerRunning) setTimerRunning(false);
+    onClose();
+  };
+
   // DRP context from patient's most recent visit
   const ptVisits = (data.visits || []).filter(v => v.patientId === rec.patientId)
     .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
@@ -12088,7 +12112,7 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
     window.rxToast?.(`บันทึกผลการโทร: ${statusTh}`, rf.status === 'Success' ? 'success' : 'info');
   };
   return (
-    <div>
+    <Modal open={true} onClose={guardedClose} title="บันทึกผลการโทร" width={580}>
       {pt && (
         <div style={{ padding: '10px 14px', background: C.bgAlt, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
           <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
@@ -12196,10 +12220,10 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
         <Textarea value={rf.pharmacistNote} onChange={v => setR('pharmacistNote', v)} rows={2} />
       </FormField>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
         <Btn variant="primary" onClick={handleSave}>บันทึกผลการโทร</Btn>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -12442,10 +12466,10 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
         <TelepharmacySchedForm data={data} onDataChange={onDataChange} preselPt={preselPt}
           onClose={() => { setSchedOpen(false); setPreselPt(''); }} />
       </Modal>
-      <Modal open={recordOpen} onClose={() => { setRecordOpen(false); setSelectedId(null); }} title="บันทึกผลการโทร" width={580}>
+      {recordOpen && (
         <TelepharmacyRecordForm data={data} onDataChange={onDataChange} selectedId={selectedId}
           onClose={() => { setRecordOpen(false); setSelectedId(null); }} />
-      </Modal>
+      )}
       <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="📋 นัด Telepharmacy หมู่" width={520}>
         <TelepharmacyBatchSchedForm data={data} onDataChange={onDataChange} onClose={() => setBatchOpen(false)} />
       </Modal>
@@ -21308,10 +21332,13 @@ function App() {
       if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
         e.preventDefault(); setShowKbHelp(h => !h);
       }
+      // เดิม modal คีย์ลัดเองบอกผู้ใช้ว่า "กด Esc เพื่อปิด" แต่ไม่มี branch ไหนดัก Escape จริง
+      // (ต่างจาก Modal component ที่ใช้ทั่วแอปซึ่งปิดด้วย Esc ได้ปกติ) — เพิ่มให้ตรงกับที่บอกไว้
+      if (e.key === 'Escape' && showKbHelp) setShowKbHelp(false);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [currentUser]);
+  }, [currentUser, showKbHelp]);
 
   // ⚠ Hooks ต้องอยู่ก่อน early-return ทุกอัน (Rules of Hooks) — ใช้ optional chaining กัน data=null
   const overdueHighRisk = useMemo(() => {
