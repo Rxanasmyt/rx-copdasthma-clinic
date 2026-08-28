@@ -47,12 +47,14 @@ function buildHAComplianceDoc(data) {
   return { path: 'haCompliance/main', data: { ...data.haCompliance } };
 }
 
-// auditLog + clinicCode รวมเป็นเอกสารเดียว (meta/main) — ต้องตรงกับ assembleDataFromCollections/
+// auditLog + clinicCode + drpTracker รวมเป็นเอกสารเดียว (meta/main) — ต้องตรงกับ assembleDataFromCollections/
 // buildCollectionWriteOps ในตัวแอพเอง (RxClinic.html) เป๊ะ ดู tests/collections-adapter.test.js
 // ที่ตรวจความสอดคล้องของ path ระหว่างสองระบบนี้อัตโนมัติ
+// (drpTracker เพิ่มเข้ามาเพราะเดิม migration script นี้ไม่พา field นี้ไปด้วย ทำให้ย้ายจากโหมด legacy
+// ไปโหมด collections แล้วสถานะแก้ไข DRP ที่บันทึกไว้หายทันที)
 function buildMetaDoc(data) {
-  if (!data.auditLog && !data.clinicCode) return null;
-  return { path: 'meta/main', data: { auditLog: data.auditLog || [], clinicCode: data.clinicCode || '' } };
+  if (!data.auditLog && !data.clinicCode && !data.drpTracker) return null;
+  return { path: 'meta/main', data: { auditLog: data.auditLog || [], clinicCode: data.clinicCode || '', drpTracker: data.drpTracker || {} } };
 }
 
 // รวมทุกอย่างเป็นแผนเดียว — ใช้ทั้งตอน dry-run (แค่ log) และตอนเขียนจริง
