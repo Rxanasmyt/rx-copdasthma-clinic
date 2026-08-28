@@ -5374,7 +5374,12 @@ function UserManager({ data, onDataChange, currentUser }) {
       };
       // อ่านค่าล่าสุดจาก ref ตอนนี้ ไม่ใช่ data/users จาก closure ตอนกดปุ่ม (อาจเก่าไปแล้วหลัง await)
       const freshData = dataRef.current || data;
-      onDataChange({ ...freshData, users: [...(freshData.users || []), nu] });
+      const ndAdd = appendAudit({ ...freshData, users: [...(freshData.users || []), nu] }, {
+        user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+        action: 'create-user',
+        summary: `สร้างบัญชีผู้ใช้ ${nu.prefix}${nu.name} (${nu.email}) บทบาท ${AppStore.ROLE_LABELS[nu.role] || nu.role}`,
+      });
+      onDataChange(ndAdd);
       setNewNm(''); setNewEmail(''); setNewPw(''); setNewRole('pharmacist'); setAdding(false);
       window.rxToast?.(`สร้างบัญชี ${nu.prefix}${nu.name} สำเร็จ`, 'success');
     } catch(e) {
@@ -5484,7 +5489,23 @@ function UserManager({ data, onDataChange, currentUser }) {
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <Select value={u.role === 'user' ? 'pharmacist' : (u.role || 'pharmacist')}
                     onChange={v => {
-                      onDataChange({ ...data, users: users.map(x => x.id === u.id ? { ...x, role: v } : x) });
+                      // เดิมไม่มีการกันเลย — admin คนเดียวที่เหลืออยู่เผลอกดเปลี่ยนบทบาทตัวเอง (หรือของ
+                      // admin คนสุดท้ายอีกคน) จาก dropdown นี้ได้ทันทีโดยไม่มี confirm และไม่มี guard
+                      // เหมือนปุ่มลบด้านล่าง ทำให้คลินิกถูกล็อกออกจาก User Management/Danger Zone ถาวร
+                      const adminCount = users.filter(x => x.role === 'admin').length;
+                      if (u.role === 'admin' && v !== 'admin' && adminCount <= 1) {
+                        window.rxToast?.('❌ ไม่สามารถถอดบทบาท Admin คนสุดท้ายได้ — ต้องมี Admin เหลืออย่างน้อย 1 คนเสมอ', 'error', 6000);
+                        return;
+                      }
+                      if (currentUser?.id === u.id && v !== u.role
+                        && !window.confirm(`ยืนยันเปลี่ยนบทบาทของ "ตัวเอง" จาก ${AppStore.ROLE_LABELS[u.role]} เป็น ${AppStore.ROLE_LABELS[v]}?`)) return;
+                      const nextUsers = users.map(x => x.id === u.id ? { ...x, role: v } : x);
+                      const nd = appendAudit({ ...data, users: nextUsers }, {
+                        user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+                        action: 'change-user-role',
+                        summary: `เปลี่ยนบทบาท ${u.prefix}${u.name} จาก ${AppStore.ROLE_LABELS[u.role] || u.role} เป็น ${AppStore.ROLE_LABELS[v]}`,
+                      });
+                      onDataChange(nd);
                       window.rxToast?.(`เปลี่ยนบทบาท ${u.prefix}${u.name} เป็น ${AppStore.ROLE_LABELS[v]} แล้ว`, 'success');
                     }}
                     options={[{ value:'pharmacist', label:'เภสัชกร' }, { value:'assistant', label:'ผู้ช่วยเภสัชกร' }, { value:'admin', label:'Admin' }]}
@@ -5519,8 +5540,19 @@ function UserManager({ data, onDataChange, currentUser }) {
             }
             // อ่าน ref ล่าสุด — ระหว่าง 2 confirm dialog + backup await ข้างบน data prop อาจ
             // เปลี่ยนไปแล้ว (เช่น มีคนบันทึก visit จากเครื่องอื่น) ต้อง spread จากค่าล่าสุดเสมอ
-            onDataChange({ ...(dataRef.current || data), patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
-              haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } });
+            const freshWipe = dataRef.current || data;
+            const patientCountBefore = (freshWipe.patients || []).length;
+            const visitCountBefore = (freshWipe.visits || []).length;
+            // เดิมการกระทำที่ทำลายล้างที่สุดในแอปนี้ (ลบข้อมูลผู้ป่วยทั้งคลินิก) ไม่มี audit log
+            // เลยแม้แต่จุดเดียว — ทั้งที่จำเป็นต่อการตรวจสอบย้อนหลังมากที่สุด บันทึกไว้ก่อนล้างจริง
+            // (auditLog ไม่ได้อยู่ในรายการ field ที่ถูกล้าง จึงยังอยู่หลังการล้างเพื่อเป็นหลักฐาน)
+            const ndWipe = appendAudit({ ...freshWipe, patients: [], visits: [], telepharmacy: [], clinicDayRosters: [],
+              haCompliance: { medRec:[], adr:[], referrals:[], discharge:[], rca:[] } }, {
+              user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+              action: 'wipe-all-patient-data',
+              summary: `ล้างข้อมูลผู้ป่วยทั้งหมด (ลบผู้ป่วย ${patientCountBefore} ราย, การเยี่ยม ${visitCountBefore} ครั้ง) — สำรองข้อมูลไว้ก่อนลบแล้ว`,
+            });
+            onDataChange(ndWipe);
           }}>ล้างข้อมูลผู้ป่วยทั้งหมด</Btn>
         </Card>
       )}
@@ -5530,7 +5562,15 @@ function UserManager({ data, onDataChange, currentUser }) {
       title="ลบผู้ใช้"
       message={`ยืนยันลบ "${confirmDeleteUser?.prefix || ''}${confirmDeleteUser?.name || ''}" ออกจากระบบ? การกระทำนี้ย้อนกลับไม่ได้`}
       danger
-      onConfirm={() => { onDataChange({ ...data, users: users.filter(x => x.id !== confirmDeleteUser.id) }); setConfirmDeleteUser(null); }}
+      onConfirm={() => {
+        const ndDel = appendAudit({ ...data, users: users.filter(x => x.id !== confirmDeleteUser.id) }, {
+          user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+          action: 'delete-user',
+          summary: `ลบบัญชีผู้ใช้ ${confirmDeleteUser?.prefix || ''}${confirmDeleteUser?.name || ''} (${confirmDeleteUser?.email || ''})`,
+        });
+        onDataChange(ndDel);
+        setConfirmDeleteUser(null);
+      }}
       onClose={() => setConfirmDeleteUser(null)}
     />
     </>
@@ -6275,6 +6315,11 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       telepharmacy: data.telepharmacy || [],
       clinicDayRosters: data.clinicDayRosters || [],
       haCompliance: data.haCompliance || {},
+      // เดิม backup JSON ที่ดาวน์โหลดให้ผู้ใช้ไม่มี auditLog/drpTracker เลย (ต่างจาก cloud auto-backup
+      // ที่เก็บทั้งก้อน) — ถ้าต้อง restore ขึ้น Firestore project ใหม่ (ย้ายคลินิก/กู้ภัยพิบัติ) จะเสีย
+      // ประวัติ audit trail ทั้งหมด (ใครแก้/ลบอะไรเมื่อไหร่) และสถานะแก้ไข DRP ทั้งหมดไปถาวร
+      auditLog: data.auditLog || [],
+      drpTracker: data.drpTracker || {},
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -6339,6 +6384,10 @@ function ExportSection({ data, onDataChange, onForceBackup, onLoadBackupSlots })
       telepharmacy: clean.telepharmacy,
       clinicDayRosters: p.clinicDayRosters || freshData.clinicDayRosters || [],
       haCompliance: p.haCompliance || freshData.haCompliance || {},
+      // ไฟล์ backup รุ่นเก่า (ก่อนแก้ exportBackup) จะไม่มี auditLog/drpTracker เลย — ถ้าไม่มีในไฟล์
+      // ให้คงของปัจจุบันไว้ ไม่ใช่ล้างทิ้งเป็น [] /{} เพราะจะเสียประวัติที่มีอยู่แล้วโดยไม่จำเป็น
+      auditLog:   p.auditLog   || freshData.auditLog   || [],
+      drpTracker: p.drpTracker || freshData.drpTracker || {},
     };
     onDataChange(merged);
     setRestoreInfo(null);
@@ -7677,6 +7726,21 @@ function parsePatientImportTable(text) {
   const idxGender     = findHeaderIdx('เพศ', 'gender');
   const idxInsurance  = findHeaderIdx('สิทธิ์', 'insurance');
 
+  // แปลงข้อความโรคดิบจากไฟล์นำเข้า (มักเป็นชื่อไทย/รหัส ICD จาก HOSxP ไม่ใช่ 'COPD'/'Asthma'/'Both'
+  // ตรงๆ) ให้ตรงกับ enum ที่ทั้งแอปใช้เทียบแบบ exact-match (p.diagnosis === 'COPD' ฯลฯ) — เดิมโค้ด
+  // เอาข้อความดิบไปใส่ตรงๆ ถ้าไม่ตรง enreturn เป๊ะ ผู้ป่วยจะไม่ถูกนับใน KPI/รายงานใดๆ เลยแบบเงียบๆ
+  const normalizeDiagnosis = (raw) => {
+    const s = (raw || '').trim();
+    if (!s) return { value: 'COPD', unrecognized: false }; // ไม่กรอกมาเลย = ใช้ default เดิม ไม่ถือว่าผิดปกติ
+    if (/^(copd|j44)/i.test(s) ) return { value: 'COPD', unrecognized: false };
+    if (/^(asthma|j45)/i.test(s)) return { value: 'Asthma', unrecognized: false };
+    if (/^both$/i.test(s) || (/copd/i.test(s) && /asthma/i.test(s))) return { value: 'Both', unrecognized: false };
+    if (/(ปอดอุดกั้นเรื้อรัง|ถุงลมโป่งพอง|หลอดลมอักเสบเรื้อรัง)/.test(s)) return { value: 'COPD', unrecognized: false };
+    if (/(หืด|หอบหืด)/.test(s)) return { value: 'Asthma', unrecognized: false };
+    // ข้อความไม่ตรงกับที่รู้จักเลย — ใช้ COPD เป็น fallback เหมือนเดิม แต่ติดธง unrecognized ไว้
+    // ให้พรีวิวก่อน import แสดงเตือนชัดเจน ไม่ใช่เงียบหายไปเป็นผู้ป่วยที่ไม่ถูกนับใน KPI ตัวไหนเลย
+    return { value: 'COPD', unrecognized: true };
+  };
   const rows = lines.slice(1).map(line => {
     const vals = splitLine(line);
     const get = (idx) => idx >= 0 ? (vals[idx] || '').trim() : '';
@@ -7710,12 +7774,14 @@ function parsePatientImportTable(text) {
       ? (genderRaw.toUpperCase().startsWith('F') ? 'F' : 'M')
       : (AppStore.genderFromPrefix?.(prefix) || 'M');
 
+    const dxNorm = normalizeDiagnosis(get(idxDx));
     return {
       hn: get(idxHN),
       prefix, firstName, lastName,
       age, dateOfBirth,
       gender,
-      diagnosis: get(idxDx) || 'COPD',
+      diagnosis: dxNorm.value,
+      _dxRaw: get(idxDx), _dxUnrecognized: dxNorm.unrecognized,
       phone,
       address: get(idxAddress),
       insurance: get(idxInsurance) || 'UC (บัตรทอง)',
@@ -7762,17 +7828,27 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
       if (existingHN.has(hn) || seen.has(hn)) { skipped.push(hn); return; }
       seen.add(hn); accepted.push(row);
     });
-    const newPts = accepted.map(row => ({
-      ...row, id: AppStore.generateId(),
-      createdAt: new Date().toISOString().slice(0, 10),
-      isHighRisk: false, riskLevel: 'Low', riskFlags: [], nextTelepharmacy: null,
-    }));
-    onDataChange({ ...data, patients: [...data.patients, ...newPts] });
+    const unrecognizedDxCount = accepted.filter(r => r._dxUnrecognized).length;
+    const newPts = accepted.map(row => {
+      // _dxRaw/_dxUnrecognized เป็น metadata ไว้ใช้แค่ตอนแสดงพรีวิว ไม่ใช่ field ของ schema ผู้ป่วยจริง
+      const { _dxRaw, _dxUnrecognized, ...clean } = row;
+      return { ...clean, id: AppStore.generateId(),
+        createdAt: new Date().toISOString().slice(0, 10),
+        isHighRisk: false, riskLevel: 'Low', riskFlags: [], nextTelepharmacy: null };
+    });
+    // เดิม import ทีละหลายสิบ/หลายร้อยรายไม่มี audit log เลยแม้แต่รายการเดียว — ไม่มีทางรู้ย้อนหลังว่า
+    // ใคร import เมื่อไหร่ กี่ราย ต่างจาก create-patient ทีละรายที่บันทึกแล้ว
+    const ndCsv = appendAudit({ ...data, patients: [...data.patients, ...newPts] }, {
+      user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+      action: 'import-patients-csv',
+      summary: `นำเข้าผู้ป่วยจาก CSV ${newPts.length} ราย` + (skipped.length > 0 ? ` (ข้าม ${skipped.length} ราย HN ซ้ำ)` : '')
+        + (unrecognizedDxCount > 0 ? ` — ⚠️ ${unrecognizedDxCount} รายระบุโรคไม่ตรงกับ COPD/Asthma ใช้ค่า default COPD ไปก่อน ควรตรวจสอบ` : ''),
+    });
+    onDataChange(ndCsv);
     setCsvOpen(false); setCsvText(''); setCsvPreview(null); setCsvError('');
-    const msg = skipped.length > 0
-      ? `นำเข้า ${newPts.length} ราย · ข้าม ${skipped.length} ราย (HN ซ้ำ)`
-      : `นำเข้า ${newPts.length} ผู้ป่วยจาก CSV สำเร็จ`;
-    window.rxToast?.(msg, skipped.length > 0 ? 'warning' : 'success', 4500);
+    const msg = (skipped.length > 0 ? `นำเข้า ${newPts.length} ราย · ข้าม ${skipped.length} ราย (HN ซ้ำ)` : `นำเข้า ${newPts.length} ผู้ป่วยจาก CSV สำเร็จ`)
+      + (unrecognizedDxCount > 0 ? ` — ⚠️ ${unrecognizedDxCount} รายระบุโรคไม่ชัดเจน กรุณาตรวจ/แก้ไขทีหลัง` : '');
+    window.rxToast?.(msg, (skipped.length > 0 || unrecognizedDxCount > 0) ? 'warning' : 'success', 6000);
   };
 
   const filtered = data.patients.filter(p => {
@@ -7820,7 +7896,14 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
       isHighRisk: risk.level === 'High', riskLevel: risk.level,
       riskFlags: risk.flags, nextTelepharmacy: null,
     };
-    onDataChange({ ...data, patients: [...data.patients, newPt] });
+    // เดิม audit log มีแค่ create/edit/delete visit กับ DRP tracker — ไม่มีจุดไหนบันทึกว่าใคร
+    // สร้าง/แก้/ลบทะเบียนผู้ป่วยเลย ทั้งที่เป็น record สำคัญไม่แพ้กันสำหรับ HA accreditation
+    const ndAddPt = appendAudit({ ...data, patients: [...data.patients, newPt] }, {
+      user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+      action: 'create-patient', patientId: newPt.id,
+      summary: `เพิ่มผู้ป่วยใหม่ HN:${newPt.hn || '-'} ${newPt.prefix}${newPt.firstName} ${newPt.lastName}`,
+    });
+    onDataChange(ndAddPt);
     setAddOpen(false);
     window.rxToast?.(`เพิ่มผู้ป่วย ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
@@ -7836,18 +7919,29 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     const updated = data.patients.map(p => p.id === editPt.id
       ? { ...p, ...formData, isHighRisk: risk.level === 'High', riskLevel: risk.level, riskFlags: risk.flags }
       : p);
-    onDataChange({ ...data, patients: updated });
+    const ndEditPt = appendAudit({ ...data, patients: updated }, {
+      user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+      action: 'edit-patient', patientId: editPt.id,
+      summary: `แก้ไขข้อมูลผู้ป่วย HN:${formData.hn || '-'} ${formData.prefix}${formData.firstName} ${formData.lastName}`,
+    });
+    onDataChange(ndEditPt);
     setEditPt(null);
     window.rxToast?.(`แก้ไขข้อมูล ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
 
   const handleDelete = (id) => {
-    onDataChange({
+    const delPt = data.patients.find(p => p.id === id);
+    const ndDelPt = appendAudit({
       ...data,
       patients:     data.patients.filter(p => p.id !== id),
       visits:       data.visits.filter(v => v.patientId !== id),
       telepharmacy: data.telepharmacy.filter(t => t.patientId !== id),
+    }, {
+      user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
+      action: 'delete-patient', patientId: id,
+      summary: `ลบผู้ป่วย HN:${delPt?.hn || '-'} ${delPt?.prefix || ''}${delPt?.firstName || ''} ${delPt?.lastName || ''} (รวม Visit/Telepharmacy ที่เกี่ยวข้อง)`,
     });
+    onDataChange(ndDelPt);
     setDelId(null);
   };
 
@@ -8065,7 +8159,13 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
                   <td style={{ padding: '6px 10px' }}>{r.age || <span style={{ color: C.high }}>?</span>}</td>
                   <td style={{ padding: '6px 10px' }}>{r.dateOfBirth || '—'}</td>
                   <td style={{ padding: '6px 10px' }}>{r.gender === 'F' ? 'หญิง' : 'ชาย'}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.diagnosis}</td>
+                  <td style={{ padding: '6px 10px' }}>
+                    {r.diagnosis}
+                    {r._dxUnrecognized && (
+                      <span title={`ข้อความในไฟล์ "${r._dxRaw}" ไม่ตรงกับ COPD/Asthma ที่รู้จัก — ใช้ค่า default COPD ไปก่อน กรุณาตรวจสอบ/แก้ไขหลัง import`}
+                        style={{ marginLeft: 4, fontSize: 10, color: C.high, cursor: 'help' }}>⚠️</span>
+                    )}
+                  </td>
                   <td style={{ padding: '6px 10px' }}>{r.phone || '—'}</td>
                   <td style={{ padding: '6px 10px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.address || '—'}</td>
                 </tr>
@@ -16238,6 +16338,38 @@ const calculateNotifications = (data, currentUser) => {
         icon: '💉',
         title: 'แนะนำวัคซีน PCV13',
         message: `${p.hn} ${p.firstName} (อายุ ${p.age} ปี) — ยังไม่ได้ฉีด PCV13`,
+        patientId: p.id,
+        actionLabel: 'ดูผู้ป่วย',
+        action: () => window.AppNavigate && window.AppNavigate('history', p.id),
+      });
+    }
+    // PPSV23/COVID — เดิม comment ของฟังก์ชันนี้ประกาศไว้ว่าเช็ค 4 วัคซีน (Flu/PCV13/PPSV23/COVID)
+    // แต่โค้ดจริงเช็คแค่ Flu กับ PCV13 เท่านั้น ทำให้ไม่มีผู้ป่วยคนไหนได้แจ้งเตือน PPSV23/COVID เลย
+    // แม้จะเกินกำหนดฉีดซ้ำมานานแค่ไหนก็ตาม — เพิ่มให้ตรงกับที่ VaccinationStatus ใช้จริง (บรรทัด ~3796)
+    const daysSince = (d) => { const t = d ? new Date(d).getTime() : NaN; return isNaN(t) ? null : Math.floor((Date.now() - t) / 86400000); };
+    const ppsv23Days = daysSince(vacc.ppsv23);
+    if (p.age >= 65 && (!vacc.ppsv23 || ppsv23Days >= 1825)) {
+      notifications.push({
+        id: `vaccine-ppsv23-${p.id}`,
+        type: 'vaccine-due',
+        severity: 'low',
+        icon: '💉',
+        title: 'แนะนำวัคซีน PPSV23',
+        message: `${p.hn} ${p.firstName} (อายุ ${p.age} ปี) — ${vacc.ppsv23 ? `ฉีดล่าสุด ${vacc.ppsv23} (เกิน 5 ปี)` : 'ยังไม่ได้ฉีด PPSV23'}`,
+        patientId: p.id,
+        actionLabel: 'ดูผู้ป่วย',
+        action: () => window.AppNavigate && window.AppNavigate('history', p.id),
+      });
+    }
+    const covidDays = daysSince(vacc.covid);
+    if (!vacc.covid || covidDays >= 365) {
+      notifications.push({
+        id: `vaccine-covid-${p.id}`,
+        type: 'vaccine-due',
+        severity: 'low',
+        icon: '💉',
+        title: 'ครบกำหนดวัคซีน COVID-19',
+        message: `${p.hn} ${p.firstName} — ${vacc.covid ? `ฉีดล่าสุด ${vacc.covid} (เกิน 1 ปี)` : 'ยังไม่เคยฉีด'}`,
         patientId: p.id,
         actionLabel: 'ดูผู้ป่วย',
         action: () => window.AppNavigate && window.AppNavigate('history', p.id),
