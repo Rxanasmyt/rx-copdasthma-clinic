@@ -2340,10 +2340,11 @@ function Textarea({ value, onChange, placeholder, rows = 3 }) {
 
 // ── CheckboxGroup ─────────────────────────────────────
 function CheckboxGroup({ options, selected, onChange, cols = 2 }) {
+  const sel = Array.isArray(selected) ? selected : []; // กันเรคคอร์ดเก่า/เสียที่ field ไม่ใช่ array (เช่นแก้ Firestore ตรงๆ) ทำให้ฟอร์มพังทั้งแอป
   const toggle = (opt) => {
-    const next = selected.includes(opt)
-      ? selected.filter(x => x !== opt)
-      : [...selected, opt];
+    const next = sel.includes(opt)
+      ? sel.filter(x => x !== opt)
+      : [...sel, opt];
     onChange(next);
   };
   return (
@@ -2353,7 +2354,7 @@ function CheckboxGroup({ options, selected, onChange, cols = 2 }) {
           display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           fontSize: 13, color: C.text, padding: '4px 0',
         }}>
-          <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)}
+          <input type="checkbox" checked={sel.includes(opt)} onChange={() => toggle(opt)}
             style={{ accentColor: C.primary, width: 15, height: 15, flexShrink: 0 }} />
           <span>{opt}</span>
         </label>
@@ -3023,7 +3024,7 @@ function Sparkline({ data, color, height = 50, width = 200, label, unit, formatV
 // ── Trends Section ────────────────────────────────────
 function TrendsSection({ visits }) {
   if (!visits || visits.length === 0) return null;
-  const sorted = [...visits].filter(v => v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const sorted = [...visits].filter(v => v.visitDate).sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
 
   // Detect interventions: SOAP P contains key intervention keywords OR DRP found
   const interventions = sorted.map(v => {
@@ -5977,12 +5978,13 @@ function export43CHRONICFU(visits, patients, clinicCode, startDate, endDate) {
   // ทำให้ผู้ป่วยเคยสูบเลิกแล้วทุกคนถูกส่งออกเป็นรหัส SMOKE ว่างเปล่า (ไม่ทราบ) แทนที่จะเป็น 3
   const smokeCode = (s) => s === 'Current' ? '2' : s === 'Ex' ? '3' : s === 'Never' ? '1' : '';
   const scoped = visits.filter(v => {
+    if (!v.visitDate) return false; // ป้องกันเรคคอร์ดเก่า/เสียที่ไม่มีวันที่หลุดเข้าไฟล์ 43 แฟ้ม (v.visitDate.replace ด้านล่างพัง)
     const pt = getPt(v.patientId);
     if (!pt || !['COPD', 'Asthma', 'Both'].includes(pt.diagnosis)) return false;
     if (startDate && v.visitDate < startDate) return false;
     if (endDate && v.visitDate > endDate) return false;
     return true;
-  }).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  }).sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
 
   downloadCSV(
     `43แฟม_CHRONICFU_รางเบืองตน_COPD-Asthma_${new Date().toISOString().slice(0,10)}.csv`,
@@ -6075,8 +6077,8 @@ function openPrintWindow(html, title) {
 function printPatientReport(patient, visits, tele) {
   if (!patient) return;
   const rc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[patient.riskLevel] || '#059669';
-  const ptV = (visits||[]).filter(v => v.patientId === patient.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
-  const ptT = (tele||[]).filter(t => t.patientId === patient.id).sort((a,b) => b.scheduledDate.localeCompare(a.scheduledDate));
+  const ptV = (visits||[]).filter(v => v.patientId === patient.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
+  const ptT = (tele||[]).filter(t => t.patientId === patient.id).sort((a, b) => (b.scheduledDate||"").localeCompare(a.scheduledDate||""));
 
   const visitCards = ptV.map(v => {
     const vRc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[v.riskLevel] || '#059669';
@@ -6141,7 +6143,7 @@ function printMonthlyReport(data, yearMonth) {
   const thMonth = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][parseInt(mo)];
   const label = `${thMonth} ${parseInt(yr)+543}`;
 
-  const mVis  = data.visits.filter(v => v.visitDate.startsWith(yearMonth));
+  const mVis  = data.visits.filter(v => v.visitDate && v.visitDate.startsWith(yearMonth));
   const mTele = data.telepharmacy.filter(t => (t.actualDate||t.scheduledDate||'').startsWith(yearMonth));
   const getPt  = id => data.patients.find(p => p.id === id);
 
@@ -6757,7 +6759,7 @@ function printVisitSOAP(patient, visit) {
 function printDRPReport(patient, visits) {
   if (!patient) return;
   const ptV = (visits || []).filter(v => v.patientId === patient.id)
-    .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+    .sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
   const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
 
   const rows = ptV.flatMap(v => {
@@ -6805,7 +6807,7 @@ function printQuarterlyReport(data, year, quarter) {
   const qMap = { '1':['01','02','03'], '2':['04','05','06'], '3':['07','08','09'], '4':['10','11','12'] };
   const months = qMap[String(quarter)] || [];
   const pts = data.patients;
-  const vis = data.visits.filter(v => months.some(m => v.visitDate.startsWith(`${year}-${m}`)));
+  const vis = data.visits.filter(v => v.visitDate && months.some(m => v.visitDate.startsWith(`${year}-${m}`)));
   const tel = data.telepharmacy.filter(t => months.some(m => (t.actualDate||t.scheduledDate||'').startsWith(`${year}-${m}`)));
   const today = new Date().toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
 
@@ -7415,7 +7417,7 @@ function PatientForm({ patient, onSave, onClose }) {
         <CheckboxGroup options={AppStore.ALLERGY_OPTIONS} selected={f.allergies}
           onChange={v => set('allergies', v)} cols={3} />
       </FormField>
-      {f.allergies.length > 0 && !f.allergies.every(a => a.startsWith('NKDA')) && (
+      {(f.allergies || []).length > 0 && !(f.allergies || []).every(a => a.startsWith('NKDA')) && (
         <FormField label="รายละเอียดอาการแพ้" hint="เช่น 'PCN → rash, Sulfa → SJS' หรืออาการที่เคยเกิด">
           <Input value={f.allergyDetail} onChange={v => set('allergyDetail', v)} placeholder="ยา → อาการที่เกิดขึ้น" />
         </FormField>
@@ -7470,7 +7472,7 @@ function SmartAlertBanner({ data, navigate }) {
   const alerts = [];
   data.patients.forEach(p => {
     const ptVisits = (data.visits || []).filter(v => v.patientId === p.id)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     const lastVisit = ptVisits[0];
     const daysSince = lastVisit ? daysDiff(lastVisit.visitDate) : 9999;
     const overdueThreshold = p.riskLevel === 'High' ? 90 : p.riskLevel === 'Medium' ? 180 : 365;
@@ -7568,7 +7570,7 @@ function SmartAlertBanner({ data, navigate }) {
 // ── PatientTrendChart (sparkline for CAT/ACT) ─────────
 function PatientTrendChart({ visits, diagnosis }) {
   if (!visits || visits.length < 2) return null;
-  const sorted = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const sorted = [...visits].sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
   const showCAT = diagnosis === 'COPD' || diagnosis === 'Both';
   const showACT = diagnosis === 'Asthma' || diagnosis === 'Both';
   const catPts = sorted.map(v => v.assessments?.cat?.allAnswered ? v.assessments.cat.score : null);
@@ -7775,7 +7777,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     else if (sortKey === 'hn')   { av = a.hn;        bv = b.hn; }
     else if (sortKey === 'risk') { av = riskOrder[a.riskLevel] ?? 3; bv = riskOrder[b.riskLevel] ?? 3; }
     else if (sortKey === 'last') {
-      const vs = id => data.visits.filter(v => v.patientId === id).sort((x,y) => y.visitDate.localeCompare(x.visitDate));
+      const vs = id => data.visits.filter(v => v.patientId === id).sort((x, y) => (y.visitDate||"").localeCompare(x.visitDate||""));
       av = vs(a.id)[0]?.visitDate || '0000'; bv = vs(b.id)[0]?.visitDate || '0000';
     }
     if (typeof av === 'number') return sortAsc ? av - bv : bv - av;
@@ -7835,7 +7837,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
   };
 
   const getLastVisit = (id) => {
-    const vs = data.visits.filter(v => v.patientId === id).sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const vs = data.visits.filter(v => v.patientId === id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     return vs[0]?.visitDate || null;
   };
   const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
@@ -8642,9 +8644,9 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
   const canEdit = AppStore.canEditClinical(currentUser);
   const patient = data.patients.find(p => p.id === patientId);
   const visits  = data.visits.filter(v => v.patientId === patientId)
-    .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
   const tele    = data.telepharmacy.filter(t => t.patientId === patientId)
-    .sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
+    .sort((a, b) => (b.scheduledDate||"").localeCompare(a.scheduledDate||""));
 
   const [tab, setTab]       = pvState('timeline');
   const [visitFilter, setVF] = pvState('all');
@@ -8929,7 +8931,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
 
       {tab === 'medtimeline' && (() => {
         // Build unique drug list across all visits (sorted oldest→newest)
-        const sorted2 = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+        const sorted2 = [...visits].sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
         const allDrugs = [...new Set(sorted2.flatMap(v => (v.medications || []).map(m => m.name).filter(Boolean)))].sort();
         if (allDrugs.length === 0) return <EmptyState icon="💊" title="ยังไม่มีข้อมูลยา" subtitle="บันทึก Visit พร้อมรายการยาเพื่อดู timeline" />;
         return (
@@ -8998,7 +9000,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
 
       {tab === 'outcomes' && (() => {
         if (visits.length === 0) return <EmptyState icon="📊" title="ยังไม่มีข้อมูล" subtitle="บันทึกการเยี่ยมอย่างน้อย 1 ครั้งเพื่อดูผลลัพธ์" />;
-        const sorted = [...visits].sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+        const sorted = [...visits].sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
         // Collect all DRPs per visit
         const drpHistory = sorted.map(v => ({
           date: v.visitDate,
@@ -10171,7 +10173,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const previousVisits = vfMemo(() => {
     let visits = data.visits.filter(v => v.patientId === patientId);
     if (isEditing) visits = visits.filter(v => v.id !== editingVisit.id);
-    return visits.sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    return visits.sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
   }, [data.visits, patientId, isEditing, editingVisit?.id]);
 
   const lastVisit = previousVisits[0] || null;
@@ -10600,7 +10602,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
 
     // Update patient risk based on latest visit (most recent visitDate)
     const allForPt = updatedVisits.filter(v => v.patientId === patientId)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     const latestRisk = allForPt[0] ? { level: allForPt[0].riskLevel, flags: allForPt[0].riskFlags || [] } : { level: 'Low', flags: [] };
 
     const updatedPatients = data.patients.map(p => p.id === patientId
@@ -10632,7 +10634,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     if (!isEditing) return;
     const updatedVisits = data.visits.filter(v => v.id !== editingVisit.id);
     const remaining = updatedVisits.filter(v => v.patientId === patientId)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     const latestRisk = remaining[0] ? { level: remaining[0].riskLevel, flags: remaining[0].riskFlags || [] } : { level: 'Low', flags: [] };
     const updatedPatients = data.patients.map(p => {
       if (p.id !== patientId) return p;
@@ -11534,7 +11536,7 @@ function RiskScreeningView({ data, navigate }) {
   const lowRisk    = data.patients.filter(p => p.riskLevel === 'Low' || !p.riskLevel);
 
   const getLastVisit = (id) => {
-    const vs = data.visits.filter(v => v.patientId === id).sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    const vs = data.visits.filter(v => v.patientId === id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     return vs[0] || null;
   };
 
@@ -12072,7 +12074,7 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
 
   // DRP context from patient's most recent visit
   const ptVisits = (data.visits || []).filter(v => v.patientId === rec.patientId)
-    .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+    .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
   const lastVisit = ptVisits[0];
   const drpContext = (lastVisit && pt && typeof window.detectDRP === 'function')
     ? window.detectDRP(lastVisit, pt) : [];
@@ -12228,7 +12230,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
     return { ...t, scheduledDate: d.toISOString().slice(0,10) };
   });
 
-  const records = [...data.telepharmacy].sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
+  const records = [...data.telepharmacy].sort((a, b) => (b.scheduledDate||"").localeCompare(a.scheduledDate||""));
   const filtered = filterStatus ? records.filter(r => r.status === filterStatus) : records;
 
   const pendingCount  = records.filter(r => r.status === 'Pending').length;
@@ -12943,7 +12945,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
         const thM = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
         const mLabel = m => { const [y,mo] = m.split('-'); return `${thM[parseInt(mo)]}'${String(parseInt(y)+543).slice(-2)}`; };
         const mData = months.map(m => {
-          const mVis = vis.filter(v => v.visitDate.startsWith(m));
+          const mVis = vis.filter(v => v.visitDate && v.visitDate.startsWith(m));
           const exTotal = mVis.reduce((s,v) => s + (v.exacerbation?.countThisYear || 0), 0);
           const poorAdh = mVis.filter(v => v.adherence?.level === 'Poor').length;
           const drpCount = mVis.filter(v => v.drp?.noDRP === false).length;
@@ -13167,7 +13169,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
   // Get last visit info per patient
   const getLastVisit = (id) => {
     const v = data.visits.filter(x => x.patientId === id)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     return v[0] || null;
   };
   const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
@@ -13638,7 +13640,7 @@ const OutcomeTracking = ({ data }) => {
     const exacerbReduction = [];
 
     patients.forEach(p => {
-      const visits = (data.visits || []).filter(v => v.patientId === p.id && v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+      const visits = (data.visits || []).filter(v => v.patientId === p.id && v.visitDate).sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
       if (visits.length >= 2) {
         const first = visits[0];
         const last = visits[visits.length - 1];
@@ -13708,7 +13710,7 @@ const TechniqueMasteryCurve = ({ data }) => {
     patients.forEach(p => {
       const visits = (data.visits || [])
         .filter(v => v.patientId === p.id && v.inhalerTechnique && v.inhalerTechnique.length > 0)
-        .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+        .sort((a, b) => (a.visitDate||"").localeCompare(b.visitDate||""));
       
       if (visits.length >= 2) {
         const scoreMap = { Good: 3, Acceptable: 2, Fair: 2, Poor: 1 };
@@ -16727,7 +16729,7 @@ const generateRecommendations = (data, patientId = null) => {
   patients.forEach(p => {
     const visits = (data.visits || [])
       .filter(v => v.patientId === p.id)
-      .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     
     const lastVisit = visits[0];
     const prevVisit = visits[1];
@@ -18095,8 +18097,8 @@ Date: ${new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long',
 <tbody>
 <tr><td>Total Patients</td><td>${stats.totalPatients}</td></tr>
 <tr><td>Mean Age (SD), years</td><td>${stats.meanAge} (${stats.sdAge})</td></tr>
-<tr><td>Male, n (%)</td><td>${stats.genderDistribution.male} (${((stats.genderDistribution.male / stats.totalPatients) * 100).toFixed(1)}%)</td></tr>
-<tr><td>Female, n (%)</td><td>${stats.genderDistribution.female} (${((stats.genderDistribution.female / stats.totalPatients) * 100).toFixed(1)}%)</td></tr>
+<tr><td>Male, n (%)</td><td>${stats.genderDistribution.male} (${stats.totalPatients > 0 ? ((stats.genderDistribution.male / stats.totalPatients) * 100).toFixed(1) : '—'}%)</td></tr>
+<tr><td>Female, n (%)</td><td>${stats.genderDistribution.female} (${stats.totalPatients > 0 ? ((stats.genderDistribution.female / stats.totalPatients) * 100).toFixed(1) : '—'}%)</td></tr>
 </tbody>
 </table>
 
@@ -19040,7 +19042,7 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
   }), [ha]);
 
   const pt = selected || data.patients?.[0];
-  const ptVisits = pt ? (data.visits || []).filter(v => v.patientId === pt.id).sort((a, b) => b.visitDate.localeCompare(a.visitDate)) : [];
+  const ptVisits = pt ? (data.visits || []).filter(v => v.patientId === pt.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||"")) : [];
 
   return (
     <div>
@@ -20046,7 +20048,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
     const in7 = new Date(); in7.setDate(in7.getDate() + 7);
     const in7str = in7.toISOString().slice(0, 10);
     return pts.map(p => {
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
       const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
       return latestNextVisit && latestNextVisit > todayStr && latestNextVisit <= in7str
         ? { patient: p, nextVisit: latestNextVisit } : null;
@@ -20056,7 +20058,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   // Overdue follow-ups: นัดผ่านไปแล้วแต่ผู้ป่วยยังไม่มาตามนัด (ไม่มี visit ตั้งแต่วันนัด)
   const overdueFollowups = useMemo(() => {
     return pts.map(p => {
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
       const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
       if (!latestNextVisit || latestNextVisit >= todayStr) return null;
       // ถ้ามี visit ในวันนัดหรือหลังจากนั้น = มาแล้ว ไม่ overdue
@@ -20074,7 +20076,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const highRiskOverdue = useMemo(() => {
     return pts.filter(p => {
       if (p.riskLevel !== 'High') return false;
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a,b) => b.visitDate.localeCompare(a.visitDate));
+      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
       const last = ptVisits[0];
       if (!last) return true;
       return Math.floor((new Date(todayStr) - new Date(last.visitDate)) / 86400000) > 90;
@@ -20833,6 +20835,7 @@ function App() {
           // session ของ user คนถัดไปที่ล็อกอินบนเครื่องเดียวกัน ผ่าน online-retry หรือ draft-recovery)
           clearTimeout(saveTimer.current);
           pendingData.current = null;
+          pendingRemoteDoc.current = null; // กัน remote doc ที่ buffer ไว้จาก session เก่า หลุดไปทับข้อมูลของ user คนถัดไปหลัง flush ครั้งแรกของเขา
           setPendingSync(false);
           if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
           setData(null);
@@ -20986,13 +20989,13 @@ function App() {
         },
         err => {
           console.error('Firebase snapshot error:', err);
-          setSyncStatus('error');
+          setSyncStatus(attempt < 5 ? 'error' : 'error-final');
           if (attempt < 5) retryRef.current = setTimeout(() => initFirestore(attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
         }
       );
     } catch (e) {
       console.error('Firestore load error:', e);
-      setSyncStatus('error');
+      setSyncStatus(attempt < 5 ? 'error' : 'error-final');
       if (attempt < 5) retryRef.current = setTimeout(() => initFirestore(attempt + 1), Math.min(2000 * Math.pow(2, attempt), 32000));
     }
   }, [maybeAutoBackup, applyRemoteDoc]);
@@ -21324,6 +21327,19 @@ function App() {
     return <LoginScreen syncStatus={syncStatus} />;
   }
   if (fbUser && !fbReady) {
+    if (syncStatus === 'error-final') {
+      return (
+        <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'linear-gradient(145deg,#050B1E,#0B1D45)', fontFamily:'Sarabun,sans-serif', padding:24, textAlign:'center' }}>
+          <div style={{ fontSize:44 }}>⚠️</div>
+          <div style={{ fontSize:15, fontWeight:700, color:'#FFFFFF' }}>เชื่อมต่อฐานข้อมูลไม่ได้</div>
+          <div style={{ fontSize:13, color:'#FCA5A5', maxWidth:320 }}>ลองเชื่อมต่อหลายครั้งแล้วไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต หรือติดต่อผู้ดูแลระบบหากปัญหายังคงอยู่</div>
+          <div style={{ display:'flex', gap:10, marginTop:6 }}>
+            <button onClick={() => initFirestore()} style={{ padding:'9px 18px', borderRadius:8, background:'#3B82F6', color:'#fff', border:'none', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>ลองใหม่</button>
+            <button onClick={() => firebase.auth().signOut()} style={{ padding:'9px 18px', borderRadius:8, background:'rgba(255,255,255,0.1)', color:'#fff', border:'1px solid rgba(255,255,255,0.2)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>ออกจากระบบ</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'linear-gradient(145deg,#050B1E,#0B1D45)', fontFamily:'Sarabun,sans-serif' }}>
         <div style={{ fontSize:44 }}>🫁</div>
