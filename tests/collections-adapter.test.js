@@ -34,6 +34,7 @@ const sampleData = {
   haCompliance: { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
   auditLog: [{ user: 'แอดมิน', action: 'create-visit', summary: 'สร้าง Visit' }],
   clinicCode: '10670',
+  drpTracker: { 'p1_v1_0': { status: 'resolved', assignedTo: 'เภสัชกร A', note: 'แก้ไขแล้ว' } },
 };
 
 async function run(t) {
@@ -57,6 +58,10 @@ async function run(t) {
     t.ok('round-trip: meta (auditLog+clinicCode) written as single doc', db._store.has('meta/main'));
     t.ok('round-trip: auditLog round-trips correctly', assembled.auditLog.length === 1 && assembled.auditLog[0].action === 'create-visit');
     t.ok('round-trip: clinicCode round-trips correctly', assembled.clinicCode === '10670');
+    // regression: เดิม drpTracker ไม่ถูกเขียน/อ่านในโหมด collections เลย ทำให้สถานะแก้ไข DRP
+    // หายทุกครั้งที่ reload — ต้อง round-trip ผ่าน meta/main เหมือน auditLog/clinicCode
+    t.ok('regression: drpTracker round-trips correctly (was silently dropped in collections mode)',
+      assembled.drpTracker && assembled.drpTracker.p1_v1_0?.status === 'resolved');
     t.ok('round-trip: patient field values preserved exactly', assembled.patients.find(p => p.id === 'p1').hn === 'HN001');
   }
 

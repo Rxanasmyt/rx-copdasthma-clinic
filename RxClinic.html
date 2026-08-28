@@ -13392,7 +13392,7 @@ const calculateKPIs = (data) => {
   const recentVisits = allVisits.filter(v => v.visitDate >= weekStartStr);
 
   // Adherence average
-  const adherenceScores = allVisits.filter(v => v.adherence?.selfScore != null).map(v => v.adherence.selfScore);
+  const adherenceScores = allVisits.filter(v => v.adherence?.score != null).map(v => v.adherence.score);
   const avgAdherence = adherenceScores.length > 0
     ? (adherenceScores.reduce((a, b) => a + b, 0) / adherenceScores.length).toFixed(1)
     : '—';
@@ -16064,7 +16064,12 @@ const HAIndicators = ({ data }) => {
 
   const soapComplete  = visits.filter(v => v.soap?.s && v.soap?.a && v.soap?.p).length;
   const hasConsent    = visits.filter(v => v.informedConsent === true).length;
-  const hasDRP        = visits.filter(v => v.drp != null).length;
+  // v.drp ถูก initialize เป็น {noDRP:true, items:[], note:''} ในทุก visit เสมอ (blankVisit default)
+  // เช็ค "!= null" เดิมจึงเป็นจริงเสมอ ทำให้ตัวชี้วัดนี้อ่านได้ 100% ตลอดไม่ว่าจะประเมิน DRP จริงหรือไม่
+  // แก้เป็นนับเฉพาะ visit ที่มีร่องรอยการประเมินจริง (พบ DRP หรือมีบันทึก note) — ยังไม่สมบูรณ์แบบ
+  // (แยกไม่ได้ 100% ระหว่าง "ประเมินแล้วไม่พบปัญหา ไม่จดอะไรเพิ่ม" กับ "ยังไม่ได้ประเมินเลย" เพราะ
+  // หน้าตาข้อมูลเหมือนกัน — ต้องเพิ่ม field ใหม่ เช่น drpAssessed จึงจะแก้ตรงจุดได้) แต่ดีกว่า hardcode 100%
+  const hasDRP        = visits.filter(v => v.drp && (v.drp.noDRP === false || (v.drp.note && v.drp.note.trim() !== ''))).length;
   const hasPCNE       = visits.filter(v => v.drp?.pcne?.problem).length;
   const drpWithPCNE   = visits.filter(v => v.drp?.noDRP === false).length;
   const teleTotal     = (data.telepharmacy || []).filter(t => t.status !== 'Pending').length;
@@ -16405,8 +16410,8 @@ const printMonthlyReportByNum = (data, year, month) => {
       latestVisitByPtMR[v.patientId] = v;
   });
   const exacerbCount = Object.values(latestVisitByPtMR).reduce((sum, v) => sum + (v.exacerbation?.countThisYear || 0), 0);
-  const avgAdherence = visits.filter(v => v.adherence?.selfScore != null).length > 0
-    ? (visits.filter(v => v.adherence?.selfScore != null).reduce((sum, v) => sum + v.adherence.selfScore, 0) / visits.filter(v => v.adherence?.selfScore != null).length).toFixed(1)
+  const avgAdherence = visits.filter(v => v.adherence?.score != null).length > 0
+    ? (visits.filter(v => v.adherence?.score != null).reduce((sum, v) => sum + v.adherence.score, 0) / visits.filter(v => v.adherence?.score != null).length).toFixed(1)
     : '—';
 
   const html = `
@@ -16450,7 +16455,7 @@ ${visits.map(v => {
     <td>${v.pharmacist || '—'}</td>
     <td>${v.riskLevel || '—'}</td>
     <td>${v.drp?.noDRP === false ? 'มี' : '—'}</td>
-    <td>${v.adherence?.selfScore != null ? v.adherence.selfScore : '—'}</td>
+    <td>${v.adherence?.score != null ? v.adherence.score : '—'}</td>
   </tr>`;
 }).join('')}
 </tbody></table>
@@ -16738,7 +16743,9 @@ const generateRecommendations = (data, patientId = null) => {
     if (p.riskLevel === 'High' && lastVisit) {
       const daysSinceVisit = Math.floor((Date.now() - new Date(lastVisit.visitDate)) / (1000 * 60 * 60 * 24));
       if (daysSinceVisit >= 14 && daysSinceVisit <= 21) {
-        const tele = (data.telepharmacy || []).find(t => t.patientId === p.id && t.status === 'Scheduled');
+        // สถานะจริงของ telepharmacy มีแค่ 'Pending'/'Success'/'No Answer'/'Cancelled' — ไม่มี 'Scheduled'
+        // เดิมเทียบกับค่าที่ไม่มีจริง ทำให้ tele เป็น undefined เสมอ คำแนะนำนี้จึงขึ้นซ้ำแม้นัดไว้แล้ว
+        const tele = (data.telepharmacy || []).find(t => t.patientId === p.id && t.status === 'Pending');
         if (!tele) {
           recommendations.push({
             id: `tele-${p.id}`,
@@ -16830,9 +16837,9 @@ const generateRecommendations = (data, patientId = null) => {
 
     // 6. Adherence trend down
     if (visits.length >= 3) {
-      const recent3 = visits.slice(0, 3).filter(v => v.adherence?.selfScore != null);
+      const recent3 = visits.slice(0, 3).filter(v => v.adherence?.score != null);
       if (recent3.length === 3) {
-        const scores = recent3.map(v => v.adherence.selfScore);
+        const scores = recent3.map(v => v.adherence.score);
         const trend = (scores[0] - scores[2]); // latest - oldest
         if (trend <= -2) {
           recommendations.push({
@@ -17919,9 +17926,11 @@ const deIdentifyData = (data) => {
         riskLevel: v.riskLevel,
         adherence: v.adherence,
         exacerbation: v.exacerbation,
-        cat: v.cat,
-        act: v.act,
-        mMRC: v.mMRC,
+        // คะแนน CAT/ACT/mMRC จริงอยู่ที่ v.assessments.* ไม่ใช่ v.cat/v.act/v.mMRC ตรงๆ (v.cat ไม่มีอยู่จริง)
+        // เดิมอ้าง field ผิด ทำให้คอลัมน์ CAT/ACT/mMRC ในไฟล์วิจัยว่างเปล่าเสมอแม้ประเมินไว้ครบ
+        cat: v.assessments?.cat,
+        act: v.assessments?.act,
+        mMRC: v.assessments?.mmrc,
         // score เป็นตัวเลข (RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK) ไม่ใช่ label string — คอลัมน์ CSV
         // ปลายทาง "TechniqueScore" ต้องเป็นตัวเลขเพื่อหาค่าเฉลี่ยได้ (เดิมเก็บ label ทำให้บวกเลขไม่ได้ กลายเป็น NaN)
         inhalerTechnique: v.inhalerTechnique?.map(t => ({ device: t.device, score: RX_KPI_ENUMS.TECHNIQUE_SCORE_RANK[t.overallScore] ?? null })),
@@ -17961,10 +17970,10 @@ const calculateStats = (data) => {
     
     // Technique
     meanTechniqueScore: '—',
-    
-    // Outcomes
-    catImprovement: '—',
   };
+  // หมายเหตุ: เดิมมี key "catImprovement" ค้างอยู่แต่ไม่มีจุดไหนในฟังก์ชันนี้คำนวณค่าให้เลย
+  // (ค่า outcome CAT improvement ที่คำนวณจริงอยู่ใน OutcomeTracking component แยกต่างหาก, บรรทัด ~13639)
+  // และไม่มีจุดไหนอ่าน stats.catImprovement — ตัดออกเพื่อไม่ให้ดูเหมือนมีการคำนวณทั้งที่ไม่มี
 
   // Diagnosis
   patients.forEach(p => {
@@ -17972,7 +17981,7 @@ const calculateStats = (data) => {
   });
 
   // Adherence
-  const adherenceScores = visits.filter(v => v.adherence?.selfScore != null).map(v => v.adherence.selfScore);
+  const adherenceScores = visits.filter(v => v.adherence?.score != null).map(v => v.adherence.score);
   if (adherenceScores.length > 0) {
     const mean = adherenceScores.reduce((a, b) => a + b, 0) / adherenceScores.length;
     stats.meanAdherence = mean.toFixed(2);
@@ -18021,7 +18030,7 @@ const exportDeIDCSV = (data) => {
     const techScore = validTechScores.length > 0
       ? (validTechScores.reduce((s, x) => s + x, 0) / validTechScores.length).toFixed(1)
       : '';
-    return `${v.id},${v.patientId},${v.visitDate},${v.riskLevel},${v.adherence?.selfScore || ''},${v.exacerbation?.countThisYear || ''},${v.cat?.score || ''},${v.act?.score || ''},${v.mMRC?.grade || ''},${techScore},${v.drp?.noDRP === false ? 'Yes' : 'No'}`;
+    return `${v.id},${v.patientId},${v.visitDate},${v.riskLevel},${v.adherence?.score || ''},${v.exacerbation?.countThisYear || ''},${v.cat?.score || ''},${v.act?.score || ''},${v.mMRC?.grade || ''},${techScore},${v.drp?.noDRP === false ? 'Yes' : 'No'}`;
   }).join('\n');
 
   const blob1 = new Blob([ptHeader + ptRows], { type: 'text/csv' });
@@ -20622,6 +20631,10 @@ async function assembleDataFromCollections(db) {
     haCompliance: haSnap.exists ? haSnap.data() : { medRec: [], adr: [], referrals: [], discharge: [], rca: [] },
     auditLog: meta.auditLog || [],
     clinicCode: meta.clinicCode || '',
+    // drpTracker (สถานะแก้ไข DRP: resolved/in_progress, ผู้รับผิดชอบ, บันทึกการแก้ไข) เดิมไม่เคยถูก
+    // อ่านคืนในโหมด collections เลย ทำให้ทุกครั้งที่ reload/สลับเครื่อง ความคืบหน้าที่บันทึกไว้หายหมด
+    // ทั้งที่ข้อมูลนี้ถูกใช้เลี้ยง KPI คุณภาพและรายงาน HA — เก็บไว้ใน meta/main เหมือน auditLog
+    drpTracker: meta.drpTracker || {},
     _savedAt: Date.now(),
   };
 }
@@ -20668,9 +20681,11 @@ function buildCollectionWriteOps(db, prevData, nextData) {
   if (nextData?.haCompliance && JSON.stringify(prevData?.haCompliance) !== JSON.stringify(nextData.haCompliance)) {
     ops.push({ ref: db.collection('haCompliance').doc('main'), data: nextData.haCompliance });
   }
-  // meta (auditLog + clinicCode): เอกสารเดียว เขียนเฉพาะตอนเปลี่ยนจริง — เหมือน haCompliance
-  const prevMeta = { auditLog: prevData?.auditLog || [], clinicCode: prevData?.clinicCode || '' };
-  const nextMeta = { auditLog: nextData?.auditLog || [], clinicCode: nextData?.clinicCode || '' };
+  // meta (auditLog + clinicCode + drpTracker): เอกสารเดียว เขียนเฉพาะตอนเปลี่ยนจริง — เหมือน haCompliance
+  // drpTracker เพิ่มเข้ามาที่นี่เพราะเดิมโหมด collections ไม่เคยเขียนฟิลด์นี้ลง Firestore เลย
+  // (ทุกการบันทึกสถานะแก้ไข DRP อยู่แค่ใน React state ชั่วคราว หายเมื่อ reload/สลับเครื่อง)
+  const prevMeta = { auditLog: prevData?.auditLog || [], clinicCode: prevData?.clinicCode || '', drpTracker: prevData?.drpTracker || {} };
+  const nextMeta = { auditLog: nextData?.auditLog || [], clinicCode: nextData?.clinicCode || '', drpTracker: nextData?.drpTracker || {} };
   if (JSON.stringify(prevMeta) !== JSON.stringify(nextMeta)) {
     ops.push({ ref: db.collection('meta').doc('main'), data: nextMeta });
   }
