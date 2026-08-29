@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Rx-COPD/Asthma Clinic</title>
 <meta name="theme-color" content="#0B1D45" />
+<!-- เดิมไฟล์ manifest.json/icon-192.png/icon-512.png ถูก deploy ไปด้วยทุกครั้ง (ดู .github/workflows)
+     แต่ไม่เคยมี <link> อ้างถึงจากหน้านี้เลยสักจุด — "เพิ่มไปที่หน้าจอหลัก"/ติดตั้งเป็น PWA จึงไม่เคย
+     แสดงไอคอนที่ตั้งใจทำไว้ ได้แค่ไอคอนเริ่มต้นของเบราว์เซอร์แทน — เพิ่ม link ให้ครบทุกแพลตฟอร์ม -->
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>

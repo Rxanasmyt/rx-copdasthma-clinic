@@ -2,13 +2,15 @@
 // HTML/navigation: network-first (always latest when online)
 // CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v34';
+const CACHE_VERSION = 'rxcopd-v35'; // v35: ไอคอนแอปใหม่ + apple-touch-icon/favicon.ico ที่เพิ่งเชื่อม <link> เข้ากับหน้าเว็บจริง
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './apple-touch-icon.png',
+  './favicon.ico',
   // CDN dependencies
   'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
