@@ -11992,6 +11992,16 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
     return list;
   }, [worklist, statusFilter, severityFilter, search, initPatientId]);
 
+  // เดิมไม่มี pagination เลย (ต่างจาก PatientList/TelepharmacyView) — ค่า default (status='open')
+  // ยังพอจำกัดตัวเองอยู่ แต่พอสลับเป็น 'ทั้งหมดทุกสถานะ' หรือปิด 'จำกัดช่วงวันที่' จะ render ประวัติ DRP
+  // ทั้งคลินิกทุกรายการพร้อมกัน ที่คลินิกใช้งานมาหลายปีอาจมีเป็นพันรายการ หน่วงตอน mount ชัดเจน
+  const [drpPage, setDrpPage] = React.useState(1);
+  const DRP_PAGE_SIZE = 30;
+  React.useEffect(() => { setDrpPage(1); }, [statusFilter, severityFilter, search, initPatientId, useDateRange, dateRange]);
+  const drpTotalPages = Math.max(1, Math.ceil(filtered.length / DRP_PAGE_SIZE));
+  const drpPageClamped = Math.min(drpPage, drpTotalPages);
+  const paginatedDrp = filtered.slice((drpPageClamped - 1) * DRP_PAGE_SIZE, drpPageClamped * DRP_PAGE_SIZE);
+
   const handleSaveEntry = (entryId, patch, entry) => saveDRPEntryWithAudit(data, onDataChange, currentUser, entryId, patch, entry);
 
   return (
@@ -12065,10 +12075,19 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
       ) : (
         <div>
           <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>พบ {filtered.length} รายการ</div>
-          {filtered.map(entry => (
+          {paginatedDrp.map(entry => (
             <DRPTrackerRow key={entry.id} entry={entry} onSave={handleSaveEntry} navigate={navigate} users={data.users}
               canEdit={AppStore.canEditClinical(currentUser)} currentUser={currentUser} />
           ))}
+          {drpTotalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px 0' }}>
+              <button onClick={() => setDrpPage(p => Math.max(1, p - 1))} disabled={drpPageClamped === 1} className="rx-icon-btn"
+                style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: drpPageClamped===1?C.textMuted:C.text, cursor: drpPageClamped===1?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>← ก่อนหน้า</button>
+              <span style={{ fontSize: 11, color: C.textMuted }}>หน้า {drpPageClamped}/{drpTotalPages} — {(drpPageClamped-1)*DRP_PAGE_SIZE+1}–{Math.min(drpPageClamped*DRP_PAGE_SIZE, filtered.length)} จาก {filtered.length}</span>
+              <button onClick={() => setDrpPage(p => Math.min(drpTotalPages, p + 1))} disabled={drpPageClamped === drpTotalPages} className="rx-icon-btn"
+                style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: drpPageClamped===drpTotalPages?C.textMuted:C.text, cursor: drpPageClamped===drpTotalPages?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>ถัดไป →</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -15884,6 +15903,15 @@ const computeInsights = (data) => {
   const tele     = data.telepharmacy || [];
   const today    = new Date().toISOString().slice(0, 10);
   const ptById   = Object.fromEntries(patients.map(p => [p.id, p]));
+  // เดิม 4 จุดข้างล่าง (technique/adherence improvement, exacerbation avg, adherence dist,
+  // overdue high-risk) ต่างคน visits.filter(v => v.patientId === p.id) แยกกันภายใน patients.forEach
+  // ของตัวเอง — รวมเป็น O(P×V)×4 ต่อการคำนวณหนึ่งครั้ง — group ด้วย Map ครั้งเดียวใช้ร่วมกันทั้งหมด
+  const visitsByPtInsights = new Map();
+  visits.forEach(v => {
+    if (!v.patientId) return;
+    if (!visitsByPtInsights.has(v.patientId)) visitsByPtInsights.set(v.patientId, []);
+    visitsByPtInsights.get(v.patientId).push(v); // visits ถูก sort ascending ไว้แล้วด้านบน ลำดับจึงถูกต้อง
+  });
 
   // ── DRP Intelligence: population-level pattern analysis ── ใช้ computeDRPWorklist (ผูกกับสถานะ
   // ที่บันทึกไว้ใน data.drpTracker จริง) แทนการ scan detectDRP สดๆ แล้วมโนอัตราแก้ไขจาก checkbox
@@ -15936,7 +15964,7 @@ const computeInsights = (data) => {
   let adhImproved = 0, adhEligible = 0;
   const adhRank = AppStore.RX_KPI_ENUMS.ADHERENCE_RANK;
   patients.forEach(p => {
-    const pv = visits.filter(v => v.patientId === p.id);
+    const pv = visitsByPtInsights.get(p.id) || [];
     if (pv.length < 2) return;
     const first = pv[0], last = pv[pv.length - 1];
     const firstPoorTech = (first.inhalerTechnique || []).some(t => t.overallScore === 'Poor');
@@ -15951,7 +15979,7 @@ const computeInsights = (data) => {
   // Exacerbation: avg per patient (latest visit)
   let exSum = 0, exN = 0;
   patients.forEach(p => {
-    const pv = visits.filter(v => v.patientId === p.id);
+    const pv = visitsByPtInsights.get(p.id) || [];
     if (!pv.length) return;
     exSum += Number(pv[pv.length - 1].exacerbation?.countThisYear) || 0; exN++;
   });
@@ -15960,7 +15988,7 @@ const computeInsights = (data) => {
   // Adherence distribution (latest visit per patient)
   const adhDist = { Good: 0, Fair: 0, Poor: 0 };
   patients.forEach(p => {
-    const pv = visits.filter(v => v.patientId === p.id);
+    const pv = visitsByPtInsights.get(p.id) || [];
     if (!pv.length) return;
     const lvl = pv[pv.length - 1].adherence?.level;
     if (adhDist[lvl] != null) adhDist[lvl]++;
@@ -15985,8 +16013,9 @@ const computeInsights = (data) => {
   // Overdue high-risk
   const thirtyAgo = new Date(Date.now() - 30*864e5).toISOString().slice(0,10);
   const overdueHighRisk = patients.filter(p => p.riskLevel === 'High').filter(p => {
-    const pv = visits.filter(v => v.patientId === p.id).sort((a,b) => (b.visitDate || '').localeCompare(a.visitDate || ''));
-    return !pv[0] || (pv[0].visitDate || '') < thirtyAgo;
+    const pv = visitsByPtInsights.get(p.id) || []; // ascending -> ตัวสุดท้าย = ล่าสุด
+    const last = pv[pv.length - 1];
+    return !last || (last.visitDate || '') < thirtyAgo;
   });
 
   return {
@@ -16322,11 +16351,22 @@ const calculateNotifications = (data, currentUser) => {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const notifications = [];
+  // เดิม telepharmacy loop ทำ data.patients.find(...) ต่อรายการ (O(Tele×Patients)) และ missing-followup
+  // loop ทำ data.visits.filter(...) ต่อผู้ป่วย High Risk หนึ่งคน (O(HighRisk×Visits)) — สร้าง Map ครั้ง
+  // เดียวใช้ร่วมกัน ลดเหลือ O(Tele+Patients+Visits) รวม แทนที่จะคูณกัน
+  const ptByIdNotif = new Map((data.patients || []).map(p => [p.id, p]));
+  const visitsByPtNotif = new Map();
+  (data.visits || []).forEach(v => {
+    if (!v.patientId) return;
+    if (!visitsByPtNotif.has(v.patientId)) visitsByPtNotif.set(v.patientId, []);
+    visitsByPtNotif.get(v.patientId).push(v);
+  });
+  visitsByPtNotif.forEach(arr => arr.sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''))); // ล่าสุดก่อน
 
   // 1. Overdue Telepharmacy
   (data.telepharmacy || []).forEach(t => {
     if (t.status === 'Pending' && t.scheduledDate < today) {
-      const patient = data.patients.find(p => p.id === t.patientId);
+      const patient = ptByIdNotif.get(t.patientId);
       notifications.push({
         id: `tele-${t.id}`,
         type: 'overdue-tele',
@@ -16343,7 +16383,7 @@ const calculateNotifications = (data, currentUser) => {
 
   // 2. Missing Follow-up (High Risk ไม่มี Visit >30 วัน)
   data.patients.filter(p => p.riskLevel === 'High').forEach(p => {
-    const visits = (data.visits || []).filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''));
+    const visits = visitsByPtNotif.get(p.id) || []; // sort ไว้แล้ว (ล่าสุดก่อน)
     const lastVisit = visits[0];
     if (!lastVisit || (lastVisit.visitDate || '') < thirtyDaysAgo) {
       notifications.push({
@@ -16551,7 +16591,11 @@ const NotificationCenter = ({ data, open, onClose, currentUser }) => {
 
 // ============ NotificationPreview (for Dashboard) ============
 const NotificationPreview = ({ data, onOpenFull, currentUser }) => {
-  const notifications = useMemo(() => calculateNotifications(data, currentUser).slice(0, 3), [data, currentUser]);
+  // เดิมเรียก calculateNotifications 3 ครั้งต่อ render (1 ครั้งใน useMemo ตัดเหลือ 3 + อีก 2 ครั้ง
+  // แบบไม่ memo แค่เพื่อนับ .length) ทั้งที่เป็นฟังก์ชันหนักที่ scan ผู้ป่วย/visit/telepharmacy ทั้งหมด
+  // — คำนวณครั้งเดียวเก็บ full list ไว้ แล้ว derive ทั้ง slice และ count จากอันเดียวกัน
+  const allNotifications = useMemo(() => calculateNotifications(data, currentUser), [data, currentUser]);
+  const notifications = allNotifications.slice(0, 3);
 
   if (notifications.length === 0) {
     return (
@@ -16576,10 +16620,10 @@ const NotificationPreview = ({ data, onOpenFull, currentUser }) => {
           <NotificationItem key={n.id} notif={n} onDismiss={() => {}} />
         ))}
       </div>
-      {calculateNotifications(data, currentUser).length > 3 && (
+      {allNotifications.length > 3 && (
         <div style={{ marginTop: 10, textAlign: 'center' }}>
           <Btn size="sm" variant="ghost" onClick={onOpenFull}>
-            ดูอีก {calculateNotifications(data, currentUser).length - 3} รายการ
+            ดูอีก {allNotifications.length - 3} รายการ
           </Btn>
         </div>
       )}
@@ -21535,14 +21579,30 @@ function App() {
   // ⚠ Hooks ต้องอยู่ก่อน early-return ทุกอัน (Rules of Hooks) — ใช้ optional chaining กัน data=null
   const overdueHighRisk = useMemo(() => {
     const now = Date.now();
+    // เดิม filter (data?.visits || []) ทั้งก้อนต่อผู้ป่วย High Risk หนึ่งคน (O(HighRisk×Visits))
+    // แม้จะ memo ด้วย [data] อยู่แล้ว (ไม่รันซ้ำทุก render) แต่ก็ยังรันหนักทุกครั้งที่ data เปลี่ยน
+    // (ทุกครั้งที่บันทึก) — group ด้วย Map ครั้งเดียวก่อน
+    const visitsByPtOHR = new Map();
+    (data?.visits || []).forEach(v => {
+      if (!v.patientId) return;
+      if (!visitsByPtOHR.has(v.patientId)) visitsByPtOHR.set(v.patientId, []);
+      visitsByPtOHR.get(v.patientId).push(v);
+    });
     return (data?.patients || []).filter(p => {
       if (p.riskLevel !== 'High') return false;
-      const visits = (data?.visits || []).filter(v => v.patientId === p.id);
+      const visits = visitsByPtOHR.get(p.id) || [];
       if (visits.length === 0) return true;
       const last = Math.max(...visits.map(v => new Date(v.visitDate).getTime()));
       return (now - last) > 30 * 86400000;
     });
   }, [data]);
+
+  // เดิม notifCount คำนวณ calculateNotifications (สแกนผู้ป่วย/visit/telepharmacy ทั้งหมด) แบบไม่ memo
+  // อยู่ใน IIFE กลาง JSX ของ header — รันซ้ำทุก render ของทั้ง App shell (พิมพ์ในฟอร์ม, เปิด modal,
+  // realtime sync ฯลฯ) ไม่ใช่แค่ตอน data/currentUser เปลี่ยนจริง
+  const notifCount = useMemo(() => (
+    window.calculateNotifications && data ? window.calculateNotifications(data, currentUser).length : 0
+  ), [data, currentUser]);
 
   // ── Login gate ────────────────────────────────────
   // รอ onAuthStateChanged fire ครั้งแรก
@@ -21729,7 +21789,6 @@ function App() {
 
             {/* Notification bell */}
             {(() => {
-              const notifCount = window.calculateNotifications ? window.calculateNotifications(data, currentUser).length : 0;
               return (
                 <button onClick={() => setNotifOpen(true)} aria-label="การแจ้งเตือน" title="การแจ้งเตือน" style={{
                   position: 'relative', width: 36, height: 36, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
@@ -21810,7 +21869,9 @@ function App() {
 
         {/* Content */}
         <div className="rx-page-pad" style={{ padding: isMobile ? '16px 14px' : '24px 28px' }}>
-          <div key={view} className="rx-view">{renderView()}</div>
+          <div key={view} className="rx-view">
+            <RxErrorBoundary compact onReset={() => navigate('dashboard')}>{renderView()}</RxErrorBoundary>
+          </div>
         </div>
       </main>
 
@@ -21943,6 +22004,34 @@ class RxErrorBoundary extends React.Component {
   componentDidCatch(error, info) { console.error('App render error:', error, info); }
   render() {
     if (this.state.hasError) {
+      // เดิมมี RxErrorBoundary ตัวเดียวครอบทั้งแอป — component ไหนพังตอน render (ข้อมูลเก่า/เสียที่
+      // หลุดผ่านการตรวจสอบไปได้) จะทำทั้งแอปล่มพร้อมกันทุกคน (เพราะข้อมูลมาจาก Firestore ชุดเดียวกัน)
+      // เพิ่ม prop `compact` ให้ใช้ห่อเฉพาะ "เนื้อหาของ view ปัจจุบัน" แยกจาก sidebar/topbar ได้
+      // (ดูจุดใช้งานที่ครอบ renderView()) — ถ้าพังแค่ view เดียว ผู้ใช้ยังนำทางออกไปหน้าอื่นได้เลย
+      // ไม่ต้องรีโหลดทั้งแอป (ซึ่งบางทีก็พังซ้ำอีกถ้าข้อมูลเสียยังอยู่)
+      if (this.props.compact) {
+        return (
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, minHeight:320, padding:32, textAlign:'center' }}>
+            <div style={{ fontSize:38 }}>⚠️</div>
+            <div style={{ fontSize:16, fontWeight:800, color:'#1E3A8A' }}>หน้านี้แสดงผลไม่ได้</div>
+            <div style={{ fontSize:12.5, color:'#64748B', maxWidth:380 }}>
+              ข้อมูลของคุณปลอดภัย (บันทึกใน Cloud แล้ว) — อาจมีข้อมูลบางรายการในหน้านี้ที่ทำให้แสดงผลผิดพลาด
+              ลองไปหน้าอื่นแล้วกลับมาใหม่ หรือรีโหลดหน้าเว็บถ้ายังไม่หาย
+            </div>
+            <pre style={{ fontSize:10.5, color:'#94A3B8', maxWidth:'85vw', overflow:'auto', background:'#fff', padding:'6px 10px', borderRadius:8, border:'1px solid #E2E8F0' }}>
+              {String(this.state.error?.message || this.state.error || '')}
+            </pre>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => { this.setState({ hasError:false, error:null }); this.props.onReset?.(); }} style={{ padding:'9px 18px', borderRadius:10, border:'none', background:'linear-gradient(135deg,#1E40AF,#2563EB)', color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                🏠 กลับหน้าหลัก
+              </button>
+              <button onClick={() => window.location.reload()} style={{ padding:'9px 18px', borderRadius:10, border:'1px solid #CBD5E1', background:'#fff', color:'#334155', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                🔄 รีโหลดหน้า
+              </button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div style={{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'#F0F4F8', fontFamily:'Sarabun,sans-serif', padding:24, textAlign:'center' }}>
           <div style={{ fontSize:48 }}>⚠️</div>
