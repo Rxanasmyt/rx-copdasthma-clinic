@@ -4658,7 +4658,13 @@ const RxAI = (() => {
     const out = { insights: [], priorityPatients: [], kpis: {} };
     if (!patients.length) return out;
 
-    const analyses = patients.map(p => ({ patient: p, a: analyzePatient(p, visits) }))
+    // เดิม analyzePatient (ผ่าน visitsOf ภายใน) filter ทั้ง data.visits ต่อผู้ป่วยหนึ่งคนต่อหนึ่งครั้ง
+    // (O(P×V)) แล้ว latestVisitOf ด้านล่างก็ filter ซ้ำแบบเดียวกันอีกรอบ (O(P×V) อีกครั้ง) — group
+    // ด้วย Map ครั้งเดียวก่อน แล้วส่งเฉพาะ visit ของผู้ป่วยคนนั้น (array เล็ก) เข้า analyzePatient
+    // แทนทั้งก้อน — analyzePatient ยัง filter ซ้ำได้ตามปกติ (ไม่พังคอนแทรกต์เดิม) แต่ scan แค่ O(1)
+    // ต่อคนแทน O(V) เพราะ input มีแค่ visit ของคนนั้นอยู่แล้ว
+    const visitsByPt = groupVisitsByPatientSorted(visits);
+    const analyses = patients.map(p => ({ patient: p, a: analyzePatient(p, visitsByPt.get(p.id) || []) }))
       .filter(x => x.a.visitCount > 0);
 
     // Priority list = คะแนนต่ำสุดก่อน (ต้องดูแลมากสุด)
@@ -4671,7 +4677,7 @@ const RxAI = (() => {
 
     // KPIs (ครอบคลุมการบริบาลทางเภสัชกรรม)
     const withVisit = analyses.length;
-    const latestVisitOf = (pid) => visits.filter(v => v.patientId === pid).sort((a,b)=>(b.visitDate||'').localeCompare(a.visitDate||''))[0];
+    const latestVisitOf = (pid) => { const arr = visitsByPt.get(pid); return arr && arr.length ? arr[arr.length - 1] : undefined; }; // ascending -> ตัวสุดท้าย = ล่าสุด
     let adhGood=0, adhDenom=0, techGood=0, techDenom=0, drpOpen=0, actControlled=0, actDenom=0, smokers=0, highRiskOverdue=0;
     const todayStr = new Date().toISOString().slice(0,10);
     analyses.forEach(({patient, a}) => {
@@ -7532,38 +7538,46 @@ function SmartAlertBanner({ data, navigate }) {
     return Math.floor((today - new Date(dateStr)) / 86400000);
   };
 
-  // Build alert items
-  const alerts = [];
-  data.patients.forEach(p => {
-    const ptVisits = (data.visits || []).filter(v => v.patientId === p.id)
-      .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
-    const lastVisit = ptVisits[0];
-    const daysSince = lastVisit ? daysDiff(lastVisit.visitDate) : 9999;
-    const overdueThreshold = p.riskLevel === 'High' ? 90 : p.riskLevel === 'Medium' ? 180 : 365;
-    if (daysSince > overdueThreshold) {
-      alerts.push({
-        type: 'overdue',
-        severity: p.riskLevel === 'High' ? 'high' : 'medium',
-        icon: p.riskLevel === 'High' ? '🔴' : '🟡',
-        title: `${p.prefix}${p.firstName} ${p.lastName}`,
-        detail: `ไม่ได้รับการติดตาม ${daysSince < 9999 ? daysSince + ' วัน' : 'ยังไม่เคยรับบริการ'} (${p.riskLevel} Risk — ควรติดตามทุก ${overdueThreshold} วัน)`,
-        patientId: p.id,
-      });
-    }
-    if (lastVisit && typeof window.detectDRP === 'function') {
-      const drps = window.detectDRP(lastVisit, p).filter(d => d.severity === 'High');
-      if (drps.length > 0) {
-        alerts.push({
-          type: 'drp',
-          severity: 'high',
-          icon: '⚠️',
+  // Build alert items — เดิม forEach + filter+sort ต่อผู้ป่วยหนึ่งคนต่อหนึ่งรอบ ไม่ได้ memo เลย
+  // ทำให้เป็น O(patients × visits) รันซ้ำทุกครั้งที่ re-render (รวมถึงทุก keystroke ตอนค้นหาผู้ป่วย
+  // เพราะ SmartAlertBanner อยู่ในหน้าเดียวกับช่องค้นหาที่ trigger re-render ทั้งหน้า) — แก้ให้ group
+  // visit ต่อผู้ป่วยด้วย Map ครั้งเดียวก่อน (เหมือน pattern ที่ใช้ใน DRP Tracker/KPI engine) แล้ว memo
+  // ทั้งก้อนด้วย [data.patients, data.visits] ไม่ผูกกับ state ค้นหา/expand ที่ไม่เกี่ยวกับผลลัพธ์นี้
+  const alerts = React.useMemo(() => {
+    const visitsByPt = groupVisitsByPatientSorted(data.visits); // ascending by date, ต่อ patientId
+    const out = [];
+    data.patients.forEach(p => {
+      const ptVisits = visitsByPt.get(p.id) || [];
+      const lastVisit = ptVisits[ptVisits.length - 1]; // ascending -> ตัวสุดท้าย = ล่าสุด
+      const daysSince = lastVisit ? daysDiff(lastVisit.visitDate) : 9999;
+      const overdueThreshold = p.riskLevel === 'High' ? 90 : p.riskLevel === 'Medium' ? 180 : 365;
+      if (daysSince > overdueThreshold) {
+        out.push({
+          type: 'overdue',
+          severity: p.riskLevel === 'High' ? 'high' : 'medium',
+          icon: p.riskLevel === 'High' ? '🔴' : '🟡',
           title: `${p.prefix}${p.firstName} ${p.lastName}`,
-          detail: `พบ DRP High ${drps.length} รายการ จาก visit ${lastVisit.visitDate}: ${drps.map(d => d.problemTh).join(' | ')}`,
+          detail: `ไม่ได้รับการติดตาม ${daysSince < 9999 ? daysSince + ' วัน' : 'ยังไม่เคยรับบริการ'} (${p.riskLevel} Risk — ควรติดตามทุก ${overdueThreshold} วัน)`,
           patientId: p.id,
         });
       }
-    }
-  });
+      if (lastVisit && typeof window.detectDRP === 'function') {
+        const drps = window.detectDRP(lastVisit, p).filter(d => d.severity === 'High');
+        if (drps.length > 0) {
+          out.push({
+            type: 'drp',
+            severity: 'high',
+            icon: '⚠️',
+            title: `${p.prefix}${p.firstName} ${p.lastName}`,
+            detail: `พบ DRP High ${drps.length} รายการ จาก visit ${lastVisit.visitDate}: ${drps.map(d => d.problemTh).join(' | ')}`,
+            patientId: p.id,
+          });
+        }
+      }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.patients, data.visits]);
 
   const highCount = alerts.filter(a => a.severity === 'high').length;
   if (alerts.length === 0) return null;
@@ -7851,6 +7865,19 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     window.rxToast?.(msg, (skipped.length > 0 || unrecognizedDxCount > 0) ? 'warning' : 'success', 6000);
   };
 
+  // เดิม sort-by-last-visit เรียก filter+sort ทั้ง data.visits ซ้ำต่อการเปรียบเทียบทุกคู่ระหว่าง
+  // sort (~P·log(P) ครั้ง) และ getLastVisit ต่อแถวก็ทำซ้ำแบบเดียวกันอีก — รวมแล้วเป็น O(P·log(P)·V)
+  // ต่อการ sort หนึ่งครั้ง ที่ผู้ป่วย/visit เยอะขึ้นจะหน่วงชัดเจน แก้ให้ group ด้วย Map ครั้งเดียวก่อน
+  const lastVisitByPt = React.useMemo(() => {
+    const m = new Map();
+    (data.visits || []).forEach(v => {
+      if (!v.patientId || !v.visitDate) return;
+      const cur = m.get(v.patientId);
+      if (!cur || v.visitDate > cur) m.set(v.patientId, v.visitDate);
+    });
+    return m;
+  }, [data.visits]);
+
   const filtered = data.patients.filter(p => {
     const q = search.toLowerCase();
     const nameMatch = (p.firstName + ' ' + p.lastName + ' ' + p.hn).toLowerCase().includes(q);
@@ -7868,8 +7895,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     else if (sortKey === 'hn')   { av = a.hn;        bv = b.hn; }
     else if (sortKey === 'risk') { av = riskOrder[a.riskLevel] ?? 3; bv = riskOrder[b.riskLevel] ?? 3; }
     else if (sortKey === 'last') {
-      const vs = id => data.visits.filter(v => v.patientId === id).sort((x, y) => (y.visitDate||"").localeCompare(x.visitDate||""));
-      av = vs(a.id)[0]?.visitDate || '0000'; bv = vs(b.id)[0]?.visitDate || '0000';
+      av = lastVisitByPt.get(a.id) || '0000'; bv = lastVisitByPt.get(b.id) || '0000';
     }
     if (typeof av === 'number') return sortAsc ? av - bv : bv - av;
     return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
@@ -7945,10 +7971,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
     setDelId(null);
   };
 
-  const getLastVisit = (id) => {
-    const vs = data.visits.filter(v => v.patientId === id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
-    return vs[0]?.visitDate || null;
-  };
+  const getLastVisit = (id) => lastVisitByPt.get(id) || null;
   const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
 
   const cols = [
@@ -9346,7 +9369,13 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <StatusBadge status={t.status} />
-                        <button onClick={() => { navigator.clipboard?.writeText(copyText); }}
+                        {/* เดิมไม่มี error handling เลย (ต่างจาก copyLineMessage ที่มี try/catch+toast) —
+                            Clipboard API throw ได้จริงในบางเบราว์เซอร์/บริบท (permission denied,
+                            insecure context) ทำให้ผู้ใช้เข้าใจผิดว่าคัดลอกสำเร็จทั้งที่ไม่ได้คัดลอกเลย */}
+                        <button onClick={async () => {
+                            try { await navigator.clipboard.writeText(copyText); window.rxToast?.('คัดลอกสรุปการโทรแล้ว', 'success'); }
+                            catch { window.rxToast?.('คัดลอกไม่สำเร็จ — กรุณาคัดลอกด้วยตนเอง', 'error'); }
+                          }}
                           style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 11, color: C.textMuted, fontFamily: 'inherit' }}
                           title="คัดลอกสรุปการโทร">📋 Copy</button>
                       </div>
@@ -12338,8 +12367,13 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
   const [filterStatus, setFilterStatus] = trState('');
   const [batchOpen,    setBatchOpen]    = trState(false);
   const [selectedIds,  setSelectedIds]  = trState([]);  // bulk-action selection
+  const [tpPage, setTpPage] = trState(1);
+  const TP_PAGE_SIZE = 30;
 
-  const getPatient = (pid) => data.patients.find(p => p.id === pid);
+  // เดิม getPatient เป็น linear .find() ทุกครั้งที่เรียก (ต่อแถวที่ render) — สร้าง Map ครั้งเดียว
+  // ให้ O(1) ต่อ lookup แทน O(patients) ต่อแถว ช่วยเมื่อทะเบียนผู้ป่วยโตขึ้น
+  const patientById = React.useMemo(() => new Map(data.patients.map(p => [p.id, p])), [data.patients]);
+  const getPatient = (pid) => patientById.get(pid);
 
   // ── Bulk actions on selected telepharmacy records ──
   const toggleSel = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -12358,6 +12392,12 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
 
   const records = [...data.telepharmacy].sort((a, b) => (b.scheduledDate||"").localeCompare(a.scheduledDate||""));
   const filtered = filterStatus ? records.filter(r => r.status === filterStatus) : records;
+  // เดิมไม่มี pagination เลย ต่างจาก PatientList — telepharmacy สะสมเร็วกว่าทะเบียนผู้ป่วยเอง (นัดโทร
+  // ซ้ำได้หลายครั้งต่อผู้ป่วยต่อรอบติดตาม) พอสะสมหลักพันแถวจะ mount DOM node ทั้งหมดพร้อมกัน หน่วงจริง
+  trEffect(() => { setTpPage(1); }, [filterStatus]);
+  const tpTotalPages = Math.max(1, Math.ceil(filtered.length / TP_PAGE_SIZE));
+  const tpPageClamped = Math.min(tpPage, tpTotalPages);
+  const paginatedTel = filtered.slice((tpPageClamped - 1) * TP_PAGE_SIZE, tpPageClamped * TP_PAGE_SIZE);
 
   const pendingCount  = records.filter(r => r.status === 'Pending').length;
   const successCount  = records.filter(r => r.status === 'Success').length;
@@ -12558,9 +12598,18 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
                 { value: 'Cancelled',  label: 'ยกเลิก' },
               ]} style={{ width: 180 }} />
           </div>
-          <Table cols={cols} rows={filtered} emptyIcon="📞"
+          <Table cols={cols} rows={paginatedTel} emptyIcon="📞"
             emptyTitle="ยังไม่มีบันทึก Telepharmacy"
             emptySubtitle="กดปุ่ม '+ นัด Telepharmacy' เพื่อเพิ่มการนัดหมาย" />
+          {tpTotalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 16px', borderTop: `1px solid ${C.border}` }}>
+              <button onClick={() => setTpPage(p => Math.max(1, p - 1))} disabled={tpPageClamped === 1} className="rx-icon-btn"
+                style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: tpPageClamped===1?C.textMuted:C.text, cursor: tpPageClamped===1?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>← ก่อนหน้า</button>
+              <span style={{ fontSize: 11, color: C.textMuted }}>หน้า {tpPageClamped}/{tpTotalPages} — {(tpPageClamped-1)*TP_PAGE_SIZE+1}–{Math.min(tpPageClamped*TP_PAGE_SIZE, filtered.length)} จาก {filtered.length}</span>
+              <button onClick={() => setTpPage(p => Math.min(tpTotalPages, p + 1))} disabled={tpPageClamped === tpTotalPages} className="rx-icon-btn"
+                style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: tpPageClamped===tpTotalPages?C.textMuted:C.text, cursor: tpPageClamped===tpTotalPages?'default':'pointer', fontFamily: 'inherit', fontSize: 12 }}>ถัดไป →</button>
+            </div>
+          )}
         </Card>
       )}
 
@@ -17548,15 +17597,9 @@ const OfflineQueueManager = () => {
 
   const syncQueue = async () => {
     if (!isOnline || queue.length === 0) return;
-
-    alert(`🔄 กำลัง Sync ${queue.length} รายการ...\n\n(ในเวอร์ชันจริงจะส่งไปยัง Firebase/Backend)`);
-    
-    // Stub: In production, send to backend
-    setTimeout(() => {
-      setQueue([]);
-      localStorage.removeItem('offline_queue');
-      alert('✅ Sync สำเร็จ!');
-    }, 1000);
+    // เดิมปลอมผลลัพธ์ว่า "Sync สำเร็จ" เสมอโดยไม่ได้ส่งอะไรไปที่ไหนจริงๆ (setTimeout stub) — เปลี่ยน
+    // เป็นแจ้งตรงๆ ว่าฟีเจอร์นี้ยังไม่เชื่อมกับ backend จริง ดีกว่าให้ผู้ใช้เข้าใจผิดว่าข้อมูลถูกบันทึกแล้ว
+    window.rxToast?.('⚠️ ฟีเจอร์นี้ยังไม่เชื่อมกับระบบบันทึกจริง — กรุณาตรวจสอบข้อมูลผ่านหน้าจอปกติแทน', 'warning', 6000);
   };
 
   const clearQueue = () => {
@@ -17584,8 +17627,16 @@ const OfflineQueueManager = () => {
         </div>
       </div>
 
+      {/* หมายเหตุ: หน้านี้เป็นแค่ demo คิวแยกต่างหาก ไม่ได้เชื่อมกับกลไก sync จริงของแอป (pendingData/
+          rx_offline_draft ที่ทำงานอยู่กับทุกการบันทึกจริง แสดงสถานะที่แถบด้านบนของแอปเสมอ) — เดิม
+          ข้อความ empty state บอกว่า "เมื่อ offline จะบันทึกไว้ที่นี่" ทำให้เข้าใจผิดว่าเป็นกลไกความ
+          ปลอดภัยของข้อมูลจริง ทั้งที่ไม่มีจุดไหนในแอปเรียก addToQueue เลย คิวนี้จึงว่างเปล่าเสมอ */}
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10, padding: '6px 10px', background: C.bgAlt, borderRadius: 6 }}>
+        ℹ️ การบันทึกข้อมูลจริง (ผู้ป่วย/Visit/Telepharmacy) ใช้ระบบสำรอง offline อัตโนมัติแยกต่างหาก
+        — ดูสถานะซิงค์ที่แถบด้านบนของแอป ไม่ใช่หน้านี้
+      </div>
       {queue.length === 0 ? (
-        <EmptyState icon="✅" title="ไม่มีรายการรอ Sync" subtitle={isOnline ? 'ทุกอย่างพร้อมแล้ว' : 'เมื่อ offline จะบันทึกไว้ที่นี่'} />
+        <EmptyState icon="✅" title="ไม่มีรายการรอ Sync" subtitle={isOnline ? 'ทุกอย่างพร้อมแล้ว' : 'ออฟไลน์อยู่ — การบันทึกจริงยังปลอดภัยผ่านระบบสำรองหลักของแอป'} />
       ) : (
         <>
           <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -20114,6 +20165,10 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const canEditQueue = AppStore.canEditClinical(currentUser);
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  // เดิม scheduledToday/upcomingVisits/overdueFollowups/highRiskOverdue ต่างคนต่าง filter ทั้ง
+  // data.visits ต่อผู้ป่วยแยกกัน 4 รอบ (แม้แต่ละอันจะ useMemo ถูกต้องแล้ว แต่ยังรันซ้ำ 4 เท่าโดยไม่
+  // จำเป็นทุกครั้งที่ data เปลี่ยน เช่นหลังบันทึกทุกครั้ง) — group ด้วย Map ครั้งเดียวแล้วใช้ร่วมกัน
+  const visitsByPt = useMemo(() => groupVisitsByPatientSorted(vis), [vis]); // ascending by date, ต่อ patientId
   const [walkInQuery, setWalkInQuery] = useState('');
   const [showWalkInSearch, setShowWalkInSearch] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -20140,12 +20195,12 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const walkInsToday = (data.queueWalkIns || []).filter(w => w.date === todayStr);
   const scheduledToday = useMemo(() => {
     const scheduled = pts.filter(p => {
-      const ptVisits = vis.filter(v => v.patientId === p.id);
+      const ptVisits = visitsByPt.get(p.id) || [];
       // Latest scheduled "nextVisit" for any past visit equals today
       return ptVisits.some(v => v.nextVisit === todayStr);
     }).map(p => ({
       patient: p,
-      checkedIn: vis.some(v => v.patientId === p.id && v.visitDate === todayStr),
+      checkedIn: (visitsByPt.get(p.id) || []).some(v => v.visitDate === todayStr),
       walkIn: false,
     }));
     const scheduledIds = new Set(scheduled.map(x => x.patient.id));
@@ -20153,10 +20208,10 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       .filter(w => !scheduledIds.has(w.patientId))
       .map(w => {
         const p = pts.find(pp => pp.id === w.patientId);
-        return p ? { patient: p, checkedIn: vis.some(v => v.patientId === p.id && v.visitDate === todayStr), walkIn: true } : null;
+        return p ? { patient: p, checkedIn: (visitsByPt.get(p.id) || []).some(v => v.visitDate === todayStr), walkIn: true } : null;
       }).filter(Boolean);
     return [...scheduled, ...walkIns];
-  }, [pts, vis, todayStr, walkInsToday.length]);
+  }, [pts, visitsByPt, todayStr, walkInsToday.length]);
 
   const checkedInCount = scheduledToday.filter(x => x.checkedIn).length;
   const waitingCount   = scheduledToday.length - checkedInCount;
@@ -20218,17 +20273,17 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
     const in7 = new Date(); in7.setDate(in7.getDate() + 7);
     const in7str = in7.toISOString().slice(0, 10);
     return pts.map(p => {
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
+      const ptVisits = visitsByPt.get(p.id) || []; // ascending by date
       const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
       return latestNextVisit && latestNextVisit > todayStr && latestNextVisit <= in7str
         ? { patient: p, nextVisit: latestNextVisit } : null;
     }).filter(Boolean).sort((a, b) => a.nextVisit.localeCompare(b.nextVisit));
-  }, [pts, vis, todayStr]);
+  }, [pts, visitsByPt, todayStr]);
 
   // Overdue follow-ups: นัดผ่านไปแล้วแต่ผู้ป่วยยังไม่มาตามนัด (ไม่มี visit ตั้งแต่วันนัด)
   const overdueFollowups = useMemo(() => {
     return pts.map(p => {
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
+      const ptVisits = visitsByPt.get(p.id) || [];
       const latestNextVisit = ptVisits.map(v => v.nextVisit).filter(Boolean).sort().reverse()[0];
       if (!latestNextVisit || latestNextVisit >= todayStr) return null;
       // ถ้ามี visit ในวันนัดหรือหลังจากนั้น = มาแล้ว ไม่ overdue
@@ -20237,7 +20292,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       const daysOverdue = Math.floor((new Date(todayStr) - new Date(latestNextVisit)) / 86400000);
       return { patient: p, nextVisit: latestNextVisit, daysOverdue };
     }).filter(Boolean).sort((a, b) => b.daysOverdue - a.daysOverdue);
-  }, [pts, vis, todayStr]);
+  }, [pts, visitsByPt, todayStr]);
 
   // Time-based greeting + workload summary
   const hour = new Date().getHours();
@@ -20246,12 +20301,12 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const highRiskOverdue = useMemo(() => {
     return pts.filter(p => {
       if (p.riskLevel !== 'High') return false;
-      const ptVisits = vis.filter(v => v.patientId === p.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
-      const last = ptVisits[0];
+      const ptVisits = visitsByPt.get(p.id) || []; // ascending by date -> ตัวสุดท้าย = ล่าสุด
+      const last = ptVisits[ptVisits.length - 1];
       if (!last) return true;
       return Math.floor((new Date(todayStr) - new Date(last.visitDate)) / 86400000) > 90;
     }).length;
-  }, [pts, vis, todayStr]);
+  }, [pts, visitsByPt, todayStr]);
 
   return (
     <div className="rx-fade">
