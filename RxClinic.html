@@ -1796,6 +1796,29 @@ const calculateRisk = (patient, visitData) => {
     if ((visitData.inhalerTechnique || []).some(t => t.overallScore === 'Poor')) {
       flags.push('เทคนิคการใช้ยาพ่นไม่ถูกต้อง');
     }
+    // เดิม calculateRisk ไม่เคยอ่าน visitData.assessments (CAT/mMRC/ACT) เลย — ผู้ป่วยที่ประเมิน CAT
+    // สูงมาก (เช่น 32/40) หรือ mMRC สูงสุด (4) ในวิสิตเดียวกัน จะยังถูกคำนวณเป็น "Low Risk" ถ้าไม่มี
+    // exacerbation ในระบบ ทั้งที่การ์ด GOLD/GINA บนหน้าจอเดียวกันแสดง Group B/E อย่างชัดเจน — ขัดแย้งกัน
+    // เพิ่มให้ CAT/mMRC/ACT ที่บันทึกในวิสิตนี้มีผลต่อ risk level ด้วย ให้ตรงกับสิ่งที่การ์ดประเมินแสดงจริง
+    const cat  = visitData.assessments?.cat;
+    const mmrc = visitData.assessments?.mmrc;
+    const act  = visitData.assessments?.act;
+    if (cat?.allAnswered && cat.score >= 30) {
+      flags.push('CAT Score สูงมาก (≥30 — ผลกระทบรุนแรงมาก)');
+      highRisk = true;
+    } else if (cat?.allAnswered && cat.score >= 20) {
+      flags.push('CAT Score สูง (20-29 — ผลกระทบมาก)');
+    }
+    if (mmrc?.grade === 4) {
+      flags.push('mMRC Grade 4 (เหนื่อยมากที่สุด แทบไม่ออกจากบ้าน)');
+      highRisk = true;
+    } else if (mmrc?.grade === 3) {
+      flags.push('mMRC Grade 3 (เหนื่อยง่ายกว่าคนวัยเดียวกันมาก)');
+    }
+    if (act?.allAnswered && act.score < 16) {
+      flags.push('ACT Score <16 (หืดควบคุมไม่ได้)');
+      highRisk = true;
+    }
   }
   if (patient && patient.asthmaControl === 'Uncontrolled') {
     flags.push('Asthma ควบคุมไม่ได้');
@@ -8432,7 +8455,7 @@ function VisitDetailModal({ open, patient, visit, onClose, onEdit, auditLog }) {
 
       <Section icon="🚑" title="Exacerbation">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
-          <span>{visit.exacerbation?.countThisYear ?? 0} ครั้ง (6 เดือนล่าสุด)</span>
+          <span>{visit.exacerbation?.countThisYear ?? 0} ครั้ง (12 เดือนล่าสุด)</span>
           {visit.exacerbation?.severity && visit.exacerbation.severity !== 'None' && <RiskBadge level={visit.exacerbation.severity === 'Severe' ? 'High' : 'Medium'} />}
           {visit.exacerbation?.hospitalized && <span style={{ fontSize: 11, fontWeight: 700, color: C.high, background: C.highBg, padding: '2px 9px', borderRadius: 20 }}>🏥 นอนโรงพยาบาล</span>}
           {visit.exacerbation?.erVisit && <span style={{ fontSize: 11, fontWeight: 700, color: C.high, background: C.highBg, padding: '2px 9px', borderRadius: 20 }}>🚑 เข้า ER</span>}
@@ -10398,19 +10421,24 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     if (autoEventIdRef.current === id) autoEventIdRef.current = null; // ลบเองแล้ว ไม่ต้องสร้างซ้ำอัตโนมัติอีก
   };
 
-  // เมื่อมีประวัติกำเริบแบบมีวันที่แล้ว ให้ "ครั้งใน 6 เดือนล่าสุด" และ "ครั้งล่าสุดที่กำเริบ" คำนวณอัตโนมัติ
-  // (นับย้อนหลัง 6 เดือนจากวันที่ visit นี้) — ไม่ทับช่องเดิมถ้ายังไม่มีประวัติ ยังกรอกมือได้ตามปกติ
+  // เมื่อมีประวัติกำเริบแบบมีวันที่แล้ว ให้ "ครั้งในรอบ 12 เดือนล่าสุด" และ "ครั้งล่าสุดที่กำเริบ" คำนวณอัตโนมัติ
+  // (นับย้อนหลัง 12 เดือนจากวันที่ visit นี้) — ไม่ทับช่องเดิมถ้ายังไม่มีประวัติ ยังกรอกมือได้ตามปกติ
+  // เดิมนับแค่ย้อนหลัง 6 เดือน ทั้งที่ field นี้ (countThisYear) ถูกใช้เป็น "จำนวนครั้ง/ปี" ทั่วทั้งแอป
+  // (KPI engine, classifyGOLD/classifyGINA ที่ใช้เกณฑ์ "≥2 ครั้ง/ปี" ตาม GOLD 2023, calculateRisk)
+  // ผลคือผู้ป่วยที่กำเริบ 2 ครั้งในรอบปีแต่ห่างกันเกิน 6 เดือน (เช่น เดือนที่ 3 และเดือนที่ 9 ก่อนหน้า)
+  // จะถูกนับเหลือแค่ 1 ครั้ง ทำให้หลุดเกณฑ์ GOLD Group E/High Risk ที่ควรจะเข้าเกณฑ์จริง — แก้ให้ตรงกับ
+  // ความหมายที่ใช้จริงทั่วทั้งแอป
   vfEffect(() => {
     if (exacEvents.length === 0) return;
     const anchor = f.visitDate || today;
-    const sixMoAgo = new Date(anchor);
-    sixMoAgo.setMonth(sixMoAgo.getMonth() - 6);
-    const sixMoAgoStr = sixMoAgo.toISOString().slice(0, 10);
-    const countIn6mo = exacEvents.filter(e => e.date >= sixMoAgoStr && e.date <= anchor).length;
+    const twelveMoAgo = new Date(anchor);
+    twelveMoAgo.setMonth(twelveMoAgo.getMonth() - 12);
+    const twelveMoAgoStr = twelveMoAgo.toISOString().slice(0, 10);
+    const countIn12mo = exacEvents.filter(e => e.date >= twelveMoAgoStr && e.date <= anchor).length;
     const latestDate = [...exacEvents].sort((a, b) => b.date.localeCompare(a.date))[0]?.date || '';
-    setF(prev => (prev.exacerbation.countThisYear === countIn6mo && prev.exacerbation.lastDate === latestDate)
+    setF(prev => (prev.exacerbation.countThisYear === countIn12mo && prev.exacerbation.lastDate === latestDate)
       ? prev
-      : { ...prev, exacerbation: { ...prev.exacerbation, countThisYear: countIn6mo, lastDate: latestDate } });
+      : { ...prev, exacerbation: { ...prev.exacerbation, countThisYear: countIn12mo, lastDate: latestDate } });
   }, [exacEvents, f.visitDate]);
 
   // ถ้ามี event ที่ระบบเพิ่มให้อัตโนมัติอยู่แล้วตรงกับวันที่ของ visit นี้ (จาก session ก่อนหน้า)
@@ -10480,7 +10508,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     if (!patient) return;
     const risk = AppStore.calculateRisk(patient, f);
     setF(prev => ({ ...prev, riskLevel: risk.level, riskFlags: risk.flags }));
-  }, [f.exacerbation, f.adherence, f.inhalerTechnique, patient]);
+  }, [f.exacerbation, f.adherence, f.inhalerTechnique, f.assessments, patient]);
 
   // ── DDI check (real-time) ──
   const ddiResults = vfMemo(() => window.checkDDI ? window.checkDDI(f.medications) : [], [f.medications]);
@@ -10914,7 +10942,7 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
           <SecHd n="2" title="ประเมิน Exacerbation" color={C.high} />
           <Card>
             <div style={row3}>
-              <FormField label="ครั้ง Exacerbation ใน 6 เดือนล่าสุด" hint={exacEvents.length > 0 ? '✓ คำนวณอัตโนมัติจากประวัติด้านล่าง' : null}>
+              <FormField label="ครั้ง Exacerbation ใน 12 เดือนล่าสุด" hint={exacEvents.length > 0 ? '✓ คำนวณอัตโนมัติจากประวัติด้านล่าง' : null}>
                 <Input type="number" value={f.exacerbation.countThisYear} disabled={exacEvents.length > 0}
                   onChange={v => setEx('countThisYear', parseInt(v) || 0)} />
               </FormField>
@@ -14110,13 +14138,14 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
     } else {
       // ไม่มี event log เลย -> fallback เป็นค่าประมาณจาก countThisYear ของ visit ที่ "อยู่ในช่วงเวลาที่
       // เลือกจริง" เท่านั้น (เดิมใช้ latestVisit ซึ่งอาจเป็น visit เก่ากว่าช่วงที่เลือกไปหลายปี ทำให้บวก
-      // ค่าที่ไม่เกี่ยวกับช่วงเวลานี้เข้าไปเลย) — และ countThisYear จริงๆ แล้วเป็นค่า recall "6 เดือน
-      // ล่าสุด" ตามฟอร์ม (ไม่ใช่รายปีตามชื่อฟิลด์) จึงต้องปรับสัดส่วนตามความยาวช่วงเวลาที่เลือกเทียบกับ
-      // หน้าต่าง recall 6 เดือน (182 วัน) จริงของฟิลด์นี้ ไม่ใช่บวกค่าดิบเข้าไปตรงๆ
+      // ค่าที่ไม่เกี่ยวกับช่วงเวลานี้เข้าไปเลย) — countThisYear คือค่า recall "12 เดือนล่าสุด" (แก้ไข
+      // VisitForm ให้คำนวณย้อนหลัง 12 เดือนจริงแล้ว ตรงกับความหมาย "ครั้ง/ปี" ที่ใช้ทั่วทั้งแอป — เดิม
+      // ฟอร์มคำนวณแค่ 6 เดือนซึ่งไม่ตรงกับที่นี่ใช้และไม่ตรงกับเกณฑ์ GOLD "≥2 ครั้ง/ปี" ด้วย) จึงปรับ
+      // สัดส่วนตามความยาวช่วงเวลาที่เลือกเทียบกับหน้าต่าง recall 365 วันของฟิลด์นี้ ไม่ใช่บวกค่าดิบตรงๆ
       const pv = (periodVisitsByPatient.get(p.id) || []).sort((a, b) => (b.visitDate || '').localeCompare(a.visitDate || ''))[0];
       if (pv) {
         const recallCount = pv.exacerbation?.countThisYear || 0;
-        copdExacerbCount += Math.round(recallCount * (periodDaysKPI1 / 182));
+        copdExacerbCount += Math.round(recallCount * (periodDaysKPI1 / 365));
         copdExacerbApproxCount++;
       }
     }
@@ -18277,42 +18306,37 @@ const calculateStats = (data) => {
 // ============ Export De-ID CSV ============
 const exportDeIDCSV = (data) => {
   const deID = deIdentifyData(data);
-  
-  // Patients CSV
-  const ptHeader = 'ID,Age,Gender,Diagnosis,Comorbidities,SmokingStatus,PackYears,eGFR,RiskLevel\n';
+  // เดิม export นี้ต่อ string CSV เองแบบมือ (ไม่ผ่าน downloadCSV/escape ที่ไฟล์ export อื่นๆ ในแอปใช้กัน)
+  // ทำให้เสี่ยง CSV injection/field แตกถ้ามีค่าที่มี comma/quote หลุดเข้ามา (แม้ปัจจุบันเป็น enum คงที่
+  // เกือบทั้งหมดจึงไม่โดนจริง) และไม่มี UTF-8 BOM ทำให้ Excel เปิดได้ไม่แน่นอน — เปลี่ยนมาใช้ downloadCSV
+  // ร่วมกับไฟล์ export อื่นๆ ในแอป เพื่อความสม่ำเสมอและปลอดภัยเท่ากันทุกจุด
+
   // ระวัง: p.packYears || '' และ p.eGFR || '' เดิมทำให้ค่า 0 จริง (เช่น eGFR=0 = ไตวายระยะสุดท้าย)
   // กลายเป็นช่องว่างในไฟล์ CSV เหมือนไม่มีข้อมูล ทั้งที่ 0 เป็นค่าที่มีความหมายทางคลินิกชัดเจน
   const numOrEmpty = (v) => (v === 0 || (v != null && v !== '')) ? v : '';
-  const ptRows = deID.patients.map(p =>
-    `${p.id},${p.age},${p.gender},${p.diagnosis},"${(p.comorbidities || []).join('; ')}",${p.smokingStatus || ''},${numOrEmpty(p.packYears)},${numOrEmpty(p.eGFR)},${p.riskLevel}`
-  ).join('\n');
-  
-  // Visits CSV
-  const visitHeader = 'VisitID,PatientID,VisitDate,RiskLevel,Adherence,Exacerbation,CAT,ACT,mMRC,TechniqueScore,DRP\n';
+
+  downloadCSV('research_patients_deidentified.csv',
+    ['ID', 'Age', 'Gender', 'Diagnosis', 'Comorbidities', 'SmokingStatus', 'PackYears', 'eGFR', 'RiskLevel'],
+    deID.patients.map(p => [
+      p.id, p.age, p.gender, p.diagnosis, (p.comorbidities || []).join('; '),
+      p.smokingStatus || '', numOrEmpty(p.packYears), numOrEmpty(p.eGFR), p.riskLevel,
+    ])
+  );
+
   const visitRows = deID.visits.map(v => {
     const validTechScores = (v.inhalerTechnique || []).map(t => t.score).filter(s => s != null);
     const techScore = validTechScores.length > 0
       ? (validTechScores.reduce((s, x) => s + x, 0) / validTechScores.length).toFixed(1)
       : '';
-    return `${v.id},${v.patientId},${v.visitDate},${v.riskLevel},${v.adherence?.score || ''},${v.exacerbation?.countThisYear || ''},${v.cat?.score || ''},${v.act?.score || ''},${v.mMRC?.grade || ''},${techScore},${v.drp?.noDRP === false ? 'Yes' : 'No'}`;
-  }).join('\n');
-
-  const blob1 = new Blob([ptHeader + ptRows], { type: 'text/csv' });
-  const blob2 = new Blob([visitHeader + visitRows], { type: 'text/csv' });
-  
-  const url1 = URL.createObjectURL(blob1);
-  const url2 = URL.createObjectURL(blob2);
-  
-  const a1 = document.createElement('a');
-  a1.href = url1;
-  a1.download = 'research_patients_deidentified.csv';
-  a1.click();
-  
+    return [
+      v.id, v.patientId, v.visitDate, v.riskLevel, v.adherence?.score ?? '', v.exacerbation?.countThisYear ?? '',
+      v.cat?.score ?? '', v.act?.score ?? '', v.mMRC?.grade ?? '', techScore, v.drp?.noDRP === false ? 'Yes' : 'No',
+    ];
+  });
   setTimeout(() => {
-    const a2 = document.createElement('a');
-    a2.href = url2;
-    a2.download = 'research_visits_deidentified.csv';
-    a2.click();
+    downloadCSV('research_visits_deidentified.csv',
+      ['VisitID', 'PatientID', 'VisitDate', 'RiskLevel', 'Adherence', 'Exacerbation', 'CAT', 'ACT', 'mMRC', 'TechniqueScore', 'DRP'],
+      visitRows);
   }, 500);
 };
 

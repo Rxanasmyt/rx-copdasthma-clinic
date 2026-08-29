@@ -33,7 +33,7 @@ function run(t) {
     const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
     t.ok('KPI1 den excludes Both diagnosis', kpis.copdExacerbRate.den === 1);
     // fallback (ไม่มี exacerbationEvents) ปรับสัดส่วนตามความยาวช่วงเวลาที่เลือกเทียบกับหน้าต่าง recall
-    // 6 เดือน (182 วัน) ของฟิลด์ countThisYear — ช่วง 31 วันจาก countThisYear=2 -> round(2*31/182) = 0
+    // 12 เดือน (365 วัน) ของฟิลด์ countThisYear — ช่วง 31 วันจาก countThisYear=2 -> round(2*31/365) = 0
     t.ok('KPI1 num = ค่า countThisYear ปรับสัดส่วนตามความยาวช่วงเวลาที่เลือก (fallback, ไม่มี event log)', kpis.copdExacerbRate.num === 0);
     t.ok('KPI2 den excludes Both diagnosis', kpis.asthmaErRate.den === 1);
     t.ok('KPI2 num = only Asthma patient\'s ER/admit', kpis.asthmaErRate.num === 1);
@@ -301,15 +301,16 @@ function run(t) {
       kpis.copdExacerbRate.num === 0);
   }
 
-  // ─── regression: KPI1 fallback ปรับสัดส่วน countThisYear ตามความยาวช่วงเวลาที่เลือก (ฟิลด์นี้จริงๆ
-  // เป็นค่า recall 6 เดือนล่าสุดตามฟอร์ม ไม่ใช่รายปีตามชื่อฟิลด์) ───
+  // ─── regression: KPI1 fallback ปรับสัดส่วน countThisYear ตามความยาวช่วงเวลาที่เลือก (ฟิลด์นี้เป็น
+  // ค่า recall 12 เดือนล่าสุดตามฟอร์ม — แก้ให้ VisitForm คำนวณย้อนหลัง 12 เดือนจริงแล้ว ตรงกับชื่อฟิลด์
+  // countThisYear และเกณฑ์ GOLD "≥2 ครั้ง/ปี" ที่ใช้ค่านี้ทั่วทั้งแอป) ───
   {
     const patients = [mkPatient('p1', 'COPD')];
     const visits = [{ id: 'v1', patientId: 'p1', visitDate: '2026-06-15', exacerbation: { countThisYear: 6, hospitalized: false, erVisit: false } }];
     const data = { patients, visits, telepharmacy: [], clinicDayRosters: [] };
-    // ช่วงยาวเท่าหน้าต่าง recall จริง (~182 วัน, 6 เดือน) -> ควรได้ค่าประมาณเดิมคืนมาเกือบเต็ม
-    const kpisFullWindow = calculateQualityKPIs(data, '2026-01-01', '2026-07-02'); // 183 วัน
-    t.ok('regression KPI1: ช่วงเวลาเท่าหน้าต่าง recall (~6 เดือน) ได้ค่าใกล้เคียง countThisYear เดิม',
+    // ช่วงยาวเท่าหน้าต่าง recall จริง (~365 วัน, 12 เดือน) -> ควรได้ค่าประมาณเดิมคืนมาเกือบเต็ม
+    const kpisFullWindow = calculateQualityKPIs(data, '2025-06-16', '2026-06-15'); // 365 วัน
+    t.ok('regression KPI1: ช่วงเวลาเท่าหน้าต่าง recall (~12 เดือน) ได้ค่าใกล้เคียง countThisYear เดิม',
       kpisFullWindow.copdExacerbRate.num === 6);
     // ช่วงสั้นกว่ามาก (1 เดือน ~30 วัน) ต้องได้ค่าน้อยกว่าเดิมมาก ไม่ใช่ 6 เต็มๆ เหมือนเดิม
     const kpisShortWindow = calculateQualityKPIs(data, '2026-06-01', '2026-06-30');
