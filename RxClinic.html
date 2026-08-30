@@ -2332,8 +2332,14 @@ function FormField({ label, required, children, error, hint }) {
 
 // ── Input ─────────────────────────────────────────────
 function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled, onPaste }) {
+  // เดิม input type="number" ไม่มีการกัน scroll เลย — เบราว์เซอร์ (Chrome/Firefox/Edge) มีพฤติกรรม
+  // มาตรฐานคือถ้าเมาส์อยู่เหนือ number input ที่ focus ค้างอยู่แล้วเลื่อนวงล้อเมาส์ผ่าน จะปรับค่าตัวเลข
+  // ขึ้น/ลงทันทีแบบเงียบๆ ไม่มีอะไรเตือน — ฟอร์มนี้มีช่องตัวเลขค่าสัญญาณชีพ (SpO2, RR ฯลฯ) อยู่กลาง
+  // ฟอร์มที่ scroll ยาว เสี่ยงข้อมูลทางคลินิกถูกแก้ผิดโดยไม่ตั้งใจระหว่างเลื่อนหน้าจอผ่านช่องที่ focus อยู่
+  // — กัน blur ทันทีที่มีการ scroll ผ่าน number input ที่ focus อยู่ (ค่ามาตรฐานคือปิดพฤติกรรมนี้)
+  const onWheelBlur = type === 'number' ? (e => e.target.blur()) : undefined;
   return (
-    <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} onPaste={onPaste}
+    <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} onPaste={onPaste} onWheel={onWheelBlur}
       placeholder={placeholder} disabled={disabled} className="rx-field"
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
@@ -5755,7 +5761,7 @@ function CompetencyLog({ currentUser }) {
           </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>ชั่วโมง</div>
-            <input type="number" value={form.hours} min="0.5" step="0.5" onChange={e => set('hours', e.target.value)}
+            <input type="number" value={form.hours} min="0.5" step="0.5" onChange={e => set('hours', e.target.value)} onWheel={e => e.target.blur()}
               style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, fontFamily: 'inherit' }} />
           </div>
           <div style={{ gridColumn: '1/-1' }}>
@@ -8003,7 +8009,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
   };
 
   const getLastVisit = (id) => lastVisitByPt.get(id) || null;
-  const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
+  const daysAgo = (d) => d ? Math.floor((new Date(new Date().toISOString().slice(0,10)).getTime() - new Date(d).getTime()) / 86400000) : null; // เดิมใช้ Date.now() (มีเวลาแฝงอยู่) ลบกับ new Date(dateStr) (date-only string parse เป็น UTC midnight เสมอ) ทำให้ได้ค่าติดลบ/คลาดเคลื่อน 1 วันได้ช่วงเช้ามืด — ตัดเวลาออกจาก "วันนี้" ก่อนลบ ให้เป็น date-only เทียบ date-only แบบเดียวกับที่จุดอื่นในแอปทำ (ยึด UTC-date convention เดียวกับ todayStr ที่ใช้ทั่วทั้งแอป ไม่ใช่สร้างมาตรฐานใหม่)
 
   const cols = [
     {
@@ -10019,7 +10025,9 @@ function AdherenceSection({ adherence, onChange }) {
 // ── Helpers ───────────────────────────────────────────
 const daysAgo = (dateStr) => {
   if (!dateStr) return null;
-  return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+  // เดิมใช้ Date.now() ลบกับ new Date(dateStr) — date-only string เป็น UTC midnight เสมอ ทำให้ค่า
+  // คลาดเคลื่อน 1 วันได้ช่วงเช้ามืดไทย — ตัดเวลาออกจาก "วันนี้" ก่อนลบ ให้เป็น date-only เทียบ date-only
+  return Math.floor((new Date(new Date().toISOString().slice(0,10)).getTime() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
 };
 
 // ── Collapsible Assessment Card (on-demand) ───────────
@@ -12183,6 +12191,10 @@ function TelepharmacySchedForm({ data, onDataChange, preselPt, onClose }) {
 
 function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
   const highRiskPts = data.patients.filter(p => p.riskLevel === 'High' || p.riskLevel === 'Medium');
+  // เดิม picklist ไม่รู้จัก data.telepharmacy เลย — นัดหมู่ซ้ำให้ผู้ป่วยที่มีนัด Pending ค้างอยู่แล้ว
+  // (เช่น เดือนก่อนโทรไม่ติด ยังไม่ปิดเคส) ได้ ทำให้เกิด record 'Pending' ซ้ำซ้อนสำหรับคนเดียวกัน
+  // ทำเลขสถิติ pending/overdue บนหน้า dashboard พองเกินจริง และเภสัชกรอาจโทรซ้ำคนเดิม 2 รอบ
+  const pendingPtIds = new Set((data.telepharmacy || []).filter(t => t.status === 'Pending').map(t => t.patientId));
   const [batchDate, setBatchDate] = trState('');
   const [batchNote, setBatchNote] = trState('');
   const [selected, setSelected]   = trState([]);
@@ -12216,6 +12228,7 @@ function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
         {highRiskPts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่มีผู้ป่วย High/Medium Risk</div>}
         {highRiskPts.map(p => {
           const checked = selected.includes(p.id);
+          const hasPending = pendingPtIds.has(p.id);
           return (
             <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, border: `1px solid ${checked ? C.primary : C.border}`, background: checked ? C.primaryBg : C.surface, cursor: 'pointer', transition: 'all 0.12s' }}>
               <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} style={{ accentColor: C.primary, width: 15, height: 15 }} />
@@ -12223,13 +12236,21 @@ function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</div>
                 <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · {p.phone}</div>
               </div>
+              {hasPending && (
+                <span title="ผู้ป่วยรายนี้มีนัด Telepharmacy ที่ยัง 'รอโทร' ค้างอยู่แล้ว — เลือกนัดซ้ำจะสร้างรายการ Pending อีกรายการ"
+                  style={{ fontSize: 10, fontWeight: 700, color: C.medium, background: C.mediumBg, border: `1px solid ${C.mediumBorder}`, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                  ⚠ มีนัดค้างอยู่
+                </span>
+              )}
               <RiskBadge level={p.riskLevel || 'Low'} />
             </label>
           );
         })}
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={() => setSelected(highRiskPts.map(p => p.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600 }}>เลือกทั้งหมด</button>
+        {/* "เลือกทั้งหมด" เดิมเลือกทุกคนรวมคนที่มีนัด Pending ค้างอยู่ด้วย — แก้ให้ข้ามคนที่มีนัดค้างไปก่อน
+            (ยังกดเลือกเองทีละคนได้ปกติถ้าตั้งใจนัดซ้ำจริงๆ เช่นกรณีต้องการเปลี่ยนวันนัดใหม่) */}
+        <button onClick={() => setSelected(highRiskPts.filter(p => !pendingPtIds.has(p.id)).map(p => p.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 600 }}>เลือกทั้งหมด (ไม่รวมคนที่มีนัดค้างอยู่)</button>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
           <Btn variant="primary" onClick={handleSave} disabled={!batchDate || selected.length === 0}>บันทึกนัด {selected.length > 0 ? `(${selected.length} คน)` : ''}</Btn>
@@ -12888,7 +12909,7 @@ function AdvancedPatientQueryCard({ data, navigate }) {
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ไม่มาอย่างน้อย (วัน)</label>
-          <input type="number" min="0" value={filters.notVisitedDays} onChange={e => { setFilters(f => ({ ...f, notVisitedDays: e.target.value })); setRan(false); }}
+          <input type="number" min="0" value={filters.notVisitedDays} onChange={e => { setFilters(f => ({ ...f, notVisitedDays: e.target.value })); setRan(false); }} onWheel={e => e.target.blur()}
             placeholder="เช่น 90" style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }} />
         </div>
       </div>
@@ -13402,7 +13423,7 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
       .sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||""));
     return v[0] || null;
   };
-  const daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
+  const daysAgo = (d) => d ? Math.floor((new Date(new Date().toISOString().slice(0,10)).getTime() - new Date(d).getTime()) / 86400000) : null; // เดิมใช้ Date.now() (มีเวลาแฝงอยู่) ลบกับ new Date(dateStr) (date-only string parse เป็น UTC midnight เสมอ) ทำให้ได้ค่าติดลบ/คลาดเคลื่อน 1 วันได้ช่วงเช้ามืด — ตัดเวลาออกจาก "วันนี้" ก่อนลบ ให้เป็น date-only เทียบ date-only แบบเดียวกับที่จุดอื่นในแอปทำ (ยึด UTC-date convention เดียวกับ todayStr ที่ใช้ทั่วทั้งแอป ไม่ใช่สร้างมาตรฐานใหม่)
 
   const runItem = (item) => {
     if (!item) return;
@@ -16472,7 +16493,8 @@ const calculateNotifications = (data, currentUser) => {
     // PPSV23/COVID — เดิม comment ของฟังก์ชันนี้ประกาศไว้ว่าเช็ค 4 วัคซีน (Flu/PCV13/PPSV23/COVID)
     // แต่โค้ดจริงเช็คแค่ Flu กับ PCV13 เท่านั้น ทำให้ไม่มีผู้ป่วยคนไหนได้แจ้งเตือน PPSV23/COVID เลย
     // แม้จะเกินกำหนดฉีดซ้ำมานานแค่ไหนก็ตาม — เพิ่มให้ตรงกับที่ VaccinationStatus ใช้จริง (บรรทัด ~3796)
-    const daysSince = (d) => { const t = d ? new Date(d).getTime() : NaN; return isNaN(t) ? null : Math.floor((Date.now() - t) / 86400000); };
+    // เดิมใช้ Date.now() ลบกับ date-only string (UTC midnight เสมอ) — คลาดเคลื่อน 1 วันได้ช่วงเช้ามืดไทย
+    const daysSince = (d) => { const t = d ? new Date(d).getTime() : NaN; return isNaN(t) ? null : Math.floor((new Date(new Date().toISOString().slice(0,10)).getTime() - t) / 86400000); };
     const ppsv23Days = daysSince(vacc.ppsv23);
     if (p.age >= 65 && (!vacc.ppsv23 || ppsv23Days >= 1825)) {
       notifications.push({
@@ -17029,7 +17051,9 @@ const generateRecommendations = (data, patientId = null) => {
 
     // 1. Next Action — Telepharmacy needed
     if (p.riskLevel === 'High' && lastVisit) {
-      const daysSinceVisit = Math.floor((Date.now() - new Date(lastVisit.visitDate)) / (1000 * 60 * 60 * 24));
+      // เดิมใช้ Date.now() ลบกับ date-only string (UTC midnight เสมอ) — คลาดเคลื่อน 1 วันได้ช่วงเช้ามืดไทย
+      // อาจดันหรือดึงวันออกจากหน้าต่าง 14-21 วันที่ขอบเขต
+      const daysSinceVisit = Math.floor((new Date(new Date().toISOString().slice(0,10)).getTime() - new Date(lastVisit.visitDate)) / (1000 * 60 * 60 * 24));
       if (daysSinceVisit >= 14 && daysSinceVisit <= 21) {
         // สถานะจริงของ telepharmacy มีแค่ 'Pending'/'Success'/'No Answer'/'Cancelled' — ไม่มี 'Scheduled'
         // เดิมเทียบกับค่าที่ไม่มีจริง ทำให้ tele เป็น undefined เสมอ คำแนะนำนี้จึงขึ้นซ้ำแม้นัดไว้แล้ว
@@ -18746,9 +18770,19 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
 
   const discrepancyCount = rows.filter(r => r.discrepancy !== 'none').length;
 
+  // เดิม HA compliance modal ทั้ง 5 ตัว (Med Reconciliation/ADR/Referral/Discharge/RCA) ผูก onClose
+  // ตรงๆ ไม่มี guard เลย ต่างจาก PatientForm/VisitForm/TelepharmacyRecordForm ที่มีการเช็คว่ากรอกอะไร
+  // ไปแล้วหรือยังก่อนยอมปิด — เอกสารกลุ่มนี้ใช้เพื่อ HA accreditation survey โดยตรง พลาดกด Escape/คลิก
+  // นอกกรอบครั้งเดียวระหว่างกรอกคือข้อมูลทั้งหมดหาย ไม่มีทางกู้คืน
+  const isDirty = rows.some(r => r.drug || r.dose || r.frequency || r.discrepancy !== 'none' || r.reason) || note || pharmacist;
+  const guardedClose = () => {
+    if (isDirty && !window.confirm('มีข้อมูล Reconciliation ที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
+
   if (!open) return null;
   return (
-    <Modal open={open} onClose={onClose} title={`💊 Medication Reconciliation — ${type === 'admission' ? 'รับใหม่' : 'จำหน่าย'}`} width={860}>
+    <Modal open={open} onClose={guardedClose} title={`💊 Medication Reconciliation — ${type === 'admission' ? 'รับใหม่' : 'จำหน่าย'}`} width={860}>
       <div style={{ marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>จุดเปลี่ยนผ่าน:</div>
         {[{v:'admission',l:'🏥 Admission (รับใหม่)'},{v:'discharge',l:'🏠 Discharge (จำหน่าย)'}].map(({v,l}) => (
@@ -18846,8 +18880,10 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก Reconciliation'}</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
+        {/* เดิมกด Save ได้แม้ไม่กรอกอะไรเลย (ทุกช่องยา/discrepancy ว่างหมด) — ได้ record เปล่าเข้า
+            haCompliance ซึ่งสะท้อนไม่ดีตอนตรวจ HA survey จริง — บังคับต้องมีอย่างน้อย 1 แถวที่กรอกชื่อยา */}
+        <Btn variant="primary" onClick={handleSave} disabled={saving || !rows.some(r => r.drug.trim())}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก Reconciliation'}</Btn>
       </div>
     </Modal>
   );
@@ -18857,14 +18893,21 @@ function MedReconciliationModal({ open, onClose, patient, onSave }) {
 // HA4: ADR Reporting Form
 // ──────────────────────────────────────────────────────────────
 function ADRReportModal({ open, onClose, patient, onSave }) {
-  const [form, setForm] = useState({
+  const blankADR = {
     suspectedDrug: '', dose: '', startDate: '', stopDate: '',
     reaction: '', onsetDate: '', severity: 'mild', causality: 'possible',
     rechallenge: 'unknown', dechallenge: 'unknown',
     action: '', outcome: '', reporter: '', notes: '',
     linkedToAllergy: false,
-  });
+  };
+  const [form, setForm] = useState(blankADR);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // ดูคอมเมนต์ที่ MedReconciliationModal — modal กลุ่ม HA compliance เดิมไม่มี guard กันปิดฟอร์มโดย
+  // ไม่บันทึกเลย เอกสาร ADR ใช้เพื่อ HA accreditation survey โดยตรง พลาดปิดฟอร์มคือข้อมูลหายไม่มีทางกู้คืน
+  const guardedClose = () => {
+    if (JSON.stringify(form) !== JSON.stringify(blankADR) && !window.confirm('มีข้อมูล ADR ที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
 
   const [saving, setSaving] = useState(false);
   const handleSave = async () => {
@@ -18889,7 +18932,7 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
 
   if (!open) return null;
   return (
-    <Modal open={open} onClose={onClose} title="📋 ADR / Medication Error Report" width={760}>
+    <Modal open={open} onClose={guardedClose} title="📋 ADR / Medication Error Report" width={760}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 5 }}>ยาที่สงสัย (Suspected Drug)</div>
@@ -18967,8 +19010,9 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
         <span style={{ fontWeight: 600, color: C.high }}>⚠️ เพิ่มยานี้เข้า Allergy Record ของผู้ป่วย</span>
       </label>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="accent" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '📋 ส่งรายงาน ADR'}</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
+        {/* บังคับต้องมีชื่อยาที่สงสัยและอาการอย่างน้อย — กัน record เปล่าเข้าระบบ ADR */}
+        <Btn variant="accent" onClick={handleSave} disabled={saving || !form.suspectedDrug.trim() || !form.reaction.trim()}>{saving ? '⏳ กำลังบันทึก...' : '📋 ส่งรายงาน ADR'}</Btn>
       </div>
     </Modal>
   );
@@ -18978,12 +19022,18 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
 // HA8: Referral Form
 // ──────────────────────────────────────────────────────────────
 function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
-  const [form, setForm] = useState({
+  const blankReferral = {
     referTo: 'แพทย์ผู้ดูแล', referToOther: '', urgency: 'routine',
     problem: '', action: '', suggestion: '', pharmacist: currentUser?.name || '',
     feedbackReceived: false, feedback: '',
-  });
+  };
+  const [form, setForm] = useState(blankReferral);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // ดูคอมเมนต์ที่ MedReconciliationModal — กัน Referral ที่กำลังกรอกอยู่หายโดยไม่ตั้งใจ
+  const guardedClose = () => {
+    if (JSON.stringify(form) !== JSON.stringify(blankReferral) && !window.confirm('มีข้อมูล Referral ที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
 
   const [saving, setSaving] = useState(false);
   const handleSave = async () => {
@@ -19003,7 +19053,7 @@ function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
 
   if (!open) return null;
   return (
-    <Modal open={open} onClose={onClose} title="🔗 Referral — ส่งต่อผู้รับผิดชอบ" width={680}>
+    <Modal open={open} onClose={guardedClose} title="🔗 Referral — ส่งต่อผู้รับผิดชอบ" width={680}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 5 }}>ส่งต่อถึง</div>
@@ -19063,8 +19113,9 @@ function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '🔗 ส่งต่อ'}</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
+        {/* บังคับต้องระบุปัญหาที่ส่งต่อ — กัน record เปล่าเข้าระบบ referral */}
+        <Btn variant="primary" onClick={handleSave} disabled={saving || !form.problem.trim()}>{saving ? '⏳ กำลังบันทึก...' : '🔗 ส่งต่อ'}</Btn>
       </div>
     </Modal>
   );
@@ -19099,6 +19150,13 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
   const toggle = (id) => setChecked(c => ({ ...c, [id]: !c[id] }));
   const doneCount = ITEMS.filter(i => checked[i.id]).length;
 
+  // ดูคอมเมนต์ที่ MedReconciliationModal — กัน checklist/หมายเหตุที่ติ๊ก/กรอกไปแล้วหายโดยไม่ตั้งใจ
+  const isDirty = doneCount > 0 || consent || followupDate || pharmacist || notes;
+  const guardedClose = () => {
+    if (isDirty && !window.confirm('มีข้อมูล Discharge Counseling ที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
+
   const [saving, setSaving] = useState(false);
   const handleSave = async () => {
     if (saving) return;
@@ -19119,7 +19177,7 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
 
   if (!open) return null;
   return (
-    <Modal open={open} onClose={onClose} title="🏠 Discharge Counseling Checklist — PCT.9" width={640}>
+    <Modal open={open} onClose={guardedClose} title="🏠 Discharge Counseling Checklist — PCT.9" width={640}>
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.primary, marginBottom: 3 }}>
           ผู้ป่วย: {patient.prefix}{patient.firstName} {patient.lastName} · HN: {patient.hn}
@@ -19190,7 +19248,7 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
       </label>
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
         <Btn variant="primary" onClick={handleSave} disabled={!consent || saving}>
           {saving ? '⏳ กำลังบันทึก...' : '🏠 บันทึก Discharge Checklist'}
         </Btn>
@@ -19203,13 +19261,19 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
 // HA11: RCA Mini-Form
 // ──────────────────────────────────────────────────────────────
 function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
-  const [form, setForm] = useState({
+  const blankRCA = {
     event: triggerEvent || '', eventDate: '', severity: 'moderate',
     what: '', why1: '', why2: '', why3: '', why4: '', why5: '',
     rootCause: '', contributing: '', immediate: '', systemic: '',
     preventable: 'yes', pharmacist: '',
-  });
+  };
+  const [form, setForm] = useState(blankRCA);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // ดูคอมเมนต์ที่ MedReconciliationModal — กันการวิเคราะห์ RCA/5-Whys ที่กรอกไปแล้วหายโดยไม่ตั้งใจ
+  const guardedClose = () => {
+    if (JSON.stringify(form) !== JSON.stringify(blankRCA) && !window.confirm('มีข้อมูล RCA ที่ยังไม่ได้บันทึก ต้องการปิดหน้านี้โดยไม่บันทึกหรือไม่?')) return;
+    onClose();
+  };
 
   const [saving, setSaving] = useState(false);
   const handleSave = async () => {
@@ -19227,7 +19291,7 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
 
   if (!open) return null;
   return (
-    <Modal open={open} onClose={onClose} title="🔍 Root Cause Analysis (RCA)" width={720}>
+    <Modal open={open} onClose={guardedClose} title="🔍 Root Cause Analysis (RCA)" width={720}>
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.high, marginBottom: 10, padding: '8px 12px', background: C.highBg, borderRadius: 7 }}>
           ⚠️ เหตุการณ์ที่กระตุ้น: {form.event || 'ไม่ระบุ'}
@@ -19298,8 +19362,9 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <Btn variant="ghost" onClick={onClose}>ยกเลิก</Btn>
-        <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก RCA'}</Btn>
+        <Btn variant="ghost" onClick={guardedClose}>ยกเลิก</Btn>
+        {/* บังคับต้องระบุเหตุการณ์และ Root Cause อย่างน้อย — กัน record เปล่าเข้าระบบ RCA */}
+        <Btn variant="primary" onClick={handleSave} disabled={saving || !form.event.trim() || !form.rootCause.trim()}>{saving ? '⏳ กำลังบันทึก...' : '💾 บันทึก RCA'}</Btn>
       </div>
     </Modal>
   );
