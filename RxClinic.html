@@ -764,6 +764,10 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <!-- SheetJS: อ่านไฟล์ Excel (.xls/.xlsx) เช่นรายงานนัดหมายจาก HOSxP -->
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+<!-- สร้าง QR code ในเครื่องผู้ใช้เอง (ไม่ส่งข้อมูลผู้ป่วยออกไปที่ไหน) — เดิมใช้ api.qrserver.com ซึ่งต้อง
+     ส่ง HN + ลิงก์เข้าไปในทุกครั้งที่พิมพ์บัตร/ดูตัวอย่าง QR ขัดกับหลักการ PDPA-safe ที่แอปยึดไว้จุดอื่น
+     (เช่น โมดูล OCR ที่ประกาศชัดว่า "ภาพไม่ถูกส่งออกจากเครื่องเลย") -->
+<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous"></script>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -2217,6 +2221,9 @@ function RxToastHost() {
     warn:    { icon: '⚠️', bg: '#FFFBEB', border: '#FDE68A', color: '#92400E', bar: '#F59E0B' },
     info:    { icon: 'ℹ️', bg: C.primaryBg, border: C.primaryBorder, color: C.primary, bar: '#3B82F6' },
   };
+  cfg.warning = cfg.warn; // เดิมหลายจุดในโค้ด (import CSV, พิมพ์รายงาน ฯลฯ) เรียก rxToast(..., 'warning')
+  // แต่ cfg มีแค่ key 'warn' — fallback ไป cfg.info เงียบๆ ทำให้ toast เตือนสำคัญ (เช่น "ข้าม N ราย
+  // HN ซ้ำ") ขึ้นเป็นสีฟ้าธรรมดาเหมือนข้อความทั่วไป แทนที่จะเป็นสีเหลืองเตือนที่สังเกตเห็นง่ายกว่า
 
   return (
     <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 3000, display: 'flex', flexDirection: 'column', gap: 10, pointerEvents: 'none' }}>
@@ -6132,6 +6139,26 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ── สร้าง QR code data: URL ในเครื่องผู้ใช้เอง ไม่ส่งข้อมูลออกไปที่ไหนเลย ─────
+// เดิมทั้ง 2 จุดที่ใช้ QR (บัตรผู้ป่วย/ตัวอย่างใน Mobile UX) ยิง request ไปที่ api.qrserver.com พร้อม
+// HN + ลิงก์เข้าประวัติผู้ป่วยทุกครั้งที่พิมพ์/แสดงตัวอย่าง — เป็นการส่งข้อมูลระบุตัวตนผู้ป่วยออกไปยัง
+// third-party server จริงๆ ขัดกับหลักการ PDPA-safe ที่โมดูลอื่น (เช่น OCR) ยึดไว้ — ใช้ qrcode-generator
+// (โหลดจาก CDN ครั้งเดียว ไม่มีข้อมูลผู้ป่วยติดไปด้วย) เข้ารหัสในเบราว์เซอร์ผู้ใช้เองแทน ไม่มี network
+// request ใดๆ ที่มีข้อมูลผู้ป่วยติดไปเลย
+function generateQRDataURL(text, size = 200) {
+  try {
+    if (typeof qrcode !== 'function') return ''; // CDN โหลดไม่สำเร็จ (ออฟไลน์ ฯลฯ) — คืนค่าว่าง ไม่ throw
+    const qr = qrcode(0, 'M'); // typeNumber=0 ให้เลือกขนาดอัตโนมัติ, error correction level M
+    qr.addData(text);
+    qr.make();
+    const cellSize = Math.max(2, Math.floor(size / qr.getModuleCount()));
+    return qr.createDataURL(cellSize, 0);
+  } catch (e) {
+    console.error('QR generation failed:', e);
+    return '';
+  }
+}
+
 // ── PDF helper (open print window) ───────────────────
 function openPrintWindow(html, title) {
   const w = window.open('', '_blank', 'width=960,height=720');
@@ -6981,7 +7008,7 @@ function printQuarterlyReport(data, year, quarter) {
 function printPatientQRCard(patient) {
   if (!patient) return;
   const link = `${location.origin}${location.pathname}?hn=${encodeURIComponent(patient.hn)}`;
-  const qrURL = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(link)}`;
+  const qrURL = generateQRDataURL(link, 220);
   const rc = { High:'#DC2626', Medium:'#D97706', Low:'#059669' }[patient.riskLevel] || '#059669';
   const html = `
     <div style="display:flex;justify-content:center;padding:10px">
@@ -15895,14 +15922,20 @@ window.printNoShowRoster = printNoShowRoster;
 // ── Animated count-up number ──
 const AnimatedNumber = ({ value, duration = 900, decimals = 0, suffix = '', prefix = '' }) => {
   const [disp, setDisp] = React.useState(0);
+  const dispRef = React.useRef(0); // เก็บค่าล่าสุดที่แสดงจริง ใช้เป็นจุดเริ่มอนิเมชันรอบถัดไป
   React.useEffect(() => {
     const target = Number(value) || 0;
+    const from = dispRef.current; // เดิม animate จาก 0 ใหม่ทุกครั้งที่ value เปลี่ยน (ตัวเลขกระพริบ
+    // กลับไป 0 ก่อนนับขึ้นใหม่ ทุกครั้งที่ dashboard/metric refresh) — แก้ให้ animate ต่อจากค่าที่แสดง
+    // อยู่จริงไปยังค่าใหม่ แทนที่จะรีเซ็ตกลับ 0 เสมอ
     let raf, start;
     const step = (ts) => {
       if (!start) start = ts;
       const p = Math.min((ts - start) / duration, 1);
       const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
-      setDisp(target * eased);
+      const next = from + (target - from) * eased;
+      dispRef.current = next;
+      setDisp(next);
       if (p < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -17288,10 +17321,8 @@ const QRCheckIn = ({ data, onPatientFound }) => {
   };
 
   const generateQRForPatient = (patient) => {
-    // Generate QR code URL (using qrcode.js or API)
     const qrData = JSON.stringify({ hn: patient.hn, name: `${patient.firstName} ${patient.lastName}` });
-    const qrURL = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
-    return qrURL;
+    return generateQRDataURL(qrData, 200); // สร้างในเครื่องเอง ไม่ส่ง HN ออกไปที่ไหน
   };
 
   const handleStartScan = () => {
@@ -17343,6 +17374,7 @@ const QRCheckIn = ({ data, onPatientFound }) => {
 const LINENotifySetup = () => {
   const [token, setToken] = useState(localStorage.getItem('line_notify_token') || '');
   const [testMessage, setTestMessage] = useState('');
+  const [sending, setSending] = useState(false); // เดิมไม่มี guard เลย กดปุ่มรัวๆ ระหว่างรอ response ยิง request ซ้ำได้
 
   const handleSaveToken = () => {
     localStorage.setItem('line_notify_token', token);
@@ -17350,11 +17382,15 @@ const LINENotifySetup = () => {
   };
 
   const handleSendTest = async () => {
+    if (sending) return;
     if (!token.trim()) {
       alert('⚠️ กรุณาใส่ LINE Notify Token ก่อน');
       return;
     }
-    
+    setSending(true);
+    // เดิมไม่มี timeout เลย ถ้าเน็ตค้าง ปุ่มจะไม่มี feedback ใดๆ ค้างไปเรื่อยๆ — ใส่ timeout กันไว้ 10 วินาที
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch('https://notify-api.line.me/api/notify', {
         method: 'POST',
@@ -17363,15 +17399,22 @@ const LINENotifySetup = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: `message=${encodeURIComponent(testMessage || '🏥 ทดสอบการแจ้งเตือนจาก COPD Clinic')}`,
+        signal: controller.signal,
       });
-      
+
       if (response.ok) {
         alert('✅ ส่งข้อความสำเร็จ! ตรวจสอบ LINE ของคุณ');
       } else {
         alert('❌ ส่งไม่สำเร็จ — ตรวจสอบ Token');
       }
     } catch (err) {
-      alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+      // LINE Notify ยุติบริการอย่างเป็นทางการแล้ว (เม.ย. 2568) — แม้ token ถูกต้อง request นี้จะล้มเหลว
+      // เสมอในปัจจุบัน อาจทำให้เข้าใจผิดว่าตั้งค่าผิด ทั้งที่จริงคือบริการนี้ปิดตัวไปแล้ว
+      alert('❌ เกิดข้อผิดพลาด: ' + (err.name === 'AbortError' ? 'หมดเวลารอการเชื่อมต่อ' : err.message)
+        + '\n\nหมายเหตุ: LINE Notify ยุติให้บริการแล้วตั้งแต่ เม.ย. 2568 — token ที่ถูกต้องก็อาจส่งไม่ได้');
+    } finally {
+      clearTimeout(timeoutId);
+      setSending(false);
     }
   };
 
@@ -17422,7 +17465,7 @@ const LINENotifySetup = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <Btn variant="primary" onClick={handleSendTest}>ส่งข้อความทดสอบ</Btn>
+        <Btn variant="primary" onClick={handleSendTest} disabled={sending}>{sending ? '⏳ กำลังส่ง...' : 'ส่งข้อความทดสอบ'}</Btn>
         <Btn variant="ghost" onClick={() => handleSendAppointmentReminder({ firstName: 'สมชาย', lastName: 'ใจดี', hn: '67-001234' }, '2025-06-15')}>
           สร้างข้อความนัดหมาย
         </Btn>
@@ -17771,6 +17814,7 @@ const OfflineQueueManager = () => {
 const CameraInhalerScanner = ({ onDetected }) => {
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef(null);
+  const scanTimeoutRef = useRef(null); // เดิมไม่เก็บ id ของ setTimeout ไว้เลย ทำให้ยกเลิกไม่ได้จริง
 
   const startScan = async () => {
     try {
@@ -17779,9 +17823,12 @@ const CameraInhalerScanner = ({ onDetected }) => {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
         setScanning(true);
-        
+
         // Stub: In production, use TensorFlow.js or ML model to detect device
-        setTimeout(() => {
+        // เดิมไม่เก็บ id ของ setTimeout นี้เลย ทำให้ปุ่ม "หยุดสแกน" ยกเลิกไม่ได้จริง — กดหยุดแล้วกล้องปิด
+        // ทันที แต่ผ่านไป 3 วินาที timeout เดิมยังทำงานอยู่ ยิง onDetected('turbuhaler') ปลอมเข้าไปทั้งที่
+        // ผู้ใช้ยกเลิกไปแล้ว (ค่าตรวจพบผิดที่กระทบข้อมูลทางคลินิกที่แสดงผล) — เก็บ id ไว้ clearTimeout ได้จริง
+        scanTimeoutRef.current = setTimeout(() => {
           const detectedDevice = 'turbuhaler'; // Mock detection
           onDetected(detectedDevice);
           stopScan();
@@ -17793,11 +17840,17 @@ const CameraInhalerScanner = ({ onDetected }) => {
   };
 
   const stopScan = () => {
+    if (scanTimeoutRef.current) { clearTimeout(scanTimeoutRef.current); scanTimeoutRef.current = null; }
     if (videoRef.current && videoRef.current.srcObject) {
       videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
     }
     setScanning(false);
   };
+
+  // เดิมไม่มี cleanup ตอน unmount เลย — ถ้าผู้ใช้เปลี่ยนหน้าขณะกำลังสแกนอยู่ (scanning=true) กล้องจะ
+  // ยังเปิดค้างอยู่จริง (ไฟสัญญาณกล้องยังติด) จนกว่าจะปิดแท็บ/รีเฟรชทั้งหน้า เป็นความเสี่ยงความเป็นส่วนตัว
+  useEffect(() => stopScan, []);
 
   return (
     <Card>
