@@ -19563,11 +19563,19 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
       {/* Modals */}
       {pt && (
         <>
-          <MedReconciliationModal open={medRecOpen} onClose={() => setMedRecOpen(false)} patient={pt} onSave={r => saveHA('medRec', r)} />
-          <ADRReportModal open={adrOpen} onClose={() => setAdrOpen(false)} patient={pt} onSave={r => saveHA('adr', r)} />
-          <ReferralModal open={referralOpen} onClose={() => setReferralOpen(false)} patient={pt} onSave={r => saveHA('referrals', r)} currentUser={currentUser} />
-          <DischargeCounselingModal open={dischargeOpen} onClose={() => setDischargeOpen(false)} patient={pt} visits={ptVisits} onSave={r => saveHA('discharge', r)} />
-          <RCAModal open={rcaOpen} onClose={() => setRcaOpen(false)} patient={pt} triggerEvent={rcaTrigger} onSave={r => saveHA('rca', r)} />
+          {/* เดิม modal ทั้ง 5 ตัวนี้ render ทิ้งไว้ตลอด (แค่ return null ตอน !open) ไม่เคย unmount จริง
+              และไม่มีจุดไหน reset form/rows/checked กลับเป็นค่าว่างหลังบันทึกสำเร็จ — เปิดฟอร์มให้ผู้ป่วย
+              คนถัดไปแล้วข้อมูลของผู้ป่วยคนก่อนยังค้างอยู่ในฟอร์ม เสี่ยงบันทึกข้อมูลผิดคนโดยไม่ทันสังเกต
+              (ยิ่งไปกว่านั้น guardedClose/required-field gate ที่เพิ่งเพิ่มเข้ามาจะทำงานผิดตาม — เตือน
+              "มีข้อมูลยังไม่บันทึก" ทั้งที่ผู้ใช้ยังไม่ได้แตะอะไรเลย หรือกด Save ผ่านได้ทันทีด้วยข้อมูลเก่า)
+              แก้ด้วยการ render เฉพาะตอน open เท่านั้น (unmount จริงตอนปิด) พร้อม key ผูกกับผู้ป่วยคนนั้น
+              ให้ React สร้าง instance ใหม่ (state ว่างเปล่า) ทุกครั้งที่เปิดฟอร์ม ไม่ว่าจะเปิดซ้ำให้คน
+              เดิมหรือคนใหม่ */}
+          {medRecOpen && <MedReconciliationModal key={`medrec-${pt?.id}`} open={medRecOpen} onClose={() => setMedRecOpen(false)} patient={pt} onSave={r => saveHA('medRec', r)} />}
+          {adrOpen && <ADRReportModal key={`adr-${pt?.id}`} open={adrOpen} onClose={() => setAdrOpen(false)} patient={pt} onSave={r => saveHA('adr', r)} />}
+          {referralOpen && <ReferralModal key={`referral-${pt?.id}`} open={referralOpen} onClose={() => setReferralOpen(false)} patient={pt} onSave={r => saveHA('referrals', r)} currentUser={currentUser} />}
+          {dischargeOpen && <DischargeCounselingModal key={`discharge-${pt?.id}`} open={dischargeOpen} onClose={() => setDischargeOpen(false)} patient={pt} visits={ptVisits} onSave={r => saveHA('discharge', r)} />}
+          {rcaOpen && <RCAModal key={`rca-${pt?.id}`} open={rcaOpen} onClose={() => setRcaOpen(false)} patient={pt} triggerEvent={rcaTrigger} onSave={r => saveHA('rca', r)} />}
         </>
       )}
     </div>
