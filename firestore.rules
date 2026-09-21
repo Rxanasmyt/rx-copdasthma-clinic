@@ -19,7 +19,11 @@ rules_version = '2';
 // สิ่งที่กฎด้านล่างทำได้จริงตอนนี้: ปฏิเสธผู้ใช้ที่ไม่ auth ทั้งหมด,
 // จำกัดขนาดเอกสารกันการยัดข้อมูลขยะ/DoS แบบ document เดียวโป่ง, และ
 // ตรวจรูปร่างพื้นฐาน (ต้องมี field "patients"/"visits" เป็น list) กัน
-// การเขียนพังโครงสร้างเอกสารทั้งหมดโดยไม่ตั้งใจ
+// การเขียนพังโครงสร้างเอกสารทั้งหมดโดยไม่ตั้งใจ — ครอบคลุมทั้งโหมด legacy
+// (/clinic/main เอกสารเดียว) และโหมดทดลอง "collections" (patients/
+// telepharmacy/users/clinicDayRosters/queueWalkIns/haCompliance/meta
+// แยกเป็นหลาย collection) ที่ admin สลับใช้ได้จริงหลัง migrate.js --commit
+// — ข้อจำกัดเรื่อง role-based write ด้านบนเป็นจริงเหมือนกันทั้งสองโหมด
 // ════════════════════════════════════════════════════════════
 
 service cloud.firestore {
@@ -41,6 +45,65 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create, update: if request.auth != null
         && request.resource.size() < 900000;
+      allow delete: if false;
+    }
+
+    // ── โหมดทดลอง "collections" (multi-collection, opt-in ผ่าน Settings หลัง migrate.js --commit) ──
+    // เดิมไฟล์นี้มีกฎแค่ /clinic/{docId} กับ /clinic_backups/{slot} เท่านั้น ส่วน catch-all ด้านล่าง
+    // ปฏิเสธทุกอย่างที่เหลือ (Firestore deny-by-default อยู่แล้วด้วย) — ทำให้โหมด collections ซึ่งเป็น
+    // ฟีเจอร์จริงที่แอปเปิดให้ admin สลับใช้ได้ (ไม่ใช่ของทดลองที่ตัดทิ้งแล้ว) เขียน/อ่าน patients,
+    // telepharmacy, users, clinicDayRosters, queueWalkIns, patients/{id}/visits, haCompliance/main,
+    // meta/main ไม่ได้เลยสักจุดเดียว — ทุก request จะถูกปฏิเสธแบบเงียบๆ (permission-denied) ทันทีที่
+    // คลินิกไหนสลับไปโหมดนี้หลัง migrate.js --commit เพิ่มกฎให้ครบทุก path ที่ RxClinic.html เขียนจริง
+    // (ดู buildCollectionWriteOps/assembleDataFromCollections ในไฟล์นั้น) ใช้เกณฑ์เดียวกับด้านบน
+    // (ต้อง auth, จำกัดขนาดต่อเอกสารกัน DoS แบบยัดข้อมูลขยะ)
+    match /patients/{patientId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if request.auth != null;
+
+      match /visits/{visitId} {
+        allow read: if request.auth != null;
+        allow create, update: if request.auth != null && request.resource.size() < 900000;
+        allow delete: if request.auth != null;
+      }
+    }
+
+    match /telepharmacy/{recordId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if request.auth != null;
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if request.auth != null;
+    }
+
+    match /clinicDayRosters/{date} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if request.auth != null;
+    }
+
+    match /queueWalkIns/{entryId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if request.auth != null;
+    }
+
+    // haCompliance/main และ meta/main (auditLog, clinicCode, drpTracker) — เอกสารเดี่ยวเหมือน
+    // /clinic/main ใช้เกณฑ์เดียวกัน (ไม่ให้ลบ กันทำลาย audit trail โดยไม่ตั้งใจผ่าน API ตรง)
+    match /haCompliance/{docId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
+      allow delete: if false;
+    }
+
+    match /meta/{docId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.size() < 900000;
       allow delete: if false;
     }
 

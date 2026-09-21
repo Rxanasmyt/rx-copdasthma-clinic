@@ -5,7 +5,11 @@ const os = require('os');
 
 const PORT = 3000;
 const APP_DIR = __dirname;
-const HTML_FILE = path.join(APP_DIR, 'app.html');
+// เดิมชี้ไปที่ 'app.html' ซึ่งไม่มีอยู่จริงในโปรเจกต์นี้เลย (ไฟล์จริงคือ RxClinic.html) — ทำให้ทุกครั้งที่
+// รัน server.js ผ่าน launcher (RxClinic.bat -> RxClinic-Launcher.vbs -> node.exe server.js) จะเจอ error
+// "Cannot load app.html" (500) ทันที เปิด Chrome ไปที่ localhost:3000 แล้วเจอหน้า error อ่านไม่รู้เรื่อง
+// โดยไม่มีสาเหตุชัดเจนสำหรับผู้ใช้คลินิกที่ไม่ใช่สายเทคนิค
+const HTML_FILE = path.join(APP_DIR, 'RxClinic.html');
 
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
@@ -26,9 +30,9 @@ const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '') {
     fs.readFile(HTML_FILE, 'utf8', (err, data) => {
       if (err) {
-        console.error('Error reading app.html:', err);
+        console.error('Error reading RxClinic.html:', err);
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Error: Cannot load app.html\n' + err.message);
+        res.end('Error: Cannot load RxClinic.html\n' + err.message);
         return;
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
