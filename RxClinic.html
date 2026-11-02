@@ -7433,9 +7433,17 @@ function PatientForm({ patient, onSave, onClose }) {
     return Object.keys(e).length === 0;
   };
 
+  // เดิมแก้ไขทะเบียนผู้ป่วยได้ทันทีไม่มีขั้นตอนยืนยันเลย — ตอนเริ่มใช้แอปใหม่ๆ มักมีการกรอกโรคผิด
+  // (สับสนระหว่าง COPD/Asthma) แล้วแก้ไขทีหลัง เนื่องจากโรคเป็นฟิลด์ที่กระทบ KPI/การจัดกลุ่ม GOLD-GINA
+  // ทั้งหมด จึงเพิ่มการ์ดยืนยันเฉพาะตอน "เปลี่ยนโรคของผู้ป่วยที่มีอยู่แล้ว" เท่านั้น (ไม่กวนตอนกรอกครั้ง
+  // แรก/แก้ไขฟิลด์อื่นที่ไม่ใช่โรค ให้ยังแก้ไขได้รวดเร็วตามปกติ) แสดงให้เห็นชัดว่าเปลี่ยนจากอะไรเป็นอะไร
+  const [pendingSavePayload, setPendingSavePayload] = pvState(null);
+  const DX_LABEL = { COPD: 'COPD', Asthma: 'Asthma', Both: 'COPD + Asthma' };
+  const commitSave = (payload) => onSave(payload);
+
   const handleSave = () => {
     if (!validate()) return;
-    onSave({
+    const payload = {
       ...f,
       age: parseInt(f.age),
       eGFR: f.eGFR === '' || isNaN(parseFloat(f.eGFR)) ? null : parseFloat(f.eGFR),
@@ -7443,7 +7451,12 @@ function PatientForm({ patient, onSave, onClose }) {
       packYears: f.packYears === '' || isNaN(parseFloat(f.packYears)) ? null : parseFloat(f.packYears),
       goldGrade:     ['COPD', 'Both'].includes(f.diagnosis) ? f.goldGrade   : null,
       asthmaControl: ['Asthma', 'Both'].includes(f.diagnosis) ? f.asthmaControl : null,
-    });
+    };
+    if (patient && patient.diagnosis && patient.diagnosis !== f.diagnosis) {
+      setPendingSavePayload(payload);
+      return;
+    }
+    commitSave(payload);
   };
 
   const needGOLD   = ['COPD', 'Both'].includes(f.diagnosis);
@@ -7453,6 +7466,7 @@ function PatientForm({ patient, onSave, onClose }) {
   const row3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 };
 
   return (
+    <>
     <Modal open={true} onClose={guardedClose} title={patient ? 'แก้ไขข้อมูลผู้ป่วย' : 'เพิ่มผู้ป่วยใหม่'} width={860}
       footer={
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -7628,6 +7642,17 @@ function PatientForm({ patient, onSave, onClose }) {
 
     </div>
     </Modal>
+    <ConfirmModal
+      open={!!pendingSavePayload}
+      onClose={() => setPendingSavePayload(null)}
+      title="⚠️ ยืนยันการเปลี่ยนโรคของผู้ป่วย"
+      message={pendingSavePayload
+        ? `เปลี่ยนโรคของ "${patient?.prefix}${patient?.firstName} ${patient?.lastName}" จาก "${DX_LABEL[patient?.diagnosis] || patient?.diagnosis}" เป็น "${DX_LABEL[pendingSavePayload.diagnosis] || pendingSavePayload.diagnosis}" — การเปลี่ยนแปลงนี้กระทบตัวชี้วัดคุณภาพและการจัดกลุ่ม GOLD/GINA ของผู้ป่วยรายนี้ ยืนยันว่าตรวจสอบแล้วว่าถูกต้อง?`
+        : ''}
+      onConfirm={() => { commitSave(pendingSavePayload); setPendingSavePayload(null); }}
+      danger
+    />
+    </>
   );
 }
 
@@ -10411,7 +10436,7 @@ function mergeExacerbationEvents(baseEvents, localEvents, remoteEvents) {
 }
 
 // ── Main VisitForm (with edit support) ────────────────
-function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, currentUser }) {
+function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, onDelete, navigate, currentUser }) {
   const patient = data.patients.find(p => p.id === patientId);
   const isEditing = !!editingVisit;
   const today = new Date().toISOString().slice(0, 10);
@@ -10436,7 +10461,9 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
   const [attemptedSave, setAttemptedSave] = vfState(false);     // show inline warning summary after first save attempt
 
   const blankVisit = {
-    patientId, visitDate: today, pharmacist: defaultPharmacist,
+    // เดิม visitDate เริ่มต้นเป็นวันนี้เสมอ — ถ้ามาจากฟีเจอร์ "บันทึกย้อนหลัง" (prefillVisitDate) ให้ใช้
+    // วันที่ที่เลือกไว้แทน เภสัชกรไม่ต้องมาคอยเปลี่ยนวันที่เองทุกครั้งหลังเลือกผู้ป่วยแล้ว
+    patientId, visitDate: prefillVisitDate || today, pharmacist: defaultPharmacist,
     chiefComplaint: '',
     exacerbation: { countThisYear: 0, lastDate: '', severity: 'None', hospitalized: false, erVisit: false, triggers: [], rescueMedUse: 'Never' },
     vitals: { spO2: '', rr: '', bp: '', fev1: '', peakFlow: '' },
@@ -20461,6 +20488,34 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
     onDataChange({ ...data, queueWalkIns: (data.queueWalkIns || []).filter(w => !(w.date === todayStr && w.patientId === patientId)) });
   };
 
+  // ── บันทึกย้อนหลัง: สำหรับวันที่เภสัชกรไม่ได้มาคลินิก แล้วมาเพิ่มข้อมูลผู้ป่วยที่นัดไว้วันนั้นทีหลัง ──
+  // เดิมฟีเจอร์ค้นหา+เพิ่มผู้ป่วยเข้าคิว (walk-in ด้านบน) ผูกกับ todayStr ตรงๆ ทุกจุด ไม่มีทางเลือกวันที่
+  // อื่นได้เลย ทำให้ไม่มีทางย้อนไปบันทึกวันที่ขาดได้สะดวก (ต้องไปหาในทะเบียนผู้ป่วยทั้งหมดเองแทน)
+  const [showBackdateSearch, setShowBackdateSearch] = useState(false);
+  const [backdateQuery, setBackdateQuery] = useState('');
+  const [backdateDate, setBackdateDate] = useState('');
+  const backdateMatches = useMemo(() => {
+    const q = backdateQuery.trim().toLowerCase();
+    if (!q) return [];
+    return pts.filter(p =>
+      (p.hn || '').toLowerCase().includes(q) ||
+      `${p.firstName || ''} ${p.lastName || ''}`.toLowerCase().includes(q)
+    ).slice(0, 6);
+  }, [backdateQuery, pts]);
+  const startBackdatedVisit = (patientId) => {
+    if (!backdateDate) { window.rxToast?.('กรุณาเลือกวันที่ก่อน', 'error'); return; }
+    if (backdateDate > todayStr) { window.rxToast?.('เลือกวันที่ในอนาคตไม่ได้', 'error'); return; }
+    // เพิ่มเข้าคิวของวันที่เลือกด้วย (ไม่ใช่แค่ todayStr) ให้ตัวเลขนัดวันนั้นสะท้อนผู้ป่วยรายนี้ด้วย
+    // เผื่อย้อนไปกรอก "จำนวนนัดวันคลินิก" ของวันนั้นทีหลัง (ใช้เป็นตัวหาร KPI6)
+    const exists = (data.queueWalkIns || []).some(w => w.date === backdateDate && w.patientId === patientId);
+    if (!exists) {
+      const entry = { date: backdateDate, patientId, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '', backdated: true };
+      onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), entry] });
+    }
+    setBackdateQuery(''); setShowBackdateSearch(false);
+    navigate('visit-form', patientId, backdateDate);
+  };
+
   // วันคลินิกวันนี้: scheduled visits today (from previous visits' nextVisit field) + walk-in ที่เพิ่มเข้าคิวเอง
   const walkInsToday = (data.queueWalkIns || []).filter(w => w.date === todayStr);
   const scheduledToday = useMemo(() => {
@@ -20775,6 +20830,51 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── บันทึกย้อนหลัง: กรณีเภสัชกรไม่ได้มาคลินิกวันนั้น มาเพิ่มข้อมูลทีหลังได้ ── */}
+      {canEditQueue && (
+        <Card style={{ marginBottom: 20, borderLeft: `3px solid ${C.medium}` }}>
+          {!showBackdateSearch ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.medium }}>🕘 บันทึกย้อนหลัง</div>
+                <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
+                  สำหรับวันที่เภสัชกรไม่ได้มาคลินิก — ค้นหาผู้ป่วยที่นัดไว้วันนั้นแล้วบันทึกข้อมูลย้อนหลังได้
+                </div>
+              </div>
+              <Btn size="sm" variant="ghost" onClick={() => { setShowBackdateSearch(true); setBackdateDate(todayStr); }}>+ บันทึกย้อนหลัง</Btn>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.medium, marginBottom: 10 }}>🕘 บันทึกย้อนหลัง — เลือกวันที่และค้นหาผู้ป่วย</div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>วันที่นัด (ย้อนหลังได้ ไม่เกินวันนี้)</div>
+                  <Input type="date" value={backdateDate} onChange={setBackdateDate} style={{ width: 170 }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>ค้นหาผู้ป่วย (ชื่อหรือ HN)</div>
+                  <Input placeholder="ค้นหาชื่อหรือ HN ผู้ป่วย…" value={backdateQuery} onChange={setBackdateQuery} />
+                  {backdateQuery.trim() && (
+                    <div style={{ position:'absolute', zIndex:20, top:'100%', left:0, right:0, marginTop:4, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:220, overflowY:'auto' }}>
+                      {backdateMatches.length === 0 ? (
+                        <div style={{ padding:'10px 14px', fontSize:12, color:C.textMuted }}>ไม่พบผู้ป่วย</div>
+                      ) : backdateMatches.map(p => (
+                        <div key={p.id} onClick={() => startBackdatedVisit(p.id)} style={{ padding:'8px 14px', fontSize:13, cursor:'pointer', borderBottom:`1px solid ${C.border}` }}
+                          onMouseEnter={e => e.currentTarget.style.background = C.bgAlt} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          {p.prefix}{p.firstName} {p.lastName} <span style={{ color:C.textMuted, fontSize:11 }}>(HN {p.hn})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>เลือกผู้ป่วยจากรายการค้นหาเพื่อเปิดฟอร์มบันทึกการเยี่ยม — วันที่จะถูกกรอกให้อัตโนมัติตามที่เลือกไว้ด้านบน</div>
+              <Btn size="sm" variant="ghost" onClick={() => { setShowBackdateSearch(false); setBackdateQuery(''); }}>ยกเลิก</Btn>
+            </div>
+          )}
+        </Card>
       )}
 
       {/* ── บันทึกจำนวนนัดวันคลินิก (ใช้เป็นตัวหาร KPI6) ── */}
@@ -21224,6 +21324,7 @@ function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [notifOpen,    setNotifOpen]    = useState(false);
   const [editVisitId,  setEditVisitId]  = useState(null);
+  const [prefillVisitDate, setPrefillVisitDate] = useState(null); // ใช้ตอนเปิด VisitForm ใหม่แบบระบุวันที่ล่วงหน้า (บันทึกย้อนหลัง)
   const [isOnline,     setIsOnline]     = useState(navigator.onLine);
   const [isMobile,     setIsMobile]     = useState(() => window.innerWidth <= 900);
   const [navOpen,      setNavOpen]      = useState(false);
@@ -21682,6 +21783,10 @@ function App() {
       setView(target); setSelectedPtId(patientId);
       if (target !== 'visit-form') setEditVisitId(null);
       if (target !== 'telepharmacy') setTeleAddPtId(null);
+      // ใช้ extra เป็นวันที่ prefill เฉพาะตอนเปิด "visit-form" (สร้างใหม่ ไม่ใช่แก้ไข) เท่านั้น — เช่น
+      // จากฟีเจอร์ "บันทึกย้อนหลัง" ใน Dashboard ที่เลือกผู้ป่วย+วันที่ไว้ก่อนแล้วค่อยเปิดฟอร์ม ต้อง
+      // ล้างทิ้งทุกครั้งที่ navigate ไปทางอื่น กัน prefill ค้างข้ามไปเปิดฟอร์มใหม่แบบปกติ (วันนี้) ครั้งถัดไป
+      setPrefillVisitDate(target === 'visit-form' ? (extra || null) : null);
       // 'drpTracker-focus' ถูกดักไว้ใน else if ด้านบนแล้วเสมอ ไม่มีทางไหลมาถึง branch นี้ได้ — ดังนั้น
       // ทุก target ที่มาถึงตรงนี้ (รวมถึง 'drpTracker' ธรรมดาจาก sidebar) ต้องล้าง drpFocusPtId เสมอ ไม่งั้น
       // เข้า DRP Tracker จาก sidebar หลังเคยกด "ติดตามใน DRP Tracker" มาก่อน จะยังกรองเหลือคนเดิมค้างอยู่เงียบๆ
@@ -21890,6 +21995,7 @@ function App() {
         return selectedPtId
           ? <VisitForm data={data} patientId={selectedPtId}
               editingVisit={editVisitId ? data.visits.find(v => v.id === editVisitId) : null}
+              prefillVisitDate={prefillVisitDate}
               onSave={handleDataChange} navigate={navigate} currentUser={currentUser} />
           : <PatientList data={data} onDataChange={handleDataChange} navigate={navigate} currentUser={currentUser} />;
       case 'risk':
