@@ -4260,6 +4260,43 @@ function detectDRP(visit, patient) {
     }
   }
 
+  // ── Category: สัญญาณจาก Chief Complaint (CC) ──────────────────────────────
+  // เดิม detectDRP อ่านแค่ field ที่มีโครงสร้าง (ยา/เทคนิค/adherence/exacerbation) ไม่เคยอ่านข้อความ
+  // CC เลย ทั้งที่เภสัชกรมักพิมพ์ปัญหาที่เกี่ยวกับยาไว้ตรงนี้ก่อนลงรายละเอียดที่อื่น (เช่น "ลืมกินยา
+  // บ่อย", "แพ้ยาขึ้นผื่น", "ยาหมดก่อนนัด") — เพิ่มการจับคำสำคัญแบบ heuristic (ไม่ใช่ NLP จริง) เพื่อ
+  // ชงเป็นข้อสังเกตให้เภสัชกรตรวจสอบต่อ ไม่ใช่ข้อสรุปที่เชื่อถือได้ 100% — ทุกรายการแนบ CC ต้นฉบับมา
+  // ด้วยเสมอให้ตรวจสอบง่าย และตั้งใจให้ "คำที่จับได้แคบ/เฉพาะเจาะจง" เพื่อลด false positive มากกว่า
+  // จะจับกว้างแล้วแจ้งเตือนเกินจำเป็น (เช่นไม่จับคำว่า "เหนื่อย" เฉยๆ เพราะเป็นอาการทั่วไปของโรคอยู่แล้ว)
+  const cc = (visit.chiefComplaint || '').trim();
+  const ccLower = cc.toLowerCase();
+  const ccHit = (kws) => kws.some(k => ccLower.includes(k));
+  if (cc) {
+    if (ccHit(['ลืมกินยา', 'ลืมพ่นยา', 'ลืมใช้ยา', 'ลืมทานยา', 'ไม่ได้กินยา', 'ไม่ได้พ่นยา', 'ขาดยา'])) {
+      out.push({ code: 'P1.1', categoryEn: 'Non-adherence (from CC)', categoryTh: 'ความร่วมมือในการใช้ยาต่ำ (จาก CC)',
+        severity: 'Medium',
+        problemEn: `Chief complaint suggests missed/forgotten doses: "${cc}"`,
+        problemTh: `Chief Complaint มีข้อความที่สื่อถึงการลืม/ขาดยา: "${cc}"`,
+        actionEn: 'Confirm adherence barrier with patient; consider reminder tools or simplifying the regimen',
+        actionTh: 'ซักถามสาเหตุที่ลืม/ขาดยากับผู้ป่วย พิจารณาตัวช่วยเตือนหรือลดความซับซ้อนของแผนการใช้ยา' });
+    }
+    if (ccHit(['แพ้ยา', 'ผื่นหลังกินยา', 'ผื่นหลังพ่นยา', 'บวมหลังกินยา', 'คันหลังกินยา'])) {
+      out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (from CC)', categoryTh: 'ผลข้างเคียงที่อาจเกิด (จาก CC)',
+        severity: 'High',
+        problemEn: `Chief complaint suggests possible drug allergy/ADR: "${cc}"`,
+        problemTh: `Chief Complaint มีข้อความที่สื่อถึงอาการแพ้ยา/ผลข้างเคียง: "${cc}"`,
+        actionEn: 'Assess causality; consider discontinuing the suspected drug and documenting the allergy',
+        actionTh: 'ประเมินความสัมพันธ์กับยาที่ใช้ พิจารณาหยุดยาที่สงสัยและบันทึกประวัติแพ้ยาให้ครบถ้วน' });
+    }
+    if (ccHit(['ยาหมดก่อนนัด', 'ยาไม่พอใช้', 'ยาหมดก่อนกำหนด'])) {
+      out.push({ code: 'P3.1', categoryEn: 'Dosage / overuse signal (from CC)', categoryTh: 'สัญญาณใช้ยาเกิน (จาก CC)',
+        severity: 'Medium',
+        problemEn: `Chief complaint suggests medication running out earlier than expected: "${cc}"`,
+        problemTh: `Chief Complaint มีข้อความที่สื่อถึงยาหมดก่อนนัด: "${cc}"`,
+        actionEn: 'Review dosing/quantity dispensed vs. days supply — may indicate overuse or miscounting',
+        actionTh: 'ทบทวนขนาด/จำนวนยาที่จ่ายเทียบกับจำนวนวัน อาจบ่งชี้การใช้เกินขนาดหรือคำนวณผิด' });
+    }
+  }
+
   // จัดเรียงตามความรุนแรง High → Medium → Low
   const rank = { High: 0, Medium: 1, Low: 2 };
   return out.sort((x, y) => (rank[x.severity] ?? 3) - (rank[y.severity] ?? 3));
