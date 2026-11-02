@@ -4503,9 +4503,31 @@ const computeDRPWorklist = (patients, visits, drpTracker, dateRange) => {
       entries.push(entry);
     });
   });
+  // ── รวมรายการที่ยังไม่ปิด (open/in_progress) ของปัญหาเดียวกันในผู้ป่วยคนเดียวกันให้เหลือรายการเดียว ──
+  // เดิมถ้าผู้ป่วยมาหลาย visit โดยปัญหายังไม่ถูกแก้ (detectDRP ตรวจพบปัญหาเดิมซ้ำทุกครั้ง) แต่ละ visit
+  // จะกลายเป็นรายการ "เปิดอยู่" แยกกันคนละแถว (คนละ id เพราะ id ผูกกับ visitId) ทำให้ตัวเลข "DRP เปิดอยู่"
+  // ที่โชว์ให้เภสัชกรเห็นนับเกินจำนวนปัญหาจริงของผู้ป่วยคนนั้น — รวมให้เหลือรายการเดียวต่อ (ผู้ป่วย, ปัญหา)
+  // โดยให้สิทธิ์รายการที่เภสัชกรเคยกรอกสถานะ/action ไว้แล้วก่อนเสมอ (กันข้อมูลที่กรอกไว้หายไปจาก worklist)
+  // ถ้าไม่มีเลยค่อยใช้รายการจาก visit ล่าสุด — ไม่ทำกับรายการ "แก้ไขแล้ว" (resolved) เพราะแต่ละรายการคือ
+  // เหตุการณ์ปิดปัญหาที่เกิดขึ้นจริงคนละครั้ง ต้องเก็บแยกไว้ตรวจปิดวงจร (verifyDRPOutcome) ต่อรายการเสมอ
+  const unresolvedEntries = entries.filter(e => e.status !== 'resolved');
+  const resolvedEntriesAll = entries.filter(e => e.status === 'resolved');
+  const unresolvedByKey = new Map();
+  unresolvedEntries.forEach(e => {
+    const key = e.patientId + '::' + normalizeDrpProblem(e.problemEn);
+    const existing = unresolvedByKey.get(key);
+    if (!existing) { unresolvedByKey.set(key, e); return; }
+    const existingTracked = existing.status === 'in_progress' || !!existing.assignedTo || !!existing.actionTaken || !!existing.note;
+    const candidateTracked = e.status === 'in_progress' || !!e.assignedTo || !!e.actionTaken || !!e.note;
+    if (candidateTracked && !existingTracked) { unresolvedByKey.set(key, e); return; }
+    if (!candidateTracked && existingTracked) { return; }
+    if ((e.visitDate || '') > (existing.visitDate || '')) unresolvedByKey.set(key, e);
+  });
+  const collapsedEntries = [...unresolvedByKey.values(), ...resolvedEntriesAll];
+
   const sevRank = { High: 0, Medium: 1, Low: 2 };
   const statusRank = { open: 0, in_progress: 0, resolved: 1 };
-  return entries.sort((a, b) =>
+  return collapsedEntries.sort((a, b) =>
     (statusRank[a.status] - statusRank[b.status]) ||
     (sevRank[a.severity] - sevRank[b.severity]) ||
     (b.visitDate || '').localeCompare(a.visitDate || '')
@@ -15695,14 +15717,18 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
                   {metrics.map(({ key, icon, targetLabel, numLabel, denLabel }) => {
                     const m = kpis[key];
                     const isPass = m.status === 'pass';
+                    // den=0 = ยังไม่มีผู้ป่วยกลุ่มนี้เลยในช่วงเวลาที่เลือก — เดิมตารางนี้ยังแสดงเป็น
+                    // "0% ⚠ ต้องปรับ" เหมือนล้มเหลวจริง (QualityKPICard การ์ดด้านบนแก้จุดนี้ไปแล้ว แต่
+                    // ตารางสรุปยังไม่ได้แก้ตาม) ทำให้ตัวเลขเดียวกันแสดงผลไม่ตรงกันระหว่างการ์ดกับตาราง
+                    const noData = !(m.den > 0);
                     return (
                       <tr key={key} onClick={() => setDetailKey(key)} style={{ borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }}
                         className="rx-kpi-row-click">
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
                           {icon} {m.label}
                         </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 15, color: isPass ? '#059669' : '#DC2626' }}>
-                          {m.value}{m.unit}
+                        <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: 15, color: noData ? '#6B7280' : isPass ? '#059669' : '#DC2626' }}>
+                          {noData ? '—' : `${m.value}${m.unit}`}
                         </td>
                         <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }}>{targetLabel}</td>
                         <td style={{ padding: '10px 14px', color: C.textMuted, fontSize: 12 }} title={`${numLabel || 'ตัวเศษ'}: ${m.num} · ${denLabel || 'ตัวส่วน'}: ${m.den}`}>
@@ -15711,9 +15737,9 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{
                             display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: isPass ? '#F0FDF4' : '#FEF2F2',
-                            color: isPass ? '#059669' : '#DC2626',
-                          }}>{isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</span>
+                            background: noData ? '#F3F4F6' : isPass ? '#F0FDF4' : '#FEF2F2',
+                            color: noData ? '#6B7280' : isPass ? '#059669' : '#DC2626',
+                          }}>{noData ? '— ไม่มีข้อมูล' : isPass ? '✅ ผ่าน' : '⚠ ต้องปรับ'}</span>
                         </td>
                       </tr>
                     );
