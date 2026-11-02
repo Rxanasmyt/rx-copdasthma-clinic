@@ -20473,11 +20473,15 @@ function matchImportedPatient(patients, hn) {
     || patients.find(p => stripLead((p.hn || '').trim()) === stripLead(hn));
 }
 
-function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, currentUser }) {
+// เดิมผูกกับ todayStr ตรงๆ ทุกจุด ใช้ได้แค่คิววันนี้เท่านั้น — เพิ่ม targetDate (ไม่ระบุ = todayStr
+// เหมือนเดิม) ให้เรียกจากฟีเจอร์ "บันทึกย้อนหลัง" แนบไฟล์นัดของวันอื่นที่ไม่ใช่วันนี้ได้ด้วย
+function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, targetDate, currentUser }) {
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const dateToUse = targetDate || todayStr;
+  const isToday = dateToUse === todayStr;
 
   if (!open) return null;
 
@@ -20502,19 +20506,19 @@ function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, cu
 
   const confirmImport = () => {
     const matchedIds = matchedRows.map(x => x.patient.id);
-    // เติมเข้าคิว walk-in วันนี้ (กันซ้ำกับที่มีอยู่แล้ว)
-    const existingWalkInIds = new Set((data.queueWalkIns || []).filter(w => w.date === todayStr).map(w => w.patientId));
+    // เติมเข้าคิว walk-in ของวันที่เลือก (กันซ้ำกับที่มีอยู่แล้ว)
+    const existingWalkInIds = new Set((data.queueWalkIns || []).filter(w => w.date === dateToUse).map(w => w.patientId));
     const newWalkIns = matchedIds
       .filter(id => !existingWalkInIds.has(id))
-      .map(id => ({ date: todayStr, patientId: id, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '', source: 'hosxp_import' }));
+      .map(id => ({ date: dateToUse, patientId: id, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '', source: 'hosxp_import', ...(isToday ? {} : { backdated: true }) }));
 
-    // อัปเดต/สร้าง clinicDayRosters ของวันนี้ ให้ scheduledCount ตรงกับไฟล์ที่นำเข้า (ใช้เป็นตัวหาร KPI6)
+    // อัปเดต/สร้าง clinicDayRosters ของวันที่เลือก ให้ scheduledCount ตรงกับไฟล์ที่นำเข้า (ใช้เป็นตัวหาร KPI6)
     const rosters = data.clinicDayRosters || [];
-    const existingRoster = rosters.find(r => r.date === todayStr);
+    const existingRoster = rosters.find(r => r.date === dateToUse);
     const rosterPatientIds = Array.from(new Set([...(existingRoster?.patientIds || []), ...matchedIds]));
     const rosterEntry = {
       id: existingRoster?.id || AppStore.generateId(),
-      date: todayStr,
+      date: dateToUse,
       patientIds: rosterPatientIds,
       extraCount: unmatchedRows.length,
       scheduledCount: rosterPatientIds.length + unmatchedRows.length,
@@ -20525,12 +20529,12 @@ function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, cu
     const nextRosters = existingRoster ? rosters.map(r => r.id === existingRoster.id ? rosterEntry : r) : [...rosters, rosterEntry];
 
     onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), ...newWalkIns], clinicDayRosters: nextRosters });
-    window.rxToast?.(`✅ นำเข้าคิววันนี้: พบในระบบ ${matchedRows.length} ราย${unmatchedRows.length ? `, ไม่พบ ${unmatchedRows.length} ราย (ต้องเพิ่มผู้ป่วยใหม่)` : ''}`, 'success', 5000);
+    window.rxToast?.(`✅ นำเข้าคิววันที่ ${dateToUse}: พบในระบบ ${matchedRows.length} ราย${unmatchedRows.length ? `, ไม่พบ ${unmatchedRows.length} ราย (ต้องเพิ่มผู้ป่วยใหม่)` : ''}`, 'success', 5000);
     onClose();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="📥 นำเข้ารายชื่อนัดวันนี้จาก HOSxP (Excel)" width={720}
+    <Modal open={open} onClose={onClose} title={`📥 นำเข้ารายชื่อนัด${isToday ? 'วันนี้' : `วันที่ ${dateToUse}`}จาก HOSxP (Excel)`} width={720}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Btn size="sm" variant="ghost" onClick={onClose}>ยกเลิก</Btn>
@@ -20541,7 +20545,7 @@ function ImportHOSxPQueueModal({ open, onClose, data, onDataChange, todayStr, cu
       }>
       <p style={{ fontSize: 12.5, color: C.textMuted, marginBottom: 14 }}>
         เลือกไฟล์ "ใบสรุปการนัดหมาย" (.xls/.xlsx) ที่ export จาก HOSxP — ระบบจะจับคู่ HN กับผู้ป่วยที่มีอยู่แล้ว
-        แล้วเติมเข้าคิว OPD วันนี้ให้อัตโนมัติ ผู้ป่วยที่ยังไม่มี HN ในระบบจะแสดงแยกไว้ให้เพิ่มเอง
+        แล้วเติมเข้าคิว OPD {isToday ? 'วันนี้' : `วันที่ ${dateToUse}`}ให้อัตโนมัติ ผู้ป่วยที่ยังไม่มี HN ในระบบจะแสดงแยกไว้ให้เพิ่มเอง
       </p>
       <input type="file" accept=".xls,.xlsx" onChange={handleFile} disabled={busy} />
       {fileName && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>📄 {fileName}</div>}
@@ -20701,6 +20705,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
   const [walkInQuery, setWalkInQuery] = useState('');
   const [showWalkInSearch, setShowWalkInSearch] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showBackdateImportModal, setShowBackdateImportModal] = useState(false);
 
   const walkInMatches = useMemo(() => {
     const q = walkInQuery.trim().toLowerCase();
@@ -21141,6 +21146,11 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', marginBottom: 4 }}>วันที่ (ย้อนหลังได้ ไม่เกินวันนี้)</div>
                     <Input type="date" value={backdateDate} onChange={setBackdateDate} style={{ width: 170 }} />
                   </div>
+                  {backdateDate && (
+                    <Btn size="sm" variant="ghost" onClick={() => setShowBackdateImportModal(true)} style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>
+                      📥 นำเข้าจาก HOSxP
+                    </Btn>
+                  )}
                   {[{ n: scheduledBackdate.filter(x => x.checkedIn).length, l: 'บันทึกแล้ว', c: '#4ADE80' },
                     { n: scheduledBackdate.filter(x => !x.checkedIn).length, l: 'รอ', c: '#FDE68A' }].map(x => (
                     <div key={x.l} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
@@ -21152,7 +21162,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
               </div>
 
               <div style={{ padding: '14px 18px 4px', position: 'relative' }}>
-                <Input placeholder="🔎 ค้นหาชื่อหรือ HN ผู้ป่วย เพื่อเพิ่มเข้าคิววันนี้…" value={backdateQuery} onChange={setBackdateQuery} />
+                <Input placeholder="🔎 ค้นหาชื่อหรือ HN ผู้ป่วย เพื่อเพิ่มเข้าคิว…" value={backdateQuery} onChange={setBackdateQuery} />
                 {backdateQuery.trim() && (
                   <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 18, right: 18, marginTop: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 220, overflowY: 'auto' }}>
                     {backdateMatches.length === 0 ? (
@@ -21215,6 +21225,8 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
 
       <ImportHOSxPQueueModal open={showImportModal} onClose={() => setShowImportModal(false)}
         data={data} onDataChange={onDataChange} todayStr={todayStr} currentUser={currentUser} />
+      <ImportHOSxPQueueModal open={showBackdateImportModal} onClose={() => setShowBackdateImportModal(false)}
+        data={data} onDataChange={onDataChange} todayStr={todayStr} targetDate={backdateDate} currentUser={currentUser} />
 
       {/* Upcoming visit reminders */}
       {overdueFollowups.length > 0 && (
