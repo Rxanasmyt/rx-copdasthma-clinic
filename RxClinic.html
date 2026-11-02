@@ -8874,6 +8874,36 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
     [patient.exacerbationEvents]
   );
 
+  // ── ส่งต่อแพทย์แบบปิดวงจร ──
+  // เดิม CDS แนะนำ "พิจารณาส่งต่อแพทย์เฉพาะทาง" เป็นแค่ข้อความเตือนลอยๆ ไม่มีปุ่มให้ทำอะไรต่อ
+  // ตรงนี้ — เภสัชกรต้องจำปัญหาเอง ไปเปิดหน้า HA Compliance แยก แล้วพิมพ์สรุปซ้ำเองทั้งหมด
+  const lastVisit = visits[0];
+  const canEdit = AppStore.canEditClinical(currentUser);
+  const cdsReferralFlag = React.useMemo(() => {
+    if (!lastVisit) return false;
+    const items = window.buildCDS ? window.buildCDS({
+      patient, medications: lastVisit.medications, inhalerTechnique: lastVisit.inhalerTechnique,
+      adherence: lastVisit.adherence, exacerbation: lastVisit.exacerbation, assessments: lastVisit.assessments,
+    }) : [];
+    return items.some(it => it.title === 'พิจารณาส่งต่อแพทย์เฉพาะทาง');
+  }, [patient, lastVisit]);
+  const referrals = React.useMemo(
+    () => (data.haCompliance?.referrals || []).filter(r => r.patientId === patient.id)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    [data.haCompliance, patient.id]
+  );
+  const openReferralExists = referrals.some(r => !r.feedbackReceived);
+  const [referralOpen, setReferralOpen] = React.useState(false);
+
+  const handleCreateReferral = (record) => {
+    const ex = lastVisit?.exacerbation || {};
+    window.createReferralWithAudit(data, onDataChange, currentUser, patient, {
+      ...record,
+      visitId: lastVisit?.id || null, visitDate: lastVisit?.visitDate || null,
+      exYearAtReferral: Number(ex.countThisYear) || 0, hospAtReferral: !!ex.hospitalized,
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* ── DRP ของผู้ป่วยคนนี้ ── */}
@@ -8925,6 +8955,67 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
           </div>
         )}
       </Card>
+
+      {/* ── ส่งต่อแพทย์ (Referral) แบบปิดวงจร ── */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.primary }}>📨 ส่งต่อแพทย์ผู้เชี่ยวชาญ</h3>
+          {canEdit && (
+            <Btn size="sm" variant={cdsReferralFlag && !openReferralExists ? 'accent' : 'ghost'} onClick={() => setReferralOpen(true)}>
+              + สร้างรายการส่งต่อ
+            </Btn>
+          )}
+        </div>
+        {cdsReferralFlag && !openReferralExists && (
+          <div style={{ padding: '10px 14px', borderRadius: 8, background: '#FFFBEB', border: '1px solid #FDE68A', fontSize: 12.5, color: '#92400E', fontWeight: 600, marginBottom: 10 }}>
+            🏥 CDS แนะนำ: ควบคุมโรคไม่ได้แม้ปรับยา/เทคนิค/adherence ให้ดีที่สุดแล้ว — พิจารณาส่งต่อแพทย์เฉพาะทาง
+          </div>
+        )}
+        {referrals.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: C.textMuted }}>ยังไม่มีการส่งต่อของผู้ป่วยคนนี้</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {referrals.map(r => {
+              const outcome = window.verifyReferralOutcome ? window.verifyReferralOutcome(r, data.visits) : { checked: false };
+              return (
+                <div key={r.id} style={{ padding: '10px 12px', borderRadius: 8, background: C.bgAlt, border: `1px solid ${C.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>→ {r.referTo} [{(r.urgency || '').toUpperCase()}] · {r.date}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: r.feedbackReceived ? C.lowBg : C.highBg, color: r.feedbackReceived ? C.low : C.high }}>
+                      {r.feedbackReceived ? '✅ ได้รับ feedback' : '⏳ รอ feedback'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{r.problem}</div>
+                  {r.feedback && <div style={{ fontSize: 11.5, color: C.text, marginTop: 4 }}>💬 {r.feedback}</div>}
+                  {outcome.checked && (
+                    <div style={{ fontSize: 11, marginTop: 6, color: outcome.improved ? '#047857' : '#B91C1C' }}>
+                      🔁 ปิดวงจร: ตรวจ visit ถัดไป ({outcome.followUpVisitDate}) — exacerbation {outcome.exBefore}→{outcome.exAfter} ครั้ง/ปี {outcome.improved ? '· ดีขึ้น/คงที่' : '· ยังไม่ดีขึ้น ควรติดตามต่อ'}
+                    </div>
+                  )}
+                  {!r.feedbackReceived && canEdit && (
+                    <div style={{ marginTop: 8 }}>
+                      <Btn size="sm" variant="ghost" onClick={() => {
+                        const fb = window.prompt('บันทึก feedback จากผู้รับการส่งต่อ (เว้นว่างได้):', '') || '';
+                        window.updateReferralWithAudit(data, onDataChange, currentUser, r.id, { feedbackReceived: true, feedback: fb }, patient);
+                      }}>บันทึกว่าได้รับ feedback แล้ว</Btn>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+      {referralOpen && (
+        <window.ReferralModal open={referralOpen} onClose={() => setReferralOpen(false)} patient={patient} currentUser={currentUser}
+          onSave={handleCreateReferral}
+          initial={{
+            referTo: 'แพทย์เฉพาะทาง', urgency: lastVisit?.exacerbation?.hospitalized ? 'urgent' : 'routine',
+            problem: cdsReferralFlag
+              ? `ควบคุมโรคไม่ได้ (${patient.diagnosis}) แม้ปรับยา/เทคนิคพ่นยา/adherence ให้ดีที่สุดแล้ว — exacerbation ${lastVisit?.exacerbation?.countThisYear ?? 0} ครั้ง/ปี${lastVisit?.exacerbation?.hospitalized ? ' (เคยนอน รพ.)' : ''} ณ visit วันที่ ${lastVisit?.visitDate || ''}`
+              : '',
+          }} />
+      )}
 
       {/* ── ปุ่มลัดไปดูแนวโน้ม/ประวัติยา (ข้อมูลอยู่แล้วใน tab อื่น ไม่สร้างซ้ำ) ── */}
       <Card>
@@ -12023,6 +12114,18 @@ function RiskScreeningView({ data, navigate }) {
 // ซึ่งเก็บใน data.drpTracker (sparse map คีย์ด้วย drpEntryId) กด "แก้ไข" ที่แถวเพื่อขยายดู/บันทึกได้เลย
 const DRP_STATUS_LABEL = { open: '🔴 ยังไม่แก้ไข', in_progress: '🟡 กำลังดำเนินการ', resolved: '✅ แก้ไขแล้ว' };
 const DRP_SEVERITY_COLOR = { High: '#DC2626', Medium: '#D97706', Low: '#6B7280' };
+// เดิม DRP entry ไม่มีช่องบันทึก "ประเภทการแทรกแซง" ของเภสัชกรเลย (ให้คำปรึกษาด้วยวาจา/เอกสาร/
+// โทรติดตาม/ส่งต่อแพทย์) มีแค่ actionTaken เป็น free-text — ตรวจสอบ HA/สปสช. ย้อนหลังจำแนกประเภท
+// การให้บริการได้ยาก ต้องเปิดอ่าน free-text ทุกรายการเอง เพิ่ม enum ให้เลือกชัดเจน
+const DRP_INTERVENTION_TYPES = [
+  { value: '', label: '— ไม่ระบุ —' },
+  { value: 'verbal', label: '🗣️ ให้คำปรึกษาด้วยวาจา' },
+  { value: 'written', label: '📄 ให้คำปรึกษา + เอกสารลายลักษณ์อักษร' },
+  { value: 'phone', label: '📞 โทรติดตาม (Telepharmacy)' },
+  { value: 'referral', label: '🏥 ส่งต่อแพทย์' },
+  { value: 'med_adjust', label: '💊 ปรับยา/ประสานแพทย์ปรับยา' },
+];
+const DRP_INTERVENTION_LABEL = Object.fromEntries(DRP_INTERVENTION_TYPES.map(t => [t.value, t.label]));
 
 // ── audit trail ของ DRP Tracker — เดิมเก็บแค่สถานะล่าสุด ไม่มีประวัติว่าใครเปลี่ยนอะไรเมื่อไหร่
 // (เช่น เปลี่ยนคนรับผิดชอบ, เปลี่ยนสถานะ) ใช้ appendAudit ตัวเดียวกับที่ VisitForm ใช้อยู่แล้ว
@@ -12033,11 +12136,54 @@ const saveDRPEntryWithAudit = (data, onDataChange, currentUser, entryId, patch, 
   let nextData = { ...data, drpTracker: nextTracker };
   const userLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() || 'unknown' : 'unknown';
   const assignPart = patch.assignedTo ? ` · มอบหมาย: ${patch.assignedTo}` : '';
+  const interventionPart = patch.interventionType ? ` · การแทรกแซง: ${DRP_INTERVENTION_LABEL[patch.interventionType] || patch.interventionType}` : '';
   nextData = appendAudit(nextData, {
     user: userLabel, action: 'drp-update', patientId: entry?.patientId,
-    summary: `อัปเดต DRP (${entry?.categoryTh || entry?.categoryEn || ''} — ${entry?.problemTh || entryId}) ของ ${entry?.patient?.name || ''} · HN ${entry?.patient?.hn || ''} → ${DRP_STATUS_LABEL[patch.status] || patch.status}${assignPart}`,
+    summary: `อัปเดต DRP (${entry?.categoryTh || entry?.categoryEn || ''} — ${entry?.problemTh || entryId}) ของ ${entry?.patient?.name || ''} · HN ${entry?.patient?.hn || ''} → ${DRP_STATUS_LABEL[patch.status] || patch.status}${assignPart}${interventionPart}`,
   });
   onDataChange?.(nextData);
+};
+
+// ── ส่งต่อแพทย์แบบปิดวงจร (เดิม ReferralModal ของ HA Compliance เป็นแค่บันทึกทางเดียว ไม่มี
+// audit trail และไม่เชื่อมกับคำแนะนำของ CDS ("พิจารณาส่งต่อแพทย์เฉพาะทาง") เลย — เพิ่ม audit +
+// ฟังก์ชันตรวจผลลัพธ์ย้อนหลังจาก visit ถัดไป เทียบรูปแบบเดียวกับ verifyDRPOutcome ของ DRP Tracker) ──
+const createReferralWithAudit = (data, onDataChange, currentUser, patient, record) => {
+  const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  let nextData = { ...data, haCompliance: { ...ha, referrals: [...(ha.referrals || []), record] } };
+  const userLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() || 'unknown' : 'unknown';
+  nextData = appendAudit(nextData, {
+    user: userLabel, action: 'referral-create', patientId: patient?.id,
+    summary: `ส่งต่อ ${patient?.prefix || ''}${patient?.firstName || ''} ${patient?.lastName || ''} · HN ${patient?.hn || ''} → ${record.referTo} [${(record.urgency || '').toUpperCase()}] — ${(record.problem || '').slice(0, 80)}`,
+  });
+  onDataChange?.(nextData);
+};
+
+const updateReferralWithAudit = (data, onDataChange, currentUser, referralId, patch, patient) => {
+  const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  const nextReferrals = (ha.referrals || []).map(r => r.id === referralId ? { ...r, ...patch } : r);
+  let nextData = { ...data, haCompliance: { ...ha, referrals: nextReferrals } };
+  const userLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() || 'unknown' : 'unknown';
+  nextData = appendAudit(nextData, {
+    user: userLabel, action: 'referral-update', patientId: patient?.id,
+    summary: `อัปเดตผลการส่งต่อของ ${patient?.prefix || ''}${patient?.firstName || ''} ${patient?.lastName || ''} · HN ${patient?.hn || ''}${patch.feedbackReceived ? ' → ได้รับ feedback แล้ว' : ''}`,
+  });
+  onDataChange?.(nextData);
+};
+
+// ตรวจว่าหลังส่งต่อแล้ว visit ถัดไปของผู้ป่วยคนนี้ดีขึ้นจริงหรือไม่ (จำนวน exacerbation/การนอน รพ.
+// ลดลงจากตอนที่ส่งต่อ) — วิธีเดียวกับ verifyDRPOutcome ของ DRP Tracker (รอ visit ถัดไปแล้วเทียบอัตโนมัติ)
+const verifyReferralOutcome = (entry, visits) => {
+  const after = (visits || [])
+    .filter(v => v.patientId === entry.patientId && v.visitDate > entry.date)
+    .sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  if (after.length === 0) return { checked: false };
+  const followUp = after[0];
+  const exBefore = Number(entry.exYearAtReferral) || 0;
+  const hospBefore = !!entry.hospAtReferral;
+  const exAfter = Number(followUp.exacerbation?.countThisYear) || 0;
+  const hospAfter = !!followUp.exacerbation?.hospitalized;
+  const improved = !hospAfter && (exAfter <= exBefore);
+  return { checked: true, followUpVisitDate: followUp.visitDate, improved, exBefore, exAfter };
 };
 
 function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, currentUser }) {
@@ -12046,6 +12192,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
   const [assignedTo, setAssignedTo] = React.useState(entry.assignedTo);
   const [actionTaken, setActionTaken] = React.useState(entry.actionTaken);
   const [note, setNote] = React.useState(entry.note);
+  const [interventionType, setInterventionType] = React.useState(entry.interventionType || '');
 
   // แถวนี้ mount ค้างไว้ทั้ง worklist (ไม่ unmount ตอนพับ) แล้ว seed state จาก entry แค่ครั้งเดียวตอน
   // mount — ถ้าคนอื่นแก้ DRP ตัวนี้ไปพร้อมกัน (sync จากเครื่องอื่น) แล้วเรากดเปิดแถวมาแก้ต่อ จะเห็น
@@ -12055,6 +12202,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
     if (open) {
       setStatus(entry.status); setAssignedTo(entry.assignedTo);
       setActionTaken(entry.actionTaken); setNote(entry.note);
+      setInterventionType(entry.interventionType || '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -12065,7 +12213,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
     // assignedTo เลย resolvedBy จะว่างเปล่า ทั้งที่รู้ตัวคนที่กดบันทึกอยู่แล้วจาก currentUser
     const meLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() : '';
     onSave(entry.id, {
-      status, assignedTo, actionTaken, note,
+      status, assignedTo, actionTaken, note, interventionType,
       dateResolved: status === 'resolved' ? (entry.dateResolved || new Date().toISOString().slice(0, 10)) : '',
       resolvedBy: status === 'resolved' ? (entry.resolvedBy || assignedTo || meLabel || '') : '',
       updatedAt: new Date().toISOString().slice(0, 10),
@@ -12104,6 +12252,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
             : <span style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', background: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>⏳ รอ visit ถัดไปยืนยัน</span>
         )}
         {entry.assignedTo && <span style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: 'nowrap' }}>👤 {entry.assignedTo}</span>}
+        {entry.interventionType && <span style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: 'nowrap' }}>{DRP_INTERVENTION_LABEL[entry.interventionType]}</span>}
         <span style={{ fontSize: 11, color: C.textLight, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
       </div>
       {open && (
@@ -12145,6 +12294,11 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
                 { value: '', label: '— ไม่ระบุ —' },
                 ...(users || []).map(u => ({ value: u.name || u.uid || u.id, label: u.name || u.uid || u.id })),
               ]} style={{ width: 170, padding: '6px 10px', fontSize: 12 }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, display: 'block', marginBottom: 3 }}>ประเภทการแทรกแซง</label>
+              <Select value={interventionType} onChange={setInterventionType} disabled={!canEdit}
+                options={DRP_INTERVENTION_TYPES} style={{ width: 220, padding: '6px 10px', fontSize: 12 }} />
             </div>
           </div>
           <div>
@@ -13549,7 +13703,7 @@ function ReportsView({ data, navigate, onDataChange, onForceBackup, onLoadBackup
   );
 }
 
-Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DataCompletenessCard, DRPTrackerView, saveDRPEntryWithAudit });
+Object.assign(window, { RiskScreeningView, TelepharmacyView, ReportsView, MedicationSearchCard, AdvancedPatientQueryCard, DataCompletenessCard, DRPTrackerView, saveDRPEntryWithAudit, createReferralWithAudit, updateReferralWithAudit, verifyReferralOutcome });
 </script>
 <script type="text/babel">
 // QuickSearch.jsx — Cmd/Ctrl+K Quick Patient Lookup
@@ -19242,11 +19396,16 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
 // ──────────────────────────────────────────────────────────────
 // HA8: Referral Form
 // ──────────────────────────────────────────────────────────────
-function ReferralModal({ open, onClose, patient, onSave, currentUser }) {
+function ReferralModal({ open, onClose, patient, onSave, currentUser, initial }) {
+  // เดิม referral สร้างได้แค่จากหน้า HA Compliance เท่านั้น แยกจากจุดที่ CDS แนะนำให้ส่งต่อ
+  // (buildCDS ข้อ "พิจารณาส่งต่อแพทย์เฉพาะทาง") — เภสัชกรต้องจำปัญหาเอง เปิดหน้าอื่น แล้วพิมพ์สรุป
+  // ซ้ำเอง เสี่ยงสรุปไม่ครบ/ไม่ตรงกับที่เห็นตอนประเมิน — รับ `initial` เพื่อให้ผู้เรียกเติม referTo/
+  // urgency/problem (สรุปทางคลินิกอัตโนมัติ) ล่วงหน้าได้ ยังแก้ไขเพิ่มเติมได้ก่อนกดส่งต่อจริงเสมอ
   const blankReferral = {
     referTo: 'แพทย์ผู้ดูแล', referToOther: '', urgency: 'routine',
     problem: '', action: '', suggestion: '', pharmacist: currentUser?.name || '',
     feedbackReceived: false, feedback: '',
+    ...(initial || {}),
   };
   const [form, setForm] = useState(blankReferral);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
