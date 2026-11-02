@@ -73,6 +73,32 @@ function run(t) {
     t.ok('KPI7 breakdown.asthma excludes Both (den=1)', kpis.adherenceGoodPercent.breakdown.asthma.den === 1);
   }
 
+  // ─── regression: KPI7 ต้องแยก "ยังไม่ได้ประเมิน adherence เลย" ออกจาก "ประเมินแล้วผลดี" ───
+  // เดิม adherence ฟอร์มเปล่า (ยังไม่ติ๊กอะไรเลย) มีค่า default level='Good' เหมือนกับประเมินแล้วจริงๆ
+  // ทุกประการ ทำให้ผู้ป่วยที่ไม่เคยถูกประเมิน adherence เลยถูกนับเป็น "ผ่านเกณฑ์" ไปด้วย — แก้โดยเพิ่ม
+  // field "assessed" (true เฉพาะตอนผู้ใช้ติ๊ก/แก้ไขจริง) แต่ยังคง backward-compat กับ visit เก่าที่มี
+  // adherence object บันทึกไว้แล้วแต่ไม่มี field นี้ (ถือว่าประเมินแล้ว ไม่ทำให้ KPI7 ย้อนหลังร่วง)
+  {
+    const data = {
+      patients: [mkPatient('p1', 'COPD'), mkPatient('p2', 'COPD'), mkPatient('p3', 'COPD')],
+      visits: [
+        // p1: ฟอร์มใหม่ (มี field assessed) แต่ยังไม่ได้ติ๊กอะไรเลย -> ไม่ควรนับเป็น "ผ่าน" แม้ level จะ
+        // เป็น default 'Good' ก็ตาม
+        { id: 'v1', patientId: 'p1', visitDate: '2026-07-01', adherence: { answers: [false,false,false,false], score: 0, level: 'Good', assessed: false } },
+        // p2: ฟอร์มใหม่ ติ๊กจริงแล้วผลออกมาดี -> ควรนับเป็น "ผ่าน"
+        { id: 'v2', patientId: 'p2', visitDate: '2026-07-02', adherence: { answers: [false,false,false,false], score: 0, level: 'Good', assessed: true } },
+        // p3: visit เก่าก่อนมี field "assessed" เลย (ไม่มี key นี้ในข้อมูล) แต่มีการประเมินจริงมาก่อน ->
+        // ต้องยัง backward-compat นับเป็น "ผ่าน" เหมือนเดิม ไม่งั้น KPI7 ย้อนหลังทั้งหมดจะร่วงทันที
+        { id: 'v3', patientId: 'p3', visitDate: '2026-07-03', adherence: { level: 'Good' } },
+      ],
+      telepharmacy: [], clinicDayRosters: [],
+    };
+    const kpis = calculateQualityKPIs(data, '2026-07-01', '2026-07-31');
+    t.ok('regression KPI7: den ยังนับผู้ป่วยที่มาทุกคนเหมือนเดิม (den=3)', kpis.adherenceGoodPercent.den === 3);
+    t.ok('regression KPI7: num ไม่นับ p1 (ฟอร์มเปล่า assessed=false) แม้ level จะเป็น default Good',
+      kpis.adherenceGoodPercent.num === 2);
+  }
+
   // ─── Empty period must show 0, never silently fall back to all-time data ───
   {
     const data = {

@@ -1069,7 +1069,14 @@ const RX_KPI_ENUMS = {
   RISK_LEVELS: ['Low', 'Medium', 'High'],
 };
 const isTechniquePass = (score) => RX_KPI_ENUMS.TECHNIQUE_PASS.includes(score);
-const isAdherenceGood = (level) => level === RX_KPI_ENUMS.ADHERENCE_GOOD;
+// เดิมรับแค่ level string เทียบตรงๆ — ฟอร์มเปล่าที่ยังไม่ได้ติ๊กอะไรเลยมีค่า default level='Good'
+// (เพื่อให้ AdherenceBadge แสดงผลสวยงามตอนยังไม่กรอก) ทำให้ "ยังไม่ได้ประเมิน" กับ "ประเมินแล้วดี"
+// มีหน้าตาข้อมูลเหมือนกันทุกประการ แยกไม่ออกเลยว่าค่า 'Good' ที่เห็นคือกรอกจริงหรือยังไม่ได้แตะฟอร์ม —
+// รับ adherence object ทั้งก้อนแทน ต้อง assessed===true (ติ๊ก/แก้ไขจริงอย่างน้อย 1 ครั้งแล้ว) ด้วยเสมอ
+// ยกเว้น visit เก่าก่อนมี field นี้ (assessed === undefined ไม่ใช่ false) ให้ถือว่าประเมินแล้วเหมือนเดิม
+// กันไม่ให้ตัวเลข KPI7 ย้อนหลังทั้งหมดร่วงฮวบทันทีที่ deploy field ใหม่นี้ (เฉพาะ visit ใหม่ที่สร้างหลัง
+// จากนี้เท่านั้นที่จะมี assessed:false เป็นค่าเริ่มต้นจริงจากฟอร์มเปล่า — ดู blankVisit)
+const isAdherenceGood = (adherence) => adherence?.assessed !== false && adherence?.level === RX_KPI_ENUMS.ADHERENCE_GOOD;
 
 // ── ค้นหาผู้ป่วยแบบผสมหลายเงื่อนไข (Advanced Patient Query) — ทั้งทะเบียน ไม่จำกัดช่วงวันที่ ──
 // เดิมกรองได้ทีละอย่าง (โรค/ความเสี่ยง/ยา) ต้องผสมเงื่อนไขเองไม่ได้ เช่น "COPD + ยังไม่ได้ LABA/LAMA
@@ -1116,15 +1123,20 @@ const advancedPatientSearch = (patients, visits, filters, todayStr) => {
       reasons.push(anyAssessed ? (pass ? 'เทคนิคผ่านเกณฑ์' : 'เทคนิคไม่ผ่านเกณฑ์') : 'ยังไม่เคยประเมินเทคนิค');
     }
     if (filters.adherenceGood && filters.adherenceGood !== 'any') {
-      const level = lastVisit?.adherence?.level;
-      const good = isAdherenceGood(level);
+      // เดิมเช็ค "ยังไม่เคยประเมิน" ด้วย level truthy — level default เป็น 'Good' เสมอแม้ยังไม่กรอก
+      // ทำให้ filter 'never_assessed' ไม่ match ใครเลยสักคน (if(level) return; เป็นจริงทุกครั้ง) — ใช้
+      // adherence?.assessed ที่สะท้อนว่าติ๊ก/แก้ไขจริงหรือยัง แทน (visit เก่าที่มี adherence object อยู่
+      // แล้วแต่ไม่มี field "assessed" เลยถือว่าประเมินแล้วเหมือน isAdherenceGood — แต่ถ้าไม่มี visit เลย
+      // หรือ visit มีแต่ไม่มี adherence object ติดมาด้วยเลย ต้องถือว่ายังไม่ประเมินเสมอ)
+      const assessed = !!lastVisit?.adherence && lastVisit.adherence.assessed !== false;
+      const good = isAdherenceGood(lastVisit?.adherence);
       if (filters.adherenceGood === 'never_assessed') {
-        if (level) return;
+        if (assessed) return;
       } else {
-        if (!level) return;
+        if (!assessed) return;
         if ((filters.adherenceGood === 'good') !== good) return;
       }
-      reasons.push(level ? (good ? 'Adherence ดี' : 'Adherence ไม่ดี') : 'ยังไม่เคยประเมิน Adherence');
+      reasons.push(assessed ? (good ? 'Adherence ดี' : 'Adherence ไม่ดี') : 'ยังไม่เคยประเมิน Adherence');
     }
     if (filters.medicationContains) {
       const q = filters.medicationContains.trim().toLowerCase();
@@ -1754,6 +1766,18 @@ const calcAgeFromDOB = (dob) => {
   return age >= 0 ? age : null;
 };
 
+// ── ตรวจสอบเลขบัตรประชาชนไทย 13 หลัก ด้วยสูตร checksum มาตรฐาน ──
+// digit[0..11] คูณน้ำหนัก (13-i) รวมกัน mod 11 แล้ว (11 - mod) mod 10 ต้องเท่ากับ digit[12]
+// ใช้ตรวจความถูกต้องของรูปแบบก่อนบันทึก (กันพิมพ์ผิด/สลับหลัก) ไม่ได้ยืนยันตัวตนจริงกับกรมการปกครอง
+function isValidThaiNationalId(id) {
+  const digits = String(id || '').replace(/[\s-]/g, '');
+  if (!/^\d{13}$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(digits[i]) * (13 - i);
+  const checkDigit = (11 - (sum % 11)) % 10;
+  return checkDigit === Number(digits[12]);
+}
+
 // ── คำนวณ "วันเกิด" ย้อนกลับจากอายุแบบละเอียด ปี-เดือน-วัน (รูปแบบเดียวกับที่ HOSxP แสดง) ──
 // คืนค่าเป็น ISO date string (YYYY-MM-DD) หรือ null ถ้าไม่มีข้อมูลเลย
 const calcDOBFromAge = (years, months, days) => {
@@ -1886,6 +1910,7 @@ const AppStore = {
   calcAgeFromDOB,
   calcDOBFromAge,
   parseAgeYMD,
+  isValidThaiNationalId,
   getPatientAge,
 
   getDefault() {
@@ -6070,9 +6095,10 @@ function exportVisits(visits, patients) {
 }
 
 // ── Export: 43 แฟ้ม / HDC — ร่างแฟ้ม CHRONICFU เฉพาะการบริบาลเภสัชกรรม COPD/Asthma ──
-// หมายเหตุสำคัญ: ระบบนี้ไม่มีเลขบัตรประชาชน (PID) ของผู้ป่วยเก็บไว้ (ใช้ HN เป็นตัวระบุหลักภายในคลินิก)
-// จึงส่งออกเป็น "ร่างข้อมูล" ที่กรอกฟิลด์ทางคลินิกที่ระบบมีให้ครบ ส่วน PID/HOSPCODE ต้องกรอก/ตรวจสอบ
-// ให้ตรงกับที่ขึ้นทะเบียนไว้กับ HDC ก่อนนำเข้าระบบจริงเสมอ — ห้ามนำไฟล์นี้ส่งขึ้น HDC โดยไม่ตรวจสอบก่อน
+// หมายเหตุสำคัญ: เลขบัตรประชาชน (PID) เป็นฟิลด์ไม่บังคับในทะเบียนผู้ป่วย (ผู้ป่วยบางรายไม่สะดวกให้/
+// จำไม่ได้) ถ้าผู้ป่วยรายไหนไม่ได้กรอกไว้ คอลัมน์ PID จะว่างเปล่า ต้องกรอก/ตรวจสอบให้ตรงกับที่ขึ้น
+// ทะเบียนไว้กับ HDC ก่อนนำเข้าระบบจริงเสมอ — ห้ามนำไฟล์นี้ส่งขึ้น HDC โดยไม่ตรวจสอบก่อน (ยังถือเป็น
+// "ร่างข้อมูล" แม้จะมี PID ครบทุกรายแล้วก็ตาม เพราะรหัส ICD-10/DRUG_USE ด้านล่างยังเป็นค่าประมาณ)
 function export43CHRONICFU(visits, patients, clinicCode, startDate, endDate) {
   const getPt = id => patients.find(p => p.id === id);
   // รหัส ICD-10 มาตรฐานตามกลุ่มโรคที่คลินิกนี้ดูแล (ใช้ค่าทั่วไปที่พบบ่อยสุด — ควรตรวจสอบกับแพทย์ผู้วินิจฉัยจริงอีกครั้ง)
@@ -6097,7 +6123,7 @@ function export43CHRONICFU(visits, patients, clinicCode, startDate, endDate) {
       const pt = getPt(v.patientId);
       const bp = (v.vitals?.bp || '').split('/');
       return [
-        clinicCode || '', '', pt?.hn || '', i + 1, v.visitDate.replace(/-/g, ''),
+        clinicCode || '', pt?.nationalId || '', pt?.hn || '', i + 1, v.visitDate.replace(/-/g, ''),
         chronicCode(pt?.diagnosis),
         bp[0]?.trim() || '', bp[1]?.trim() || '',
         smokeCode(pt?.smokingStatus),
@@ -7295,6 +7321,8 @@ function PatientForm({ patient, onSave, onClose }) {
     goldGrade: '', asthmaControl: '',
     comorbidities: [], phone: '', insurance: 'UC (บัตรทอง)',
     dateOfBirth: '', address: '',
+    nationalId: '', // เลขบัตรประชาชน 13 หลัก — ไม่บังคับกรอก (ผู้ป่วยบางรายไม่สะดวกให้/ไม่มีบัตร) แต่
+    // ถ้ามีจะใช้เติมช่อง PID ของไฟล์ 43-แฟ้ม/HDC export ที่เดิมว่างเปล่าเสมอเพราะแอปไม่เคยเก็บเลขนี้เลย
     allergies: ['NKDA (ไม่แพ้ยา)'], allergyDetail: '',
     eGFR: '', weight: '',
     smokingStatus: 'Unknown', packYears: '',
@@ -7396,6 +7424,11 @@ function PatientForm({ patient, onSave, onClose }) {
     if (f.eGFR !== '' && (isNaN(f.eGFR) || Number(f.eGFR) < 0 || Number(f.eGFR) > 200)) e.eGFR = 'eGFR ควรอยู่ระหว่าง 0-200';
     if (f.weight !== '' && (isNaN(f.weight) || Number(f.weight) <= 0 || Number(f.weight) > 300)) e.weight = 'น้ำหนักควรอยู่ระหว่าง 0-300 กก.';
     if (f.packYears !== '' && (isNaN(f.packYears) || Number(f.packYears) < 0)) e.packYears = 'Pack-years ต้องไม่ติดลบ';
+    // ไม่บังคับกรอก (ผู้ป่วยบางรายไม่สะดวกให้/จำไม่ได้) แต่ถ้ากรอกมาต้องผ่าน checksum มาตรฐาน กันพิมพ์
+    // ผิด/สลับหลัก เพราะเลขนี้จะถูกใช้กรอกช่อง PID ในไฟล์ 43-แฟ้ม/HDC export โดยตรง
+    if (f.nationalId && f.nationalId.trim() && !AppStore.isValidThaiNationalId(f.nationalId)) {
+      e.nationalId = 'เลขบัตรประชาชนไม่ถูกต้อง (ต้องเป็นตัวเลข 13 หลักและผ่าน checksum)';
+    }
     setErr(e);
     return Object.keys(e).length === 0;
   };
@@ -7471,6 +7504,11 @@ function PatientForm({ patient, onSave, onClose }) {
       </div>
       <FormField label="ที่อยู่" hint="สำหรับติดต่อ/เยี่ยมบ้าน (ไม่บังคับ)">
         <Input value={f.address} onChange={v => set('address', v)} placeholder="บ้านเลขที่ หมู่ ตำบล อำเภอ จังหวัด" />
+      </FormField>
+      <FormField label="เลขบัตรประชาชน" error={err.nationalId}
+        hint="ไม่บังคับกรอก — แต่ถ้ากรอกไว้ จะช่วยเติมช่อง PID ในไฟล์ 43-แฟ้ม/HDC export ให้อัตโนมัติ (เดิมว่างเปล่าเสมอ ต้องกรอกเองก่อนส่งจริง)">
+        <Input value={f.nationalId} onChange={v => set('nationalId', v.replace(/[^\d]/g, '').slice(0, 13))}
+          placeholder="13 หลัก ไม่ต้องมีขีด" error={err.nationalId} />
       </FormField>
 
       {/* คำนวณวันเกิดย้อนกลับจากอายุละเอียด ปี-เดือน-วัน (เช่นจากภาพ HOSxP "73 ปี 6 เดือน 5 วัน") */}
@@ -10017,7 +10055,7 @@ function AdherenceSection({ adherence, onChange }) {
     const next = [...answers]; next[i] = !next[i];
     const s = next.filter(Boolean).length;
     const l = s === 0 ? 'Good' : s <= 1 ? 'Good' : s <= 2 ? 'Fair' : 'Poor';
-    onChange({ answers: next, score: s, level: l });
+    onChange({ answers: next, score: s, level: l, assessed: true }); // ติ๊กจริงแล้ว ไม่ใช่ default ว่างๆ อีกต่อไป
   };
   const scoreColor = level === 'Good' ? C.low : level === 'Fair' ? C.medium : C.high;
   return (
@@ -10404,7 +10442,9 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     vitals: { spO2: '', rr: '', bp: '', fev1: '', peakFlow: '' },
     medications: [],
     inhalerTechnique: [],
-    adherence: { answers: [false, false, false, false], score: 0, level: 'Good' },
+    adherence: { answers: [false, false, false, false], score: 0, level: 'Good', assessed: false },
+    // assessed: false จนกว่าผู้ใช้จะติ๊ก/แก้ไขจริงอย่างน้อย 1 ครั้ง — แยก "ยังไม่ได้ประเมิน" ออกจาก
+    // "ประเมินแล้วตอบปฏิเสธทุกข้อ" ที่เดิมมีหน้าตาข้อมูลเหมือนกันทุกประการ (ดู isAdherenceGood)
     assessments: {
       cat:  { answers: [null,null,null,null,null,null,null,null], score: 0, allAnswered: false },
       mmrc: { grade: null },
@@ -10427,7 +10467,18 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
     ...blankVisit, ...editingVisit,
     exacerbation: { ...blankVisit.exacerbation, ...(editingVisit.exacerbation || {}) },
     vitals: { ...blankVisit.vitals, ...(editingVisit.vitals || {}) },
-    adherence: { ...blankVisit.adherence, ...(editingVisit.adherence || {}) },
+    // เดิม spread blankVisit.adherence (ที่ตอนนี้มี assessed:false) ก่อน แล้วค่อยทับด้วยของเดิม — visit
+    // เก่าที่บันทึกไว้ก่อนมี field "assessed" จะไม่มี key นี้เลย ทำให้ spread ไม่ทับ ค่าที่ได้เลยเป็น
+    // false จาก blankVisit ไปทับข้อมูลเดิมที่เคยประเมินไว้แล้วจริงๆ ให้ดูเหมือนยังไม่ได้ประเมิน และถ้า
+    // บันทึกซ้ำโดยไม่ได้แตะช่อง adherence เลย จะ "ประทับ" assessed:false ลงถาวรในข้อมูลเก่าโดยไม่ตั้งใจ
+    // — ถ้า visit เดิมมี adherence object อยู่แล้ว (ถูกบันทึกมาจริง) ให้ถือว่า assessed แล้วเป็นค่าเริ่มต้น
+    // เว้นแต่จะมี key "assessed" ระบุไว้ชัดเจนอยู่แล้ว (เช่น false จากฟอร์มที่เพิ่งสร้างแล้วยังไม่ได้บันทึก)
+    adherence: {
+      ...blankVisit.adherence,
+      ...(editingVisit.adherence
+        ? { assessed: true, ...editingVisit.adherence }
+        : {}),
+    },
     assessments: { ...blankVisit.assessments, ...(editingVisit.assessments || {}) },
     soap: { ...blankVisit.soap, ...(editingVisit.soap || {}) },
     drp: { ...blankVisit.drp, ...(editingVisit.drp || {}) },
@@ -10769,8 +10820,11 @@ function VisitForm({ data, patientId, editingVisit, onSave, onDelete, navigate, 
         detail: anyPass ? 'มีเทคนิคที่ประเมินผ่านเกณฑ์' : `ประเมินแล้ว ${f.inhalerTechnique.length} ครั้ง แต่ยังไม่ผ่านเกณฑ์เลยสักครั้ง`,
       });
     }
-    if (f.adherence?.level) {
-      const good = AppStore.isAdherenceGood(f.adherence.level);
+    // เดิมเช็คแค่ f.adherence?.level truthy ซึ่งจริงอยู่เสมอ (default 'Good') ทำให้พรีวิวนี้ขึ้นโชว์
+    // "Adherence ตามเกณฑ์: ผ่าน" ทันทีตั้งแต่เปิดฟอร์มใหม่ ก่อนที่ผู้ใช้จะติ๊กประเมินจริงด้วยซ้ำ — เช็ค
+    // assessed แทน ให้ตรงกับที่ isAdherenceGood ใช้จริง
+    if (f.adherence?.assessed) {
+      const good = AppStore.isAdherenceGood(f.adherence);
       items.push({
         key: 'adherenceGoodPercent', icon: '🤝', label: 'Adherence ตามเกณฑ์',
         status: good ? 'ok' : 'flag',
@@ -13431,10 +13485,24 @@ function QuickSearch({ data, navigate, isOpen, onClose }) {
 
   // Filter patients + commands
   const q = query.trim().toLowerCase();
-  const patientResults = !q ? data.patients.slice(0, 6) : data.patients.filter(p => {
-    const hay = `${p.hn} ${p.firstName} ${p.lastName}`.toLowerCase();
-    return hay.includes(q);
-  }).slice(0, 8);
+  // เดิมไม่มีการจัดอันดับผลลัพธ์เลย แค่ .filter().slice(8) ตามลำดับที่ข้อมูลอยู่ใน data.patients —
+  // ถ้าพิมพ์ HN ตรงเป๊ะของผู้ป่วยที่อยู่ลำดับท้ายๆ ทะเบียน อาจไม่ติด 8 รายการแรกเลยเพราะมีคนอื่นที่
+  // ชื่อ/HN มีคำนั้นเป็นส่วนหนึ่งอยู่ก่อนหน้าในทะเบียนเยอะกว่า — เพิ่มคะแนนให้ match ที่ตรง/ขึ้นต้นด้วย
+  // คำค้นมาก่อนเสมอ ไม่ว่าจะอยู่ลำดับไหนในทะเบียนเดิม
+  const matchScore = (hn, name) => {
+    const hnL = hn.toLowerCase(), nameL = name.toLowerCase();
+    if (hnL === q) return 4;                 // HN ตรงเป๊ะ — สำคัญที่สุด (ใช้ระบุตัวผู้ป่วยแม่นที่สุด)
+    if (hnL.startsWith(q)) return 3;          // HN ขึ้นต้นด้วยคำค้น
+    if (nameL.split(' ').some(w => w.startsWith(q))) return 2; // ชื่อ/นามสกุลขึ้นต้นด้วยคำค้น
+    return 1;                                 // substring match ทั่วไป (เดิมมีแค่ระดับนี้ระดับเดียว)
+  };
+  const patientResults = !q ? data.patients.slice(0, 6) : data.patients
+    .map(p => ({ p, hay: `${p.hn} ${p.firstName} ${p.lastName}`.toLowerCase() }))
+    .filter(({ hay }) => hay.includes(q))
+    .map(({ p }) => ({ p, score: matchScore(p.hn || '', `${p.firstName || ''} ${p.lastName || ''}`) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map(({ p }) => p);
   const cmdResults = !q ? commands : commands.filter(c =>
     (c.label + ' ' + c.keywords).toLowerCase().includes(q));
 
@@ -14401,13 +14469,13 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
   const adherenceBase = rosterIdsForAdherence.size;
   let adherenceGoodCount = 0;
   rosterIdsForAdherence.forEach(pid => {
-    if (isAdherenceGood(latestVisit[pid]?.adherence?.level)) adherenceGoodCount++;
+    if (isAdherenceGood(latestVisit[pid]?.adherence)) adherenceGoodCount++;
   });
   const adherenceGoodPct = adherenceBase > 0 ? ((adherenceGoodCount / adherenceBase) * 100).toFixed(1) : '0';
   const adherenceStatus = parseFloat(adherenceGoodPct) >= 80 ? 'pass' : 'warn';
   const adherenceBreakdownFor = (dx) => {
     const ids = [...rosterIdsForAdherence].filter(pid => patientById.get(pid)?.diagnosis === dx);
-    const num = ids.filter(pid => isAdherenceGood(latestVisit[pid]?.adherence?.level)).length;
+    const num = ids.filter(pid => isAdherenceGood(latestVisit[pid]?.adherence)).length;
     const pct = ids.length > 0 ? ((num / ids.length) * 100).toFixed(1) : '0';
     return { value: pct, num, den: ids.length, status: parseFloat(pct) >= 80 ? 'pass' : 'warn' };
   };
@@ -14443,7 +14511,7 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
       hasICS: p.diagnosis === 'Asthma' ? hasICS(v?.medications) : null,
       hasAppropriateCOPDTherapy: (p.diagnosis === 'COPD' && hasExacerbHx) ? hasAppropriate(v?.medications) : null,
       techniquePass: techs.length > 0 ? techs.some(t => isTechniquePass(t.overallScore)) : null,
-      adherenceGood: rosterIds.has(p.id) ? isAdherenceGood(v?.adherence?.level) : null,
+      adherenceGood: rosterIds.has(p.id) ? isAdherenceGood(v?.adherence) : null,
     };
   }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 
