@@ -20513,7 +20513,18 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), entry] });
     }
     setBackdateQuery(''); setShowBackdateSearch(false);
-    navigate('visit-form', patientId, backdateDate);
+    // เดิม navigate('visit-form', ...) เปิดฟอร์มสร้างใหม่เสมอ ไม่เคยเช็คว่าผู้ป่วยรายนี้มี visit ของ
+    // วันที่เลือกอยู่แล้วหรือยัง — ฟีเจอร์นี้ตั้งใจใช้กับ "วันย้อนหลัง" ซึ่งเป็นกรณีที่มักมี visit ของ
+    // วันนั้นบันทึกไว้แล้วบ่อยกว่าวันปกติ (เช่นกลับมาเติมข้อมูลที่ขาด) ถ้าไม่เช็คก่อนจะสร้าง visit
+    // ซ้ำซ้อนของผู้ป่วยคนเดียวกันในวันเดียวกันแบบเงียบๆ กระทบจำนวนนับที่ใช้คิด KPI — เช็คก่อนเสมอ
+    // ถ้ามีอยู่แล้วให้เปิดโหมดแก้ไข visit เดิมแทนที่จะสร้างใหม่ซ้ำ
+    const existingVisit = (data.visits || []).find(v => v.patientId === patientId && v.visitDate === backdateDate);
+    if (existingVisit) {
+      window.rxToast?.(`มีบันทึกการเยี่ยมของผู้ป่วยรายนี้ในวันที่ ${backdateDate} อยู่แล้ว — เปิดแก้ไขรายการเดิมแทน`, 'info', 5000);
+      navigate('visit-form-edit', patientId, existingVisit.id);
+    } else {
+      navigate('visit-form', patientId, backdateDate);
+    }
   };
 
   // วันคลินิกวันนี้: scheduled visits today (from previous visits' nextVisit field) + walk-in ที่เพิ่มเข้าคิวเอง
