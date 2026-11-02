@@ -20734,7 +20734,11 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       `${p.firstName || ''} ${p.lastName || ''}`.toLowerCase().includes(q)
     ).slice(0, 6);
   }, [backdateQuery, pts]);
-  const startBackdatedVisit = (patientId) => {
+  // เดิมเลือกผู้ป่วยจากช่องค้นหาแล้วพาเข้า VisitForm ทันทีทีละคน — ถ้าวันนั้นมีผู้ป่วยนัดไว้หลายคน
+  // ต้องกลับมาเปิดช่องค้นหาใหม่ทุกครั้ง ไม่เห็นภาพรวมว่าวันนั้นมีใครรอบันทึกอยู่บ้าง/ใครทำไปแล้ว —
+  // แยกเป็น 2 ขั้น: เลือกจากช่องค้นหา → เข้าคิวของวันนั้นก่อน (เหมือน walk-in) แล้วแสดงเป็นรายการ
+  // สไตล์เดียวกับการ์ด "วันคลินิกวันนี้" ด้านบน ให้ทยอยเพิ่มได้หลายคนแล้วค่อยกดเข้าไปบันทึกทีละคน
+  const addToBackdateQueue = (patientId) => {
     if (!backdateDate) { window.rxToast?.('กรุณาเลือกวันที่ก่อน', 'error'); return; }
     if (backdateDate > todayStr) { window.rxToast?.('เลือกวันที่ในอนาคตไม่ได้', 'error'); return; }
     // เพิ่มเข้าคิวของวันที่เลือกด้วย (ไม่ใช่แค่ todayStr) ให้ตัวเลขนัดวันนั้นสะท้อนผู้ป่วยรายนี้ด้วย
@@ -20744,12 +20748,17 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       const entry = { date: backdateDate, patientId, addedAt: Date.now(), addedBy: currentUser?.name || currentUser?.username || '', backdated: true };
       onDataChange({ ...data, queueWalkIns: [...(data.queueWalkIns || []), entry] });
     }
-    setBackdateQuery(''); setShowBackdateSearch(false);
-    // เดิม navigate('visit-form', ...) เปิดฟอร์มสร้างใหม่เสมอ ไม่เคยเช็คว่าผู้ป่วยรายนี้มี visit ของ
-    // วันที่เลือกอยู่แล้วหรือยัง — ฟีเจอร์นี้ตั้งใจใช้กับ "วันย้อนหลัง" ซึ่งเป็นกรณีที่มักมี visit ของ
-    // วันนั้นบันทึกไว้แล้วบ่อยกว่าวันปกติ (เช่นกลับมาเติมข้อมูลที่ขาด) ถ้าไม่เช็คก่อนจะสร้าง visit
-    // ซ้ำซ้อนของผู้ป่วยคนเดียวกันในวันเดียวกันแบบเงียบๆ กระทบจำนวนนับที่ใช้คิด KPI — เช็คก่อนเสมอ
-    // ถ้ามีอยู่แล้วให้เปิดโหมดแก้ไข visit เดิมแทนที่จะสร้างใหม่ซ้ำ
+    setBackdateQuery('');
+  };
+  const removeFromBackdateQueue = (patientId) => {
+    onDataChange({ ...data, queueWalkIns: (data.queueWalkIns || []).filter(w => !(w.date === backdateDate && w.patientId === patientId)) });
+  };
+  // เดิม navigate('visit-form', ...) เปิดฟอร์มสร้างใหม่เสมอ ไม่เคยเช็คว่าผู้ป่วยรายนี้มี visit ของ
+  // วันที่เลือกอยู่แล้วหรือยัง — ฟีเจอร์นี้ตั้งใจใช้กับ "วันย้อนหลัง" ซึ่งเป็นกรณีที่มักมี visit ของ
+  // วันนั้นบันทึกไว้แล้วบ่อยกว่าวันปกติ (เช่นกลับมาเติมข้อมูลที่ขาด) ถ้าไม่เช็คก่อนจะสร้าง visit
+  // ซ้ำซ้อนของผู้ป่วยคนเดียวกันในวันเดียวกันแบบเงียบๆ กระทบจำนวนนับที่ใช้คิด KPI — เช็คก่อนเสมอ
+  // ถ้ามีอยู่แล้วให้เปิดโหมดแก้ไข visit เดิมแทนที่จะสร้างใหม่ซ้ำ
+  const openBackdatedCare = (patientId) => {
     const existingVisit = (data.visits || []).find(v => v.patientId === patientId && v.visitDate === backdateDate);
     if (existingVisit) {
       window.rxToast?.(`มีบันทึกการเยี่ยมของผู้ป่วยรายนี้ในวันที่ ${backdateDate} อยู่แล้ว — เปิดแก้ไขรายการเดิมแทน`, 'info', 5000);
@@ -20758,6 +20767,29 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       navigate('visit-form', patientId, backdateDate);
     }
   };
+  // คิวของวันย้อนหลังที่เลือกไว้ — รูปแบบเดียวกับ scheduledToday (นัดเดิม + walk-in ที่เพิ่มเข้าคิวเอง)
+  // ให้เห็นภาพรวมว่าใครรอบันทึก/บันทึกไปแล้วบ้าง ก่อนกดเข้าไปทีละคน
+  const walkInsBackdate = (data.queueWalkIns || []).filter(w => w.date === backdateDate);
+  const scheduledBackdate = useMemo(() => {
+    if (!backdateDate) return [];
+    const scheduled = pts.filter(p => {
+      const ptVisits = visitsByPt.get(p.id) || [];
+      return ptVisits.some(v => v.nextVisit === backdateDate);
+    }).map(p => ({
+      patient: p,
+      checkedIn: (visitsByPt.get(p.id) || []).some(v => v.visitDate === backdateDate),
+      walkIn: false,
+    }));
+    const scheduledIds = new Set(scheduled.map(x => x.patient.id));
+    const walkIns = walkInsBackdate
+      .filter(w => !scheduledIds.has(w.patientId))
+      .map(w => {
+        const p = pts.find(pp => pp.id === w.patientId);
+        return p ? { patient: p, checkedIn: (visitsByPt.get(p.id) || []).some(v => v.visitDate === backdateDate), walkIn: true } : null;
+      }).filter(Boolean);
+    return [...scheduled, ...walkIns];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pts, visitsByPt, backdateDate, walkInsBackdate.length]);
 
   // วันคลินิกวันนี้: scheduled visits today (from previous visits' nextVisit field) + walk-in ที่เพิ่มเข้าคิวเอง
   const walkInsToday = (data.queueWalkIns || []).filter(w => w.date === todayStr);
@@ -21017,7 +21049,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                   <Btn size="sm" variant="ghost" onClick={e => { e.stopPropagation(); removeWalkIn(p.id); }}>✕ ลบออกจากคิว</Btn>
                 )}
                 <Btn size="sm" variant={checkedIn?'ghost':'accent'} onClick={e => { e.stopPropagation(); navigate(checkedIn?'history':'visit-form', p.id); }}>
-                  {checkedIn ? 'ดูประวัติ' : '📥 เช็คอิน'}
+                  {checkedIn ? 'ดูประวัติ' : '📋 บันทึกการบริบาลเภสัชกรรม'}
                 </Btn>
               </div>
             ))}
@@ -21076,8 +21108,13 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
       )}
 
       {/* ── บันทึกย้อนหลัง: กรณีเภสัชกรไม่ได้มาคลินิกวันนั้น มาเพิ่มข้อมูลทีหลังได้ ── */}
+      {/* เดิมเลือกผู้ป่วยจากช่องค้นหาแล้วพาเข้า VisitForm ทันทีทีละคน ไม่เห็นภาพรวมว่าวันนั้นมีใคร
+          รอบันทึก/บันทึกไปแล้วบ้าง — เปลี่ยนให้เพิ่มเข้าคิวก่อนแล้วแสดงเป็นรายการสไตล์เดียวกับการ์ด
+          "วันคลินิกวันนี้" ด้านบน (หัวการ์ด gradient + ตัวเลขสรุป + รายชื่อมีปุ่มกดเข้าไปบันทึกทีละคน) */}
       {canEditQueue && (
-        <Card style={{ marginBottom: 20, borderLeft: `3px solid ${C.medium}` }}>
+        <Card style={showBackdateSearch
+          ? { marginBottom: 20, padding: 0, overflow: 'hidden' }
+          : { marginBottom: 20, borderLeft: `3px solid ${C.medium}` }}>
           {!showBackdateSearch ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <div>
@@ -21090,31 +21127,83 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
             </div>
           ) : (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.medium, marginBottom: 10 }}>🕘 บันทึกย้อนหลัง — เลือกวันที่และค้นหาผู้ป่วย</div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+              <div style={{
+                background: 'linear-gradient(135deg,#D97706 0%,#92400E 100%)',
+                color: '#fff', padding: '14px 22px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+              }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>วันที่นัด (ย้อนหลังได้ ไม่เกินวันนี้)</div>
-                  <Input type="date" value={backdateDate} onChange={setBackdateDate} style={{ width: 170 }} />
+                  <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>🕘 บันทึกย้อนหลัง</div>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>ผู้ป่วยนัด {scheduledBackdate.length} คน</div>
                 </div>
-                <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>ค้นหาผู้ป่วย (ชื่อหรือ HN)</div>
-                  <Input placeholder="ค้นหาชื่อหรือ HN ผู้ป่วย…" value={backdateQuery} onChange={setBackdateQuery} />
-                  {backdateQuery.trim() && (
-                    <div style={{ position:'absolute', zIndex:20, top:'100%', left:0, right:0, marginTop:4, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:220, overflowY:'auto' }}>
-                      {backdateMatches.length === 0 ? (
-                        <div style={{ padding:'10px 14px', fontSize:12, color:C.textMuted }}>ไม่พบผู้ป่วย</div>
-                      ) : backdateMatches.map(p => (
-                        <div key={p.id} onClick={() => startBackdatedVisit(p.id)} style={{ padding:'8px 14px', fontSize:13, cursor:'pointer', borderBottom:`1px solid ${C.border}` }}
-                          onMouseEnter={e => e.currentTarget.style.background = C.bgAlt} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          {p.prefix}{p.firstName} {p.lastName} <span style={{ color:C.textMuted, fontSize:11 }}>(HN {p.hn})</span>
-                        </div>
-                      ))}
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', marginBottom: 4 }}>วันที่ (ย้อนหลังได้ ไม่เกินวันนี้)</div>
+                    <Input type="date" value={backdateDate} onChange={setBackdateDate} style={{ width: 170 }} />
+                  </div>
+                  {[{ n: scheduledBackdate.filter(x => x.checkedIn).length, l: 'บันทึกแล้ว', c: '#4ADE80' },
+                    { n: scheduledBackdate.filter(x => !x.checkedIn).length, l: 'รอ', c: '#FDE68A' }].map(x => (
+                    <div key={x.l} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: x.c }}>{x.n}</div>
+                      <div style={{ fontSize: 10, opacity: 0.85 }}>{x.l}</div>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>เลือกผู้ป่วยจากรายการค้นหาเพื่อเปิดฟอร์มบันทึกการเยี่ยม — วันที่จะถูกกรอกให้อัตโนมัติตามที่เลือกไว้ด้านบน</div>
-              <Btn size="sm" variant="ghost" onClick={() => { setShowBackdateSearch(false); setBackdateQuery(''); }}>ยกเลิก</Btn>
+
+              <div style={{ padding: '14px 18px 4px', position: 'relative' }}>
+                <Input placeholder="🔎 ค้นหาชื่อหรือ HN ผู้ป่วย เพื่อเพิ่มเข้าคิววันนี้…" value={backdateQuery} onChange={setBackdateQuery} />
+                {backdateQuery.trim() && (
+                  <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 18, right: 18, marginTop: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 220, overflowY: 'auto' }}>
+                    {backdateMatches.length === 0 ? (
+                      <div style={{ padding: '10px 14px', fontSize: 12, color: C.textMuted }}>ไม่พบผู้ป่วย</div>
+                    ) : backdateMatches.map(p => (
+                      <div key={p.id} onClick={() => addToBackdateQueue(p.id)} style={{ padding: '8px 14px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.bgAlt} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        {p.prefix}{p.firstName} {p.lastName} <span style={{ color: C.textMuted, fontSize: 11 }}>(HN {p.hn})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding: '10px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {scheduledBackdate.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: C.textMuted, padding: '8px 4px' }}>ยังไม่มีผู้ป่วยในคิวของวันนี้ — ค้นหาแล้วเลือกผู้ป่วยด้านบนเพื่อเพิ่มเข้าคิว</div>
+                ) : scheduledBackdate.map(({ patient: p, checkedIn, walkIn }, idx) => (
+                  <div key={p.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                    background: checkedIn ? 'rgba(5,150,105,0.08)' : C.surface,
+                    border: `1px solid ${checkedIn ? C.lowBorder : C.border}`,
+                    borderRadius: 12, opacity: checkedIn ? 0.75 : 1, cursor: 'pointer',
+                  }} onClick={() => openBackdatedCare(p.id)}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                      background: checkedIn ? C.low : p.riskLevel === 'High' ? C.high : C.primaryLight,
+                      color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 14, fontWeight: 700, boxShadow: `0 3px 10px ${checkedIn ? C.low : p.riskLevel === 'High' ? C.high : C.primaryLight}44`,
+                    }}>{checkedIn ? '✓' : (idx + 1)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{p.prefix}{p.firstName} {p.lastName}</span>
+                        <DiagBadge diagnosis={p.diagnosis} />
+                        <RiskBadge level={p.riskLevel || 'Low'} />
+                        {walkIn && <span style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', background: '#F3E8FF', padding: '1px 7px', borderRadius: 12, border: '1px solid #E9D5FF' }}>🚶 Walk-in</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>HN: {p.hn} · {p.phone}</div>
+                    </div>
+                    {walkIn && !checkedIn && (
+                      <Btn size="sm" variant="ghost" onClick={e => { e.stopPropagation(); removeFromBackdateQueue(p.id); }}>✕ ลบออกจากคิว</Btn>
+                    )}
+                    <Btn size="sm" variant={checkedIn ? 'ghost' : 'accent'} onClick={e => { e.stopPropagation(); openBackdatedCare(p.id); }}>
+                      {checkedIn ? 'ดูประวัติ' : '📋 บันทึกการบริบาลเภสัชกรรม'}
+                    </Btn>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: '0 18px 16px' }}>
+                <Btn size="sm" variant="ghost" onClick={() => { setShowBackdateSearch(false); setBackdateQuery(''); }}>ปิด</Btn>
+              </div>
             </div>
           )}
         </Card>
@@ -21177,7 +21266,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                     <div style={{ fontSize: 11, color: C.textMuted }}>HN: {p.hn} · นัด {nextVisit}</div>
                   </div>
                   <RiskBadge level={p.riskLevel || 'Low'} />
-                  <Btn size="sm" variant="accent" onClick={e => { e.stopPropagation(); navigate('visit-form', p.id); }}>📥 เช็คอิน</Btn>
+                  <Btn size="sm" variant="accent" onClick={e => { e.stopPropagation(); navigate('visit-form', p.id); }}>📋 บันทึกการบริบาลเภสัชกรรม</Btn>
                 </div>
               );
             })}
