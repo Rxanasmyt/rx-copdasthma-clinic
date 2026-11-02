@@ -2363,16 +2363,20 @@ function FormField({ label, required, children, error, hint }) {
 }
 
 // ── Input ─────────────────────────────────────────────
-function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled, onPaste }) {
+function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled, onPaste, inputMode, onKeyDown }) {
   // เดิม input type="number" ไม่มีการกัน scroll เลย — เบราว์เซอร์ (Chrome/Firefox/Edge) มีพฤติกรรม
   // มาตรฐานคือถ้าเมาส์อยู่เหนือ number input ที่ focus ค้างอยู่แล้วเลื่อนวงล้อเมาส์ผ่าน จะปรับค่าตัวเลข
   // ขึ้น/ลงทันทีแบบเงียบๆ ไม่มีอะไรเตือน — ฟอร์มนี้มีช่องตัวเลขค่าสัญญาณชีพ (SpO2, RR ฯลฯ) อยู่กลาง
   // ฟอร์มที่ scroll ยาว เสี่ยงข้อมูลทางคลินิกถูกแก้ผิดโดยไม่ตั้งใจระหว่างเลื่อนหน้าจอผ่านช่องที่ focus อยู่
   // — กัน blur ทันทีที่มีการ scroll ผ่าน number input ที่ focus อยู่ (ค่ามาตรฐานคือปิดพฤติกรรมนี้)
   const onWheelBlur = type === 'number' ? (e => e.target.blur()) : undefined;
+  // เดิมช่องตัวเลข (SpO2, RR, FEV1, ขนาดยา ฯลฯ) ไม่ได้ตั้ง inputMode เลย — บนแท็บเล็ต/มือถือเบราว์เซอร์
+  // จะเปิดแป้นพิมพ์เต็มแทนแป้นตัวเลข ต้องหาปุ่มตัวเลขเอง ช้าในฟอร์มที่กรอกตัวเลขบ่อยทุกวัน
+  const resolvedInputMode = inputMode || (type === 'number' ? 'decimal' : undefined);
   return (
     <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} onPaste={onPaste} onWheel={onWheelBlur}
-      placeholder={placeholder} disabled={disabled} className="rx-field"
+      onKeyDown={onKeyDown}
+      placeholder={placeholder} disabled={disabled} className="rx-field" inputMode={resolvedInputMode}
       style={{
         width: '100%', padding: '9px 13px', borderRadius: 9, fontSize: 13,
         border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
@@ -7334,11 +7338,31 @@ function PatientForm({ patient, onSave, onClose }) {
   const [ocrFilled, setOcrFilled] = pvState({}); // { fieldKey: true } — ช่องที่ AI กรอกให้ ยังไม่ได้ตรวจสอบ
   // snapshot ตอนเปิดฟอร์ม — ใช้เทียบว่ามีการแก้ไขจริงหรือยัง ก่อนยอมให้ปิดฟอร์มโดยไม่บันทึก
   const initialFRef = React.useRef(patient ? { ...blank, ...patient } : blank);
+
+  // ── Draft autosave/recovery สำหรับฟอร์มผู้ป่วย (เดิมมีแต่ VisitForm เท่านั้น) ──
+  // ใช้ draftKey namespace แยกจาก visit drafts ด้วย prefix "ptform_" กัน key ชนกัน
+  const ptDraftKey = 'ptform_' + (patient ? patient.id : 'new');
+  const [showPtDraftPrompt, setShowPtDraftPrompt] = pvState(null);
+  pvEffect(() => {
+    const draft = loadDraft(ptDraftKey, null);
+    if (draft && draft.data) setShowPtDraftPrompt(draft);
+    // eslint-disable-next-line
+  }, []);
+  pvEffect(() => {
+    if (showPtDraftPrompt) return;
+    const handle = setTimeout(() => {
+      const isDirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
+      if (isDirty) saveDraft(ptDraftKey, null, f);
+    }, 1000);
+    return () => clearTimeout(handle);
+  }, [f, ptDraftKey, showPtDraftPrompt]);
+
   const guardedClose = () => {
     const isDirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
     // เดิม Modal ผูก onClose กับทั้ง Escape/คลิกนอกกรอบ/ปุ่ม ✕/ปุ่ม "ยกเลิก" เหมือนกันหมด โดยไม่
     // เช็คว่ากรอกอะไรไปแล้วหรือยัง — พิมพ์ข้อมูลผู้ป่วยใหม่ 15 ช่องแล้วเผลอกด Escape หรือคลิกพลาด
-    // ออกนอกกรอบ ข้อมูลทั้งหมดหายทันที ไม่มี draft ให้กู้คืนเหมือน VisitForm เลย
+    // ออกนอกกรอบ ข้อมูลทั้งหมดหายทันที เดิมไม่มี draft ให้กู้คืนเหมือน VisitForm เลย — ตอนนี้แม้ปิด
+    // ไปแล้ว draft ที่ autosave ไว้จะยังอยู่ให้กู้คืนได้ตอนเปิดฟอร์มเดิม/ผู้ป่วยเดิมอีกครั้ง
     if (isDirty && !window.confirm('มีข้อมูลที่ยังไม่ได้บันทึก ต้องการปิดฟอร์มนี้โดยไม่บันทึกหรือไม่?')) return;
     onClose();
   };
@@ -7439,7 +7463,7 @@ function PatientForm({ patient, onSave, onClose }) {
   // แรก/แก้ไขฟิลด์อื่นที่ไม่ใช่โรค ให้ยังแก้ไขได้รวดเร็วตามปกติ) แสดงให้เห็นชัดว่าเปลี่ยนจากอะไรเป็นอะไร
   const [pendingSavePayload, setPendingSavePayload] = pvState(null);
   const DX_LABEL = { COPD: 'COPD', Asthma: 'Asthma', Both: 'COPD + Asthma' };
-  const commitSave = (payload) => onSave(payload);
+  const commitSave = (payload) => { clearDraft(ptDraftKey, null); onSave(payload); };
 
   const handleSave = () => {
     if (!validate()) return;
@@ -7652,6 +7676,20 @@ function PatientForm({ patient, onSave, onClose }) {
       onConfirm={() => { commitSave(pendingSavePayload); setPendingSavePayload(null); }}
       danger
     />
+    {showPtDraftPrompt && (
+      <Modal open={true} onClose={() => setShowPtDraftPrompt(null)} title="🔄 พบร่างข้อมูลที่ยังไม่ได้บันทึก" width={460}>
+        <p style={{ margin: '0 0 8px', fontSize: 13, color: C.text, lineHeight: 1.6 }}>
+          พบร่างข้อมูลผู้ป่วยที่บันทึกไว้เมื่อ {showPtDraftPrompt.ts ? new Date(showPtDraftPrompt.ts).toLocaleString('th-TH') : 'ไม่ทราบ'}
+        </p>
+        <p style={{ margin: '0 0 18px', fontSize: 12, color: C.textMuted }}>
+          ถ้ากด "กู้คืนร่าง" ข้อมูลที่ยังไม่ได้ส่งจะถูกโหลดมา ถ้ากด "ยกเลิก" ร่างจะถูกลบถาวร
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => { clearDraft(ptDraftKey, null); setShowPtDraftPrompt(null); }}>ยกเลิกร่าง</Btn>
+          <Btn variant="primary" onClick={() => { setF(showPtDraftPrompt.data); setShowPtDraftPrompt(null); }}>กู้คืนร่าง</Btn>
+        </div>
+      </Modal>
+    )}
     </>
   );
 }
@@ -9945,7 +9983,10 @@ function DrugSearchBox({ value, onChange }) {
   );
 }
 
-function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) {
+function MedRow({ med, index, onChange, onRemove, changeStatus, interactions, isLast, onAddRow, onDuplicate }) {
+  // เดิมต้องคลิกปุ่ม "+ เพิ่มยา" ด้วยเมาส์เท่านั้นทุกครั้งที่กรอกยาตัวต่อไป — ผู้ป่วยหลายรายมียา
+  // 3-5 ตัว ต้องสลับมือจากคีย์บอร์ดไปเมาส์ซ้ำๆ เพิ่ม Enter บนช่อง dose ของแถวสุดท้ายให้เพิ่มแถวใหม่ได้เลย
+  const onDoseKeyDown = (isLast && onAddRow) ? (e => { if (e.key === 'Enter') { e.preventDefault(); onAddRow(); } }) : undefined;
   const guide = med.name && window.DRUG_DOSE_GUIDE ? window.DRUG_DOSE_GUIDE[med.name] : null;
   const isWarn = guide?.tip && (guide.tip.startsWith('⚠') || guide.tip.startsWith('⛔'));
   const medInfo = AppStore.COMMON_MEDICATIONS.find(m => m.name === med.name);
@@ -9983,6 +10024,7 @@ function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) 
           onChange(index, { ...med, name: v, dose: g ? g.dose : med.dose });
         }} />
         <Input value={med.dose} onChange={v => onChange(index, { ...med, dose: v })}
+          onKeyDown={onDoseKeyDown}
           placeholder={guide ? guide.dose : 'Dose/วิธีใช้'}
           style={{ width: 140, flexShrink: 0 }} />
         <Select value={med.adherence} placeholder="Adh."
@@ -9997,6 +10039,10 @@ function MedRow({ med, index, onChange, onRemove, changeStatus, interactions }) 
           {drugInfo && (
             <button onClick={() => setShowInfo(s => !s)} title="ข้อมูลยา"
               style={{ background: showInfo ? C.primaryBg : 'none', border: `1px solid ${showInfo ? C.primaryBorder : 'transparent'}`, cursor: 'pointer', color: C.primary, fontSize: 13, padding: '1px 4px', borderRadius: 6, lineHeight: 1 }}>ℹ️</button>
+          )}
+          {onDuplicate && med.name && (
+            <button onClick={() => onDuplicate(index)} title="คัดลอกแถวนี้"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 13, padding: '1px 4px', borderRadius: 6, lineHeight: 1 }}>⧉</button>
           )}
           <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px', lineHeight: 1 }}>✕</button>
         </div>
@@ -10689,6 +10735,13 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
   const addMed = () => setF(prev => ({ ...prev, medications: [...prev.medications, { id: AppStore.generateId(), name: '', dose: '', adherence: '' }] }));
   const updateMed = (i, val) => setF(prev => ({ ...prev, medications: prev.medications.map((m, idx) => idx === i ? val : m) }));
   const removeMed = (i) => setF(prev => ({ ...prev, medications: prev.medications.filter((_, idx) => idx !== i) }));
+  // คนไข้บางรายใช้ยาพ่นหลายตัวที่มี dose/adherence คล้ายกัน เดิมต้องพิมพ์ซ้ำทุกแถว — เพิ่มปุ่มคัดลอกแถว
+  const duplicateMed = (i) => setF(prev => {
+    const copy = { ...prev.medications[i], id: AppStore.generateId() };
+    const next = [...prev.medications];
+    next.splice(i + 1, 0, copy);
+    return { ...prev, medications: next };
+  });
 
   const addTech = () => setF(prev => ({ ...prev, inhalerTechnique: [...prev.inhalerTechnique, { id: AppStore.generateId(), device: '', stepsCorrect: [], overallScore: 'Poor', errors: [] }] }));
   const updateTech = (i, val) => setF(prev => ({ ...prev, inhalerTechnique: prev.inhalerTechnique.map((t, idx) => idx === i ? val : t) }));
@@ -11303,7 +11356,9 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
                     <MedRow key={med.id || i} med={med} index={i}
                       onChange={updateMed} onRemove={removeMed}
                       changeStatus={lastVisit ? status : undefined}
-                      interactions={ddiResults} />
+                      interactions={ddiResults}
+                      isLast={i === f.medications.length - 1} onAddRow={addMed}
+                      onDuplicate={duplicateMed} />
                   );
                 })}
               </div>
@@ -12277,7 +12332,11 @@ function TelepharmacySchedForm({ data, onDataChange, preselPt, onClose }) {
       <FormField label="ผู้ป่วย" required>
         <Select value={sf.patientId} onChange={v => setSf(p => ({ ...p, patientId: v }))}
           placeholder="เลือกผู้ป่วย"
-          options={data.patients.map(p => ({
+          // เดิม options เรียงตามลำดับข้อมูลดิบ ไม่ใช่ตามชื่อ — คลินิกที่มีผู้ป่วยมากหาตัวช้า
+          // เรียงตามชื่อ-สกุลเพื่อให้พิมพ์ตัวอักษรแรกแล้วเลื่อนหาได้เร็วขึ้น
+          options={[...data.patients].sort((a, b) =>
+            `${a.firstName || ''}${a.lastName || ''}`.localeCompare(`${b.firstName || ''}${b.lastName || ''}`, 'th')
+          ).map(p => ({
             value: p.id,
             label: `${p.prefix}${p.firstName} ${p.lastName} (${p.hn}) — ${p.riskLevel || 'Low'} Risk`,
           }))} />
@@ -12306,6 +12365,18 @@ function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
   const [batchDate, setBatchDate] = trState('');
   const [batchNote, setBatchNote] = trState('');
   const [selected, setSelected]   = trState([]);
+  // เดิมรายชื่อผู้ป่วยเป็น checklist เลื่อนดูยาวๆ ไม่มีช่องค้นหาเลย (ไม่เหมือนคิวเดินเข้าที่มีช่องค้นหาแล้ว)
+  // คลินิกที่มีผู้ป่วย High/Medium Risk จำนวนมากต้องเลื่อนหาทีละคน — เพิ่มช่องค้นหาชื่อ/HN
+  const [batchQuery, setBatchQuery] = trState('');
+  const visiblePts = trMemo(() => {
+    const q = batchQuery.trim().toLowerCase();
+    const sorted = [...highRiskPts].sort((a, b) =>
+      `${a.firstName || ''}${a.lastName || ''}`.localeCompare(`${b.firstName || ''}${b.lastName || ''}`, 'th'));
+    if (!q) return sorted;
+    return sorted.filter(p =>
+      `${p.firstName || ''}${p.lastName || ''}`.toLowerCase().includes(q) ||
+      (p.hn || '').toLowerCase().includes(q));
+  }, [batchQuery, highRiskPts]);
   const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const handleSave = () => {
     if (!batchDate || selected.length === 0) return;
@@ -12332,9 +12403,11 @@ function TelepharmacyBatchSchedForm({ data, onDataChange, onClose }) {
       <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
         เลือกผู้ป่วย ({selected.length} คน)
       </div>
+      <Input value={batchQuery} onChange={setBatchQuery} placeholder="🔎 ค้นหาชื่อ หรือ HN..." style={{ marginBottom: 8 }} />
       <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
         {highRiskPts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่มีผู้ป่วย High/Medium Risk</div>}
-        {highRiskPts.map(p => {
+        {highRiskPts.length > 0 && visiblePts.length === 0 && <div style={{ textAlign: 'center', color: C.textMuted, fontSize: 13, padding: 16 }}>ไม่พบผู้ป่วยที่ค้นหา</div>}
+        {visiblePts.map(p => {
           const checked = selected.includes(p.id);
           const hasPending = pendingPtIds.has(p.id);
           return (
