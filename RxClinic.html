@@ -4267,11 +4267,25 @@ function detectDRP(visit, patient) {
   // ชงเป็นข้อสังเกตให้เภสัชกรตรวจสอบต่อ ไม่ใช่ข้อสรุปที่เชื่อถือได้ 100% — ทุกรายการแนบ CC ต้นฉบับมา
   // ด้วยเสมอให้ตรวจสอบง่าย และตั้งใจให้ "คำที่จับได้แคบ/เฉพาะเจาะจง" เพื่อลด false positive มากกว่า
   // จะจับกว้างแล้วแจ้งเตือนเกินจำเป็น (เช่นไม่จับคำว่า "เหนื่อย" เฉยๆ เพราะเป็นอาการทั่วไปของโรคอยู่แล้ว)
+  // v2: แยกเป็น "คำต่อประโยคย่อย" (clause) แทนการค้นทั้งข้อความเป็นก้อนเดียว กัน 2 ปัญหาที่พบจากรอบแรก:
+  // 1) negation — เดิม "ไม่มีประวัติแพ้ยา" จะถูกจับเป็น positive ผิดๆ เพราะมีคำว่า "แพ้ยา" อยู่ในข้อความ
+  //    ทั้งที่ประโยคจริงคือปฏิเสธ — ตอนนี้เช็คคำปฏิเสธ (ไม่มีประวัติ/ปฏิเสธ/ไม่เคย/ไม่พบ) ในประโยคย่อย
+  //    เดียวกับคำที่จับได้ ถ้ามีจะไม่ชง DRP ให้
+  // 2) false negative จากคำที่เขียนคนละแบบ — เดิมจับเฉพาะวลีตายตัว ("ผื่นหลังกินยา") พลาดกรณีสลับคำ
+  //    ("มีผื่นขึ้นหลังพ่นยา") — เปลี่ยนเป็นเช็ค "กลุ่มคำ 2 กลุ่มอยู่ในประโยคย่อยเดียวกัน" (เช่น มีคำว่า
+  //    กินยา/พ่นยา/ใช้ยา ร่วมกับคำว่า ผื่น/คัน/บวม) แทนวลีตายตัว ครอบคลุมการสลับคำได้กว้างขึ้นโดยยังคง
+  //    ความเฉพาะเจาะจงพอสมควร (ต้องมีครบทั้ง 2 กลุ่มในประโยคย่อยเดียวกัน ไม่ใช่แค่คำใดคำหนึ่ง)
   const cc = (visit.chiefComplaint || '').trim();
-  const ccLower = cc.toLowerCase();
-  const ccHit = (kws) => kws.some(k => ccLower.includes(k));
+  const NEGATION_WORDS = ['ไม่มีประวัติ', 'ปฏิเสธ', 'ไม่เคย', 'ไม่พบ', 'ไม่มีอาการ'];
+  const ccClauses = cc.split(/[\n\r.,;!?。，！？、]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  const isNegated = (clause) => NEGATION_WORDS.some(neg => clause.includes(neg));
+  // จับคำในกลุ่มเดียว (เช่นคำว่า "แพ้ยา" เพียงคำเดียวก็เฉพาะเจาะจงพอแล้ว ไม่ต้องรอคำอื่นประกอบ)
+  const ccHitSingle = (kws) => ccClauses.some(clause => !isNegated(clause) && kws.some(k => clause.includes(k)));
+  // จับคำจาก 2 กลุ่มที่ต้องอยู่ในประโยคย่อยเดียวกันทั้งคู่ (ลดการจับกว้างเกินไปจากคำเดี่ยวๆ)
+  const ccHitCombo = (groupA, groupB) => ccClauses.some(clause =>
+    !isNegated(clause) && groupA.some(a => clause.includes(a)) && groupB.some(b => clause.includes(b)));
   if (cc) {
-    if (ccHit(['ลืมกินยา', 'ลืมพ่นยา', 'ลืมใช้ยา', 'ลืมทานยา', 'ไม่ได้กินยา', 'ไม่ได้พ่นยา', 'ขาดยา'])) {
+    if (ccHitSingle(['ลืมกินยา', 'ลืมพ่นยา', 'ลืมใช้ยา', 'ลืมทานยา', 'ไม่ได้กินยา', 'ไม่ได้พ่นยา', 'ขาดยา', 'กินยาไม่ครบ', 'พ่นยาไม่ครบ', 'หยุดยาเอง'])) {
       out.push({ code: 'P1.1', categoryEn: 'Non-adherence (from CC)', categoryTh: 'ความร่วมมือในการใช้ยาต่ำ (จาก CC)',
         severity: 'Medium',
         problemEn: `Chief complaint suggests missed/forgotten doses: "${cc}"`,
@@ -4279,7 +4293,7 @@ function detectDRP(visit, patient) {
         actionEn: 'Confirm adherence barrier with patient; consider reminder tools or simplifying the regimen',
         actionTh: 'ซักถามสาเหตุที่ลืม/ขาดยากับผู้ป่วย พิจารณาตัวช่วยเตือนหรือลดความซับซ้อนของแผนการใช้ยา' });
     }
-    if (ccHit(['แพ้ยา', 'ผื่นหลังกินยา', 'ผื่นหลังพ่นยา', 'บวมหลังกินยา', 'คันหลังกินยา'])) {
+    if (ccHitSingle(['แพ้ยา']) || ccHitCombo(['กินยา', 'พ่นยา', 'ใช้ยา', 'หลังยา'], ['ผื่น', 'คัน', 'บวม', 'หายใจไม่ออก'])) {
       out.push({ code: 'P2.1', categoryEn: 'Adverse drug reaction (from CC)', categoryTh: 'ผลข้างเคียงที่อาจเกิด (จาก CC)',
         severity: 'High',
         problemEn: `Chief complaint suggests possible drug allergy/ADR: "${cc}"`,
@@ -4287,7 +4301,7 @@ function detectDRP(visit, patient) {
         actionEn: 'Assess causality; consider discontinuing the suspected drug and documenting the allergy',
         actionTh: 'ประเมินความสัมพันธ์กับยาที่ใช้ พิจารณาหยุดยาที่สงสัยและบันทึกประวัติแพ้ยาให้ครบถ้วน' });
     }
-    if (ccHit(['ยาหมดก่อนนัด', 'ยาไม่พอใช้', 'ยาหมดก่อนกำหนด'])) {
+    if (ccHitSingle(['ยาหมดก่อนนัด', 'ยาไม่พอใช้', 'ยาหมดก่อนกำหนด']) || ccHitCombo(['ยา'], ['หมดก่อน'])) {
       out.push({ code: 'P3.1', categoryEn: 'Dosage / overuse signal (from CC)', categoryTh: 'สัญญาณใช้ยาเกิน (จาก CC)',
         severity: 'Medium',
         problemEn: `Chief complaint suggests medication running out earlier than expected: "${cc}"`,
