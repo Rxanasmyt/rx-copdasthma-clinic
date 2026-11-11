@@ -193,13 +193,15 @@ function setupDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(COLLECTIONS).forEach(getOrCreateSheet);
 
+  // ลบชีต Dashboard เดิมทิ้งแล้วสร้างใหม่ทั้งแผ่นทุกครั้งที่รัน (แทนการ clear() เฉยๆ) — เดิมถ้าเคยรัน
+  // setupDashboard ของโค้ดเวอร์ชันก่อนหน้ามาแล้ว (เช่น หัวตารางเดิมเป็น A1:H1 แต่เวอร์ชันนี้เปลี่ยนเป็น
+  // A1:J1) การ merge() ทับช่วงที่ merge ไว้เดิมแบบไม่ตรงกันเป๊ะจะ throw error กลางคัน (Range.clear()
+  // ไม่ล้าง merge/banding ให้) ทำให้ setupDashboard หยุดทำงานก่อนถึงส่วนสร้างกราฟ/การ์ด เหลือแต่ชีตที่
+  // จัดรูปแบบไม่ครบ ดูเหมือน "มีแต่ข้อมูล ไม่มีกราฟ ไม่สวย" ตามที่ผู้ใช้เจอ — ลบทิ้งทั้งแผ่นแล้วสร้างใหม่
+  // ชัวร์กว่า ไม่มีเศษการจัดรูปแบบเก่าตกค้างให้ชนกันแน่นอน
   let dash = ss.getSheetByName('Dashboard');
-  if (dash) {
-    dash.clear();
-    dash.getCharts().forEach(c => dash.removeChart(c));
-  } else {
-    dash = ss.insertSheet('Dashboard', 0);
-  }
+  if (dash) ss.deleteSheet(dash);
+  dash = ss.insertSheet('Dashboard', 0);
   dash.setTabColor('#0F766E');
   dash.setColumnWidths(1, 10, 140);
   dash.setHiddenGridlines(true);
