@@ -6077,14 +6077,25 @@ function GoogleSheetSyncPanel({ data, onDataChange }) {
     }
   };
 
+  const [kpiSyncing, setKpiSyncing] = stState(false);
+
+  const totalRecordCount = () => {
+    const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+    return data.patients.length + data.visits.length + (data.telepharmacy || []).length
+      + (ha.medRec || []).length + (ha.adr || []).length + (ha.referrals || []).length
+      + (ha.discharge || []).length + (ha.rca || []).length;
+  };
+
   const handleBulkSync = async () => {
     if (syncing) return;
-    if (!window.confirm(`ซิงค์ Visit ทั้งหมด ${data.visits.length} รายการย้อนหลังไป Google Sheet ตอนนี้เลยหรือไม่?`)) return;
-    setSyncing(true); setProgress({ written: 0, total: data.visits.length });
+    const total = totalRecordCount();
+    if (!window.confirm(`ซิงค์ข้อมูลทุกหมวดหมู่ (ผู้ป่วย/Visit/Telepharmacy/DRP/ส่งต่อแพทย์/ADR/Med Reconciliation/Discharge/RCA) รวมประมาณ ${total} รายการ ย้อนหลังไป Google Sheet ตอนนี้เลยหรือไม่?`)) return;
+    setSyncing(true); setProgress({ collection: '', written: 0, total: 0 });
     try {
-      const written = await window.bulkSyncVisitsToSheet({ url, secret }, data.visits, data.patients,
-        (written, total) => setProgress({ written, total }));
-      window.rxToast?.(`✅ ซิงค์สำเร็จ ${written} รายการ`, 'success', 5000);
+      const summary = await window.bulkSyncAllToSheet({ url, secret }, data,
+        (collection, written, t) => setProgress({ collection, written, total: t }));
+      const lines = Object.entries(summary).map(([k, v]) => `${k}: ${v}`).join(', ');
+      window.rxToast?.(`✅ ซิงค์สำเร็จทุกหมวดหมู่ (${lines})`, 'success', 7000);
     } catch (e) {
       window.rxToast?.('❌ ซิงค์ไม่สำเร็จ: ' + (e.message || e), 'error', 6000);
     } finally {
@@ -6092,13 +6103,34 @@ function GoogleSheetSyncPanel({ data, onDataChange }) {
     }
   };
 
+  const handleKpiSnapshot = async () => {
+    if (kpiSyncing) return;
+    setKpiSyncing(true);
+    try {
+      const end = new Date().toISOString().slice(0, 10);
+      const start = new Date(); start.setFullYear(start.getFullYear() - 1);
+      const dateRange = { start: start.toISOString().slice(0, 10), end };
+      const kpis = window.calculateQualityKPIs(data, dateRange.start, dateRange.end);
+      const deviceStats = window.calculateDeviceBroughtStats ? window.calculateDeviceBroughtStats(data, dateRange.start, dateRange.end) : null;
+      const row = window.buildKpiSnapshotRow(kpis, deviceStats, dateRange, data.patients.length, kpis.visitCount);
+      await window.bulkSyncCollectionToSheet({ url, secret }, 'kpi_snapshot', [row]);
+      window.rxToast?.('✅ บันทึก snapshot ตัวชี้วัด KPI สำเร็จ (ช่วง 12 เดือนล่าสุด) — ดูได้ที่ชีต Dashboard', 'success', 6000);
+    } catch (e) {
+      window.rxToast?.('❌ บันทึก KPI snapshot ไม่สำเร็จ: ' + (e.message || e), 'error', 6000);
+    } finally {
+      setKpiSyncing(false);
+    }
+  };
+
   return (
     <Card>
       <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700 }}>📊 Google Sheet Sync</h3>
       <p style={{ margin: '0 0 14px', fontSize: 12.5, color: C.textMuted, lineHeight: 1.7 }}>
-        ส่งข้อมูลการบริบาลเภสัชกรรม (visit) ไปเก็บใน Google Sheet แบบทางเดียว เพื่อทำรายงาน/แดชบอร์ดแยก —
-        Firestore ในแอพยังเป็นฐานข้อมูลหลักเสมอ ถ้าซิงค์ล้มเหลวแอพยังใช้งานได้ปกติ ดูขั้นตอนตั้งค่า
-        Apps Script ฝั่ง Google Sheet แบบละเอียดได้ที่ <code>gas-sync/README.md</code> ในซอร์สโค้ดของระบบ
+        ส่งข้อมูลการบริบาลเภสัชกรรมทุกหมวดหมู่ (ผู้ป่วย, Visit, Telepharmacy, DRP Tracker, ส่งต่อแพทย์, ADR,
+        Med Reconciliation, Discharge Counseling, RCA) ไปเก็บเป็นชีตแยกตามหมวดใน Google Sheet แบบทางเดียว
+        พร้อม Dashboard สรุปภาพรวม/ตัวชี้วัดคุณภาพให้พร้อมวิเคราะห์ — Firestore ในแอพยังเป็นฐานข้อมูลหลักเสมอ
+        ถ้าซิงค์ล้มเหลวแอพยังใช้งานได้ปกติ ดูขั้นตอนตั้งค่า Apps Script ฝั่ง Google Sheet แบบละเอียดได้ที่{' '}
+        <code>gas-sync/README.md</code> ในซอร์สโค้ดของระบบ
       </p>
 
       <div style={{ marginBottom: 12 }}>
@@ -6131,19 +6163,32 @@ function GoogleSheetSyncPanel({ data, onDataChange }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
           <input type="checkbox" checked={!!cfg.enabled} onChange={e => onDataChange({ ...data, sheetSyncConfig: { ...cfg, url, secret, enabled: e.target.checked } })}
             style={{ accentColor: C.primary, width: 16, height: 16 }} />
-          เปิดใช้งานซิงค์อัตโนมัติ (ซิงค์ visit ใหม่/ที่แก้ไขไปยัง Sheet ทันทีหลังบันทึก)
+          เปิดใช้งานซิงค์อัตโนมัติ (ซิงค์ข้อมูลใหม่/ที่แก้ไขทุกหมวดไปยัง Sheet ทันทีหลังบันทึกแต่ละจุด)
         </label>
         {!cfg.url && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>กรุณาบันทึก URL/Secret ก่อนเปิดใช้งาน</div>}
       </div>
 
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>ซิงค์ย้อนหลัง</div>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🔄 ซิงค์ย้อนหลังทุกหมวดหมู่</div>
         <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
-          นำ Visit ทั้งหมด {data.visits.length} รายการที่มีอยู่แล้วในระบบ เข้า Google Sheet ครั้งแรก (ทำครั้งเดียวตอนตั้งค่าเสร็จ
-          หรือกดซ้ำได้ทุกเมื่อถ้าต้องการรีซิงค์ทั้งหมด — ไม่สร้างแถวซ้ำ เพราะ upsert ด้วย Visit ID)
+          นำข้อมูลทั้งหมด {totalRecordCount()} รายการที่มีอยู่แล้วในระบบ (ทุกหมวดหมู่) เข้า Google Sheet ครั้งแรก
+          (ทำครั้งเดียวตอนตั้งค่าเสร็จ หรือกดซ้ำได้ทุกเมื่อถ้าต้องการรีซิงค์ทั้งหมด — ไม่สร้างแถวซ้ำ เพราะ upsert ด้วย ID)
         </p>
         <Btn variant="accent" onClick={handleBulkSync} disabled={syncing || !url.trim() || !secret.trim()}>
-          {syncing ? `⏳ กำลังซิงค์... ${progress ? `${progress.written}/${progress.total}` : ''}` : '🔄 ซิงค์ย้อนหลังทั้งหมด'}
+          {syncing ? `⏳ กำลังซิงค์ ${progress?.collection || ''}... ${progress ? `${progress.written}/${progress.total}` : ''}` : '🔄 ซิงค์ย้อนหลังทั้งหมด'}
+        </Btn>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>📈 Snapshot ตัวชี้วัดคุณภาพ (KPI1-7)</div>
+        <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+          คำนวณตัวชี้วัดคุณภาพ 7 ตัว (ช่วง 12 เดือนล่าสุด) ด้วยสูตรเดียวกับหน้า Analytics ในแอพ แล้วบันทึกเป็น
+          snapshot ลงชีต KPI_Snapshots (เก็บประวัติทุกครั้งที่กด ไม่ทับของเดิม — ใช้ดูแนวโน้มย้อนหลังได้) ชีต
+          Dashboard จะดึงค่าจาก snapshot ล่าสุดไปแสดงเป็นการ์ดสรุป — แนะนำให้กดซ้ำเป็นระยะ (เช่นทุกเดือน) เพื่อ
+          อัปเดต Dashboard ให้ตรงกับข้อมูลปัจจุบัน
+        </p>
+        <Btn variant="ghost" onClick={handleKpiSnapshot} disabled={kpiSyncing || !url.trim() || !secret.trim()}>
+          {kpiSyncing ? '⏳ กำลังคำนวณ/บันทึก...' : '📈 ซิงค์ตัวชี้วัด KPI ตอนนี้'}
         </Btn>
       </div>
     </Card>
@@ -6278,19 +6323,27 @@ function exportVisits(visits, patients) {
 }
 
 // ── Google Sheets Sync (ผ่าน Google Apps Script Web App, ดู gas-sync/README.md) ──────────
-// ใช้ header ชุดเดียวกับ exportVisits (CSV) เป็นฐาน + เพิ่ม Visit ID (ใช้ upsert กันแถวซ้ำตอนแก้ไข
-// visit เดิม) และฟิลด์ที่ exportVisits ไม่มี (CAT/mMRC/ACT, จำนวน DRP, นำอุปกรณ์เดิมมา) — ลำดับ
-// คอลัมน์ต้องตรงกับ VISITS_HEADERS ใน gas-sync/Code.gs เป๊ะๆ ถ้าแก้ฝั่งใดฝั่งหนึ่งต้องแก้อีกฝั่งด้วย
-const SHEET_SYNC_HEADERS = [
-  'Visit ID', 'วันที่', 'HN', 'ชื่อ-นามสกุล', 'อายุ', 'การวินิจฉัย', 'ความเสี่ยง', 'Chief Complaint',
-  'Ex. ครั้ง/ปี', 'นอน รพ.', 'เข้า ER', 'ความรุนแรง Ex.', 'ปัจจัยกระตุ้น', 'Rescue Use',
-  'ยาที่ใช้', 'Adherence รายยา', 'Adherence ระดับ', 'เทคนิคยาพ่น', 'นำอุปกรณ์เดิมมา',
-  'CAT', 'mMRC', 'ACT', 'SpO2', 'RR', 'BP',
-  'Subjective', 'Objective', 'Assessment', 'Plan', 'หัวข้อให้คำปรึกษา',
-  'จำนวน DRP ที่พบ', 'เภสัชกร', 'นัดถัดไป',
-];
+// ซิงค์ข้อมูลทุกหมวดที่บันทึกลง database ได้ (ผู้ป่วย, visit, telepharmacy, DRP, ส่งต่อแพทย์, ADR,
+// Med Reconciliation, Discharge Counseling, RCA, snapshot ตัวชี้วัด KPI) ไปยัง Google Sheet แยกชีต
+// ตามหมวดหมู่ — ชื่อ key ของแต่ละหมวด (patients/visits/telepharmacy/drp/referrals/adr/medrec/
+// discharge/rca/kpi_snapshot) และลำดับคอลัมน์ในแต่ละ builder ต้องตรงกับ HEADERS ใน gas-sync/Code.gs
+// เป๊ะๆ ถ้าแก้ฝั่งใดฝั่งหนึ่งต้องแก้อีกฝั่งด้วยเสมอ
 
-function buildSheetSyncRow(visit, patient) {
+function buildPatientSyncRow(patient) {
+  const vac = patient.vaccinations || {};
+  return [
+    patient.id, patient.hn || '', patient.nationalId || '', patient.prefix || '', patient.firstName || '', patient.lastName || '',
+    patient.age ?? '', patient.gender === 'M' ? 'ชาย' : 'หญิง', patient.dateOfBirth || '',
+    patient.diagnosis || '', patient.goldGrade || '', patient.asthmaControl || '',
+    (patient.comorbidities || []).join('; '), patient.phone || '', patient.address || '', patient.insurance || '',
+    (patient.allergies || []).join('; '), patient.allergyDetail || '',
+    patient.eGFR ?? '', patient.weight ?? '', patient.smokingStatus || '', patient.packYears ?? '',
+    vac.flu || '', vac.pcv13 || '', vac.ppsv23 || '', vac.covid || '',
+    patient.riskLevel || '', (patient.riskFlags || []).join('; '), patient.createdAt || '',
+  ];
+}
+
+function buildVisitSyncRow(visit, patient) {
   const ex = visit.exacerbation || {};
   const a = visit.assessments || {};
   const techs = visit.inhalerTechnique || [];
@@ -6324,50 +6377,160 @@ function buildSheetSyncRow(visit, patient) {
   ];
 }
 
-// ซิงค์ visit เดียวไปยัง Google Sheet แบบ fire-and-forget หลังบันทึก — ต้องไม่บล็อก/ทำให้การบันทึก
-// หลักในแอพช้าลงหรือล้มเหลว แม้ GAS จะตอบช้า/ล่ม/ตั้งค่าไว้ผิดก็ตาม (เป็นแค่สำเนาสำรองสำหรับทำรายงาน
-// ภายนอก ไม่ใช่แหล่งข้อมูลหลัก — Firestore ยังเป็น source of truth เสมอ) ครอบ try/catch ทุกจุด ไม่ throw
-function syncVisitToSheet(config, visit, patient) {
-  if (!config?.enabled || !config?.url || !config?.secret) return;
+function buildTelepharmacySyncRow(rec, patient) {
+  return [
+    rec.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    rec.scheduledDate || '', rec.actualDate || '', rec.callTime || '', rec.status || '',
+    rec.symptoms || '', rec.exacerbation ? 'ใช่' : 'ไม่', rec.rescueUse || '',
+    rec.medicationProblems || '', rec.counseling || '', rec.nextFollowup || '', rec.pharmacistNote || '',
+  ];
+}
+
+// entry มาจาก computeDRPWorklist (merge ของ detectDRP สดกับสถานะที่เภสัชกรกรอกไว้ใน drpTracker แล้ว)
+// จึงมีข้อมูลครบทุกฟิลด์ที่ต้องใช้อยู่แล้ว ไม่ต้อง join เอง
+function buildDrpSyncRow(entry) {
+  return [
+    entry.id, entry.patient?.hn || '', entry.patient?.name || '', entry.visitDate || '',
+    entry.code || '', entry.categoryTh || entry.categoryEn || '', entry.problemTh || entry.problemEn || '',
+    entry.severity || '', entry.actionTh || entry.actionEn || '',
+    DRP_STATUS_LABEL[entry.status] || entry.status || '', entry.assignedTo || '',
+    DRP_INTERVENTION_LABEL[entry.interventionType] || '',
+    entry.actionTaken || '', entry.note || '', entry.dateResolved || '', entry.resolvedBy || '',
+    entry.outcome?.checked ? (entry.outcome.stillDetected ? 'ยังพบปัญหาเดิม' : 'ยืนยันดีขึ้นแล้ว') : (entry.status === 'resolved' ? 'รอ visit ถัดไปยืนยัน' : ''),
+  ];
+}
+
+function buildReferralSyncRow(r, patient) {
+  return [
+    r.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    r.date || '', r.referTo || '', r.urgency || '', r.problem || '', r.action || '', r.suggestion || '',
+    r.pharmacist || '', !!r.feedbackReceived, r.feedback || '',
+    r.exYearAtReferral ?? '', r.hospAtReferral ? 'ใช่' : 'ไม่',
+  ];
+}
+
+function buildAdrSyncRow(r, patient) {
+  return [
+    r.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    r.reportDate || '', r.suspectedDrug || '', r.dose || '', r.reaction || '', r.onsetDate || '',
+    r.severity || '', r.causality || '', r.rechallenge || '', r.dechallenge || '',
+    r.action || '', r.outcome || '', r.reporter || '', r.notes || '', r.linkedToAllergy ? 'ใช่' : 'ไม่',
+  ];
+}
+
+function buildMedRecSyncRow(r, patient) {
+  const discCount = (r.rows || []).filter(row => row.discrepancy !== 'none').length;
+  return [
+    r.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    r.date || '', r.type === 'admission' ? 'Admission' : 'Discharge', (r.rows || []).length, discCount,
+    (r.rows || []).map(row => `${row.drug}(${row.dose} ${row.frequency})${row.discrepancy !== 'none' ? ' ⚠' + row.discrepancy : ''}`).join('; '),
+    r.note || '', r.pharmacist || '',
+  ];
+}
+
+function buildDischargeSyncRow(r, patient) {
+  const items = Object.keys(r.checklist || {}).filter(k => r.checklist[k]);
+  return [
+    r.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    r.date || '', items.join('; '), `${items.length}/10`,
+    r.consent ? 'ใช่' : 'ไม่', r.followupDate || '', r.pharmacist || '', r.notes || '',
+  ];
+}
+
+function buildRcaSyncRow(r, patient) {
+  return [
+    r.id, patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    r.date || '', r.event || '', r.eventDate || '', r.severity || '',
+    r.what || '', r.why1 || '', r.why2 || '', r.why3 || '', r.why4 || '', r.why5 || '',
+    r.rootCause || '', r.contributing || '', r.immediate || '', r.systemic || '',
+    r.preventable || '', r.pharmacist || '',
+  ];
+}
+
+// snapshot ตัวชี้วัดคุณภาพ — ใช้ผลที่ calculateQualityKPIs คำนวณไว้แล้วตรงๆ (ผ่านการตรวจสอบความถูกต้อง
+// มาแล้วอย่างละเอียดในแอพ) ไม่คำนวณซ้ำด้วยสูตร Sheets เอง กันตัวเลข 2 แหล่งไม่ตรงกัน
+function buildKpiSnapshotRow(kpis, deviceStats, dateRange, patientCount, visitCount) {
+  const k = (key) => kpis[key] || {};
+  return [
+    AppStore.generateId(), new Date().toISOString().slice(0, 10), dateRange.start, dateRange.end,
+    k('copdExacerbRate').value ?? '', k('copdExacerbRate').num ?? '', k('copdExacerbRate').den ?? '',
+    k('asthmaErRate').value ?? '', k('asthmaErRate').num ?? '', k('asthmaErRate').den ?? '',
+    k('asthmaIcsPercent').value ?? '', k('asthmaIcsPercent').num ?? '', k('asthmaIcsPercent').den ?? '',
+    k('copdTherapyPercent').value ?? '', k('copdTherapyPercent').num ?? '', k('copdTherapyPercent').den ?? '',
+    k('techniquePercent').value ?? '', k('techniquePercent').num ?? '', k('techniquePercent').den ?? '',
+    k('carePercent').value ?? '', k('carePercent').num ?? '', k('carePercent').den ?? '',
+    k('adherenceGoodPercent').value ?? '', k('adherenceGoodPercent').num ?? '', k('adherenceGoodPercent').den ?? '',
+    deviceStats?.broughtPct ?? '', patientCount, visitCount,
+  ];
+}
+
+// ซิงค์แถวเดียว (หรือกลุ่มเล็ก) ไปยัง Google Sheet แบบ fire-and-forget หลังบันทึก — ต้องไม่บล็อก/
+// ทำให้การบันทึกหลักในแอพช้าลงหรือล้มเหลว แม้ GAS จะตอบช้า/ล่ม/ตั้งค่าไว้ผิดก็ตาม (เป็นแค่สำเนาสำรอง
+// สำหรับทำรายงานภายนอก ไม่ใช่แหล่งข้อมูลหลัก — Firestore ยังเป็น source of truth เสมอ) ครอบ try/catch
+// ทุกจุด ไม่ throw ออกไปเด็ดขาด
+function syncRowsToSheet(config, collection, rows) {
+  if (!config?.enabled || !config?.url || !config?.secret || !rows?.length) return;
   try {
-    const row = buildSheetSyncRow(visit, patient);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     fetch(config.url, {
       method: 'POST',
       // text/plain เลี่ยง CORS preflight (OPTIONS) ที่ Google Apps Script Web App ไม่รองรับ
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token: config.secret, rows: [row] }),
+      body: JSON.stringify({ token: config.secret, collection, rows }),
       signal: controller.signal,
       keepalive: true, // ให้ request ไปต่อได้แม้ผู้ใช้เปลี่ยนหน้า/ปิดแท็บทันทีหลังบันทึก
     }).catch(() => {}).finally(() => clearTimeout(timeoutId));
   } catch (e) { /* เงียบไว้เสมอ — ห้ามกระทบการบันทึกหลักในแอพ */ }
 }
 
-// ซิงค์ย้อนหลังทั้งหมด (bulk) — แบ่งเป็น batch กันก้อนข้อมูลใหญ่เกินไปจนคำขอ timeout/เกิน payload limit
-// ของ Apps Script เรียกจากปุ่ม "ซิงค์ย้อนหลังทั้งหมด" ในหน้าตั้งค่าเท่านั้น (ไม่ใช่ fire-and-forget
-// เหมือน syncVisitToSheet เพราะต้องรายงานความคืบหน้า/ข้อผิดพลาดให้ผู้ใช้เห็นจริง)
-async function bulkSyncVisitsToSheet(config, visits, patients, onProgress) {
+// ซิงค์ย้อนหลังทั้งหมดของ 1 หมวดหมู่ — แบ่งเป็น batch กันก้อนข้อมูลใหญ่เกินไปจนคำขอ timeout/เกิน
+// payload limit ของ Apps Script เรียกจากปุ่ม "ซิงค์ทั้งหมดตอนนี้" ในหน้าตั้งค่าเท่านั้น (ไม่ใช่
+// fire-and-forget เหมือน syncRowsToSheet เพราะต้องรายงานความคืบหน้า/ข้อผิดพลาดให้ผู้ใช้เห็นจริง)
+async function bulkSyncCollectionToSheet(config, collection, allRows, onProgress) {
   if (!config?.url || !config?.secret) throw new Error('ยังไม่ได้ตั้งค่า URL/Secret');
-  const patientById = new Map((patients || []).map(p => [p.id, p]));
-  const sorted = [...(visits || [])].filter(v => v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
   const BATCH = 100;
   let written = 0;
-  for (let i = 0; i < sorted.length; i += BATCH) {
-    const chunk = sorted.slice(i, i + BATCH);
-    const rows = chunk.map(v => buildSheetSyncRow(v, patientById.get(v.patientId)));
+  for (let i = 0; i < allRows.length; i += BATCH) {
+    const chunk = allRows.slice(i, i + BATCH);
     const res = await fetch(config.url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token: config.secret, rows }),
+      body: JSON.stringify({ token: config.secret, collection, rows: chunk }),
     });
     if (!res.ok) throw new Error(`เซิร์ฟเวอร์ตอบ ${res.status}`);
     const json = await res.json().catch(() => ({}));
     if (json && json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์ปฏิเสธคำขอ (ตรวจสอบ Secret)');
     written += chunk.length;
-    onProgress?.(written, sorted.length);
+    onProgress?.(collection, written, allRows.length);
   }
   return written;
+}
+
+// ซิงค์ย้อนหลังทุกหมวดหมู่ในครั้งเดียว — ใช้ตอนตั้งค่าครั้งแรก หรือกด "รีซิงค์ทั้งหมด" ซ้ำได้ทุกเมื่อ
+// (upsert ด้วย ID กันข้อมูลซ้ำ) คืนสรุปจำนวนที่เขียนต่อหมวดให้ผู้ใช้เห็นครบทุกหมวด
+async function bulkSyncAllToSheet(config, data, onProgress) {
+  const patientById = new Map((data.patients || []).map(p => [p.id, p]));
+  const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  const drpWorklist = window.computeDRPWorklist ? window.computeDRPWorklist(data.patients, data.visits, data.drpTracker, null) : [];
+  const jobs = [
+    { collection: 'patients', rows: (data.patients || []).map(p => buildPatientSyncRow(p)) },
+    { collection: 'visits', rows: [...(data.visits || [])].filter(v => v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate)).map(v => buildVisitSyncRow(v, patientById.get(v.patientId))) },
+    { collection: 'telepharmacy', rows: (data.telepharmacy || []).map(t => buildTelepharmacySyncRow(t, patientById.get(t.patientId))) },
+    { collection: 'drp', rows: drpWorklist.map(buildDrpSyncRow) },
+    { collection: 'referrals', rows: (ha.referrals || []).map(r => buildReferralSyncRow(r, patientById.get(r.patientId))) },
+    { collection: 'adr', rows: (ha.adr || []).map(r => buildAdrSyncRow(r, patientById.get(r.patientId))) },
+    { collection: 'medrec', rows: (ha.medRec || []).map(r => buildMedRecSyncRow(r, patientById.get(r.patientId))) },
+    { collection: 'discharge', rows: (ha.discharge || []).map(r => buildDischargeSyncRow(r, patientById.get(r.patientId))) },
+    { collection: 'rca', rows: (ha.rca || []).map(r => buildRcaSyncRow(r, patientById.get(r.patientId))) },
+  ];
+  const summary = {};
+  for (const job of jobs) {
+    summary[job.collection] = job.rows.length > 0
+      ? await bulkSyncCollectionToSheet(config, job.collection, job.rows, (col, written, total) => onProgress?.(col, written, total, jobs))
+      : 0;
+  }
+  return summary;
 }
 
 // ทดสอบการเชื่อมต่อแบบ ping เฉยๆ ไม่เขียนข้อมูลใดๆ ลงชีต
@@ -6383,7 +6546,11 @@ async function pingSheetSync(config) {
   return true;
 }
 
-Object.assign(window, { buildSheetSyncRow, syncVisitToSheet, bulkSyncVisitsToSheet, pingSheetSync, SHEET_SYNC_HEADERS });
+Object.assign(window, {
+  buildPatientSyncRow, buildVisitSyncRow, buildTelepharmacySyncRow, buildDrpSyncRow, buildReferralSyncRow,
+  buildAdrSyncRow, buildMedRecSyncRow, buildDischargeSyncRow, buildRcaSyncRow, buildKpiSnapshotRow,
+  syncRowsToSheet, bulkSyncCollectionToSheet, bulkSyncAllToSheet, pingSheetSync,
+});
 
 // ── Export: 43 แฟ้ม / HDC — ร่างแฟ้ม CHRONICFU เฉพาะการบริบาลเภสัชกรรม COPD/Asthma ──
 // หมายเหตุสำคัญ: เลขบัตรประชาชน (PID) เป็นฟิลด์ไม่บังคับในทะเบียนผู้ป่วย (ผู้ป่วยบางรายไม่สะดวกให้/
@@ -8382,6 +8549,9 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
       summary: `เพิ่มผู้ป่วยใหม่ HN:${newPt.hn || '-'} ${newPt.prefix}${newPt.firstName} ${newPt.lastName}`,
     });
     onDataChange(ndAddPt);
+    if (window.buildPatientSyncRow && window.syncRowsToSheet) {
+      window.syncRowsToSheet(ndAddPt.sheetSyncConfig, 'patients', [window.buildPatientSyncRow(newPt)]);
+    }
     setAddOpen(false);
     window.rxToast?.(`เพิ่มผู้ป่วย ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
@@ -8403,6 +8573,10 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
       summary: `แก้ไขข้อมูลผู้ป่วย HN:${formData.hn || '-'} ${formData.prefix}${formData.firstName} ${formData.lastName}`,
     });
     onDataChange(ndEditPt);
+    if (window.buildPatientSyncRow && window.syncRowsToSheet) {
+      const updatedPt = updated.find(p => p.id === editPt.id);
+      window.syncRowsToSheet(ndEditPt.sheetSyncConfig, 'patients', [window.buildPatientSyncRow(updatedPt)]);
+    }
     setEditPt(null);
     window.rxToast?.(`แก้ไขข้อมูล ${formData.prefix}${formData.firstName} ${formData.lastName} สำเร็จ`, 'success');
   };
@@ -11376,7 +11550,9 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
     onSave(newData);
     // ซิงค์ไป Google Sheet แบบเบื้องหลัง (ถ้าตั้งค่า/เปิดใช้งานไว้) — ไม่ await เพราะต้องไม่ทำให้การ
     // บันทึก visit หลักช้าลงหรือพังแม้ซิงค์จะล้มเหลว (ดู syncVisitToSheet)
-    window.syncVisitToSheet?.(newData.sheetSyncConfig, visit, patient);
+    if (window.buildVisitSyncRow && window.syncRowsToSheet) {
+      window.syncRowsToSheet(newData.sheetSyncConfig, 'visits', [window.buildVisitSyncRow(visit, patient)]);
+    }
     window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
     window.rxConfetti?.();
     setSaveSuccess(true);
@@ -12456,6 +12632,12 @@ const saveDRPEntryWithAudit = (data, onDataChange, currentUser, entryId, patch, 
     summary: `อัปเดต DRP (${entry?.categoryTh || entry?.categoryEn || ''} — ${entry?.problemTh || entryId}) ของ ${entry?.patient?.name || ''} · HN ${entry?.patient?.hn || ''} → ${DRP_STATUS_LABEL[patch.status] || patch.status}${assignPart}${interventionPart}`,
   });
   onDataChange?.(nextData);
+  // ซิงค์เฉพาะรายการนี้ไป Google Sheet — merge entry เดิม (categoryTh/problemTh/visitDate ฯลฯ) กับ
+  // patch ที่เพิ่งบันทึก ได้ entry ที่ครบถ้วนพอสำหรับซิงค์ (ไม่ต้องรอ bulk sync ทั้งก้อน) ส่วน outcome
+  // (ผลปิดวงจร) จะยังเป็นค่าเดิมก่อน patch เพราะคำนวณจาก visit ถัดไปจริง ไม่ใช่สิ่งที่ patch รอบนี้แก้
+  if (window.buildDrpSyncRow && window.syncRowsToSheet && entry) {
+    window.syncRowsToSheet(nextData.sheetSyncConfig, 'drp', [window.buildDrpSyncRow({ ...entry, ...patch })]);
+  }
 };
 
 // ── ส่งต่อแพทย์แบบปิดวงจร (เดิม ReferralModal ของ HA Compliance เป็นแค่บันทึกทางเดียว ไม่มี
@@ -12470,6 +12652,9 @@ const createReferralWithAudit = (data, onDataChange, currentUser, patient, recor
     summary: `ส่งต่อ ${patient?.prefix || ''}${patient?.firstName || ''} ${patient?.lastName || ''} · HN ${patient?.hn || ''} → ${record.referTo} [${(record.urgency || '').toUpperCase()}] — ${(record.problem || '').slice(0, 80)}`,
   });
   onDataChange?.(nextData);
+  if (window.buildReferralSyncRow && window.syncRowsToSheet) {
+    window.syncRowsToSheet(nextData.sheetSyncConfig, 'referrals', [window.buildReferralSyncRow(record, patient)]);
+  }
 };
 
 const updateReferralWithAudit = (data, onDataChange, currentUser, referralId, patch, patient) => {
@@ -12482,6 +12667,10 @@ const updateReferralWithAudit = (data, onDataChange, currentUser, referralId, pa
     summary: `อัปเดตผลการส่งต่อของ ${patient?.prefix || ''}${patient?.firstName || ''} ${patient?.lastName || ''} · HN ${patient?.hn || ''}${patch.feedbackReceived ? ' → ได้รับ feedback แล้ว' : ''}`,
   });
   onDataChange?.(nextData);
+  if (window.buildReferralSyncRow && window.syncRowsToSheet) {
+    const updatedRecord = nextReferrals.find(r => r.id === referralId);
+    window.syncRowsToSheet(nextData.sheetSyncConfig, 'referrals', [window.buildReferralSyncRow(updatedRecord, patient)]);
+  }
 };
 
 // ตรวจว่าหลังส่งต่อแล้ว visit ถัดไปของผู้ป่วยคนนี้ดีขึ้นจริงหรือไม่ (จำนวน exacerbation/การนอน รพ.
@@ -20136,9 +20325,22 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
   });
 
   const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  // field (ชื่อ key ใน haCompliance) → collection/builder ที่ตรงกันฝั่ง Google Sheet sync
+  const HA_SYNC_MAP = {
+    medRec: { collection: 'medrec', build: window.buildMedRecSyncRow },
+    adr: { collection: 'adr', build: window.buildAdrSyncRow },
+    referrals: { collection: 'referrals', build: window.buildReferralSyncRow },
+    discharge: { collection: 'discharge', build: window.buildDischargeSyncRow },
+    rca: { collection: 'rca', build: window.buildRcaSyncRow },
+  };
   const saveHA = (field, record) => {
     const updated = { ...ha, [field]: [...(ha[field] || []), record] };
-    onDataChange({ ...data, haCompliance: updated });
+    const nextData = { ...data, haCompliance: updated };
+    onDataChange(nextData);
+    const syncDef = HA_SYNC_MAP[field];
+    if (syncDef?.build && window.syncRowsToSheet) {
+      window.syncRowsToSheet(nextData.sheetSyncConfig, syncDef.collection, [syncDef.build(record, pt)]);
+    }
   };
 
   const stats = useMemo(() => ({
