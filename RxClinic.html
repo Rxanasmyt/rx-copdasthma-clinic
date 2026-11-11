@@ -6028,6 +6028,7 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
         { id: 'competency', label: '🎓 Competency Log' },
         { id: 'audit',      label: '🛡️ Audit Log' },
         { id: 'firebase',   label: '☁️ Firebase Cloud Sync' },
+        { id: 'sheets',     label: '📊 Google Sheet Sync' },
         { id: 'datamode',   label: '🧪 โครงสร้างข้อมูลใหม่' },
       ]} active={tab} onChange={setTab} />
       {tab === 'users' && (
@@ -6039,8 +6040,113 @@ function SettingsView({ data, onDataChange, currentUser, onSwitch, onConfigSave,
       {tab === 'firebase' && (
         <FirebaseSetup onConfigSave={onConfigSave} syncStatus={syncStatus} />
       )}
+      {tab === 'sheets' && <GoogleSheetSyncPanel data={data} onDataChange={onDataChange} />}
       {tab === 'datamode' && <DataModePanel />}
     </div>
+  );
+}
+
+// ── ตั้งค่าซิงค์ไป Google Sheet ผ่าน Apps Script Web App (ดู gas-sync/README.md ในซอร์สโค้ด) ──
+// เก็บ url/secret ไว้ใน data.sheetSyncConfig (ใช้ร่วมกันทุกเครื่อง/ทุกคนที่ล็อกอิน ไม่ใช่ localStorage
+// ต่อเครื่องแบบ LINE Notify เดิม — เพราะทุกเครื่องที่บันทึก visit ต้องยิงไปปลายทางเดียวกันเสมอ)
+function GoogleSheetSyncPanel({ data, onDataChange }) {
+  const cfg = data.sheetSyncConfig || { url: '', secret: '', enabled: false };
+  const [url, setUrl] = stState(cfg.url);
+  const [secret, setSecret] = stState(cfg.secret);
+  const [testing, setTesting] = stState(false);
+  const [testResult, setTestResult] = stState(null); // { ok, msg } | null
+  const [syncing, setSyncing] = stState(false);
+  const [progress, setProgress] = stState(null); // { written, total } | null
+
+  const dirty = url !== cfg.url || secret !== cfg.secret;
+
+  const save = (patch) => {
+    onDataChange({ ...data, sheetSyncConfig: { ...cfg, url, secret, ...patch } });
+  };
+
+  const handleTest = async () => {
+    if (testing) return;
+    setTesting(true); setTestResult(null);
+    try {
+      await window.pingSheetSync({ url, secret });
+      setTestResult({ ok: true, msg: '✅ เชื่อมต่อสำเร็จ — ตั้งค่า URL/Secret ถูกต้อง' });
+    } catch (e) {
+      setTestResult({ ok: false, msg: '❌ เชื่อมต่อไม่สำเร็จ: ' + (e.message || e) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleBulkSync = async () => {
+    if (syncing) return;
+    if (!window.confirm(`ซิงค์ Visit ทั้งหมด ${data.visits.length} รายการย้อนหลังไป Google Sheet ตอนนี้เลยหรือไม่?`)) return;
+    setSyncing(true); setProgress({ written: 0, total: data.visits.length });
+    try {
+      const written = await window.bulkSyncVisitsToSheet({ url, secret }, data.visits, data.patients,
+        (written, total) => setProgress({ written, total }));
+      window.rxToast?.(`✅ ซิงค์สำเร็จ ${written} รายการ`, 'success', 5000);
+    } catch (e) {
+      window.rxToast?.('❌ ซิงค์ไม่สำเร็จ: ' + (e.message || e), 'error', 6000);
+    } finally {
+      setSyncing(false); setProgress(null);
+    }
+  };
+
+  return (
+    <Card>
+      <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700 }}>📊 Google Sheet Sync</h3>
+      <p style={{ margin: '0 0 14px', fontSize: 12.5, color: C.textMuted, lineHeight: 1.7 }}>
+        ส่งข้อมูลการบริบาลเภสัชกรรม (visit) ไปเก็บใน Google Sheet แบบทางเดียว เพื่อทำรายงาน/แดชบอร์ดแยก —
+        Firestore ในแอพยังเป็นฐานข้อมูลหลักเสมอ ถ้าซิงค์ล้มเหลวแอพยังใช้งานได้ปกติ ดูขั้นตอนตั้งค่า
+        Apps Script ฝั่ง Google Sheet แบบละเอียดได้ที่ <code>gas-sync/README.md</code> ในซอร์สโค้ดของระบบ
+      </p>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Web App URL</label>
+        <input value={url} onChange={e => setUrl(e.target.value)}
+          placeholder="https://script.google.com/macros/s/xxxxx/exec"
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'monospace', boxSizing: 'border-box' }} />
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Shared Secret (ตั้งไว้ใน Script Properties ฝั่ง Apps Script)</label>
+        <input type="password" value={secret} onChange={e => setSecret(e.target.value)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12.5, fontFamily: 'monospace', boxSizing: 'border-box' }} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <Btn variant="primary" onClick={() => save({})} disabled={!dirty}>💾 บันทึกการตั้งค่า</Btn>
+        <Btn variant="ghost" onClick={handleTest} disabled={testing || !url.trim() || !secret.trim()}>
+          {testing ? '⏳ กำลังทดสอบ...' : '🔌 ทดสอบการเชื่อมต่อ'}
+        </Btn>
+      </div>
+      {testResult && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, marginBottom: 14, fontSize: 12.5, fontWeight: 600,
+          background: testResult.ok ? C.lowBg : C.highBg, color: testResult.ok ? C.low : C.high,
+          border: `1px solid ${testResult.ok ? C.lowBorder : C.highBorder}`,
+        }}>{testResult.msg}</div>
+      )}
+
+      <div style={{ padding: '10px 14px', borderRadius: 10, background: C.bgAlt, border: `1px solid ${C.border}`, marginBottom: 14 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          <input type="checkbox" checked={!!cfg.enabled} onChange={e => onDataChange({ ...data, sheetSyncConfig: { ...cfg, url, secret, enabled: e.target.checked } })}
+            style={{ accentColor: C.primary, width: 16, height: 16 }} />
+          เปิดใช้งานซิงค์อัตโนมัติ (ซิงค์ visit ใหม่/ที่แก้ไขไปยัง Sheet ทันทีหลังบันทึก)
+        </label>
+        {!cfg.url && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>กรุณาบันทึก URL/Secret ก่อนเปิดใช้งาน</div>}
+      </div>
+
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>ซิงค์ย้อนหลัง</div>
+        <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+          นำ Visit ทั้งหมด {data.visits.length} รายการที่มีอยู่แล้วในระบบ เข้า Google Sheet ครั้งแรก (ทำครั้งเดียวตอนตั้งค่าเสร็จ
+          หรือกดซ้ำได้ทุกเมื่อถ้าต้องการรีซิงค์ทั้งหมด — ไม่สร้างแถวซ้ำ เพราะ upsert ด้วย Visit ID)
+        </p>
+        <Btn variant="accent" onClick={handleBulkSync} disabled={syncing || !url.trim() || !secret.trim()}>
+          {syncing ? `⏳ กำลังซิงค์... ${progress ? `${progress.written}/${progress.total}` : ''}` : '🔄 ซิงค์ย้อนหลังทั้งหมด'}
+        </Btn>
+      </div>
+    </Card>
   );
 }
 
@@ -6170,6 +6276,114 @@ function exportVisits(visits, patients) {
     })
   );
 }
+
+// ── Google Sheets Sync (ผ่าน Google Apps Script Web App, ดู gas-sync/README.md) ──────────
+// ใช้ header ชุดเดียวกับ exportVisits (CSV) เป็นฐาน + เพิ่ม Visit ID (ใช้ upsert กันแถวซ้ำตอนแก้ไข
+// visit เดิม) และฟิลด์ที่ exportVisits ไม่มี (CAT/mMRC/ACT, จำนวน DRP, นำอุปกรณ์เดิมมา) — ลำดับ
+// คอลัมน์ต้องตรงกับ VISITS_HEADERS ใน gas-sync/Code.gs เป๊ะๆ ถ้าแก้ฝั่งใดฝั่งหนึ่งต้องแก้อีกฝั่งด้วย
+const SHEET_SYNC_HEADERS = [
+  'Visit ID', 'วันที่', 'HN', 'ชื่อ-นามสกุล', 'อายุ', 'การวินิจฉัย', 'ความเสี่ยง', 'Chief Complaint',
+  'Ex. ครั้ง/ปี', 'นอน รพ.', 'เข้า ER', 'ความรุนแรง Ex.', 'ปัจจัยกระตุ้น', 'Rescue Use',
+  'ยาที่ใช้', 'Adherence รายยา', 'Adherence ระดับ', 'เทคนิคยาพ่น', 'นำอุปกรณ์เดิมมา',
+  'CAT', 'mMRC', 'ACT', 'SpO2', 'RR', 'BP',
+  'Subjective', 'Objective', 'Assessment', 'Plan', 'หัวข้อให้คำปรึกษา',
+  'จำนวน DRP ที่พบ', 'เภสัชกร', 'นัดถัดไป',
+];
+
+function buildSheetSyncRow(visit, patient) {
+  const ex = visit.exacerbation || {};
+  const a = visit.assessments || {};
+  const techs = visit.inhalerTechnique || [];
+  // สรุปรวมของทุกอุปกรณ์ที่ประเมินใน visit นี้ว่านำมาครบ/บางส่วน/ไม่ได้นำมา — ไม่รวม "ไม่ระบุ" (null)
+  // เข้าไปในการนับ กันนับผิดเป็น "ไม่ได้นำมา" ทั้งที่จริงๆ แค่ยังไม่ได้ตอบ (ตามหลักเดียวกับ
+  // calculateDeviceBroughtStats ที่ใช้ในหน้า Analytics)
+  const broughtVals = techs.map(t => t.deviceBrought).filter(v => v === true || v === false);
+  const broughtSummary = broughtVals.length === 0 ? '' : broughtVals.every(v => v) ? 'นำมาทุกชิ้น' : broughtVals.some(v => v) ? 'นำมาบางส่วน' : 'ไม่ได้นำมา';
+  let drpCount = 0;
+  try { drpCount = (typeof detectDRP === 'function' ? detectDRP(visit, patient) : []).length; } catch (e) { /* เงียบไว้ ไม่ให้การซิงค์พัง */ }
+  return [
+    visit.id, visit.visitDate,
+    patient?.hn || '', patient ? `${patient.prefix}${patient.firstName} ${patient.lastName}` : '',
+    patient?.age ?? '', patient?.diagnosis || '', visit.riskLevel || '',
+    visit.chiefComplaint || '',
+    ex.countThisYear ?? 0, ex.hospitalized ? 'ใช่' : 'ไม่', ex.erVisit ? 'ใช่' : 'ไม่',
+    ex.severity || '', (ex.triggers || []).join('; '), ex.rescueMedUse || '',
+    (visit.medications || []).map(m => `${m.name}(${m.dose})`).join('; '),
+    (visit.medications || []).map(m => `${m.name}:${m.adherence || '-'}`).join('; '),
+    visit.adherence?.level || '',
+    techs.map(t => `${t.device}:${t.overallScore}`).join('; '),
+    broughtSummary,
+    a.cat?.allAnswered ? a.cat.score : '',
+    a.mmrc?.grade ?? '',
+    a.act?.allAnswered ? a.act.score : '',
+    visit.vitals?.spO2 || '', visit.vitals?.rr || '', visit.vitals?.bp || '',
+    visit.soap?.s || '', visit.soap?.o || '', visit.soap?.a || '', visit.soap?.p || '',
+    (visit.counselingTopics || []).join('; '),
+    drpCount,
+    visit.pharmacist || '', visit.nextVisit || '',
+  ];
+}
+
+// ซิงค์ visit เดียวไปยัง Google Sheet แบบ fire-and-forget หลังบันทึก — ต้องไม่บล็อก/ทำให้การบันทึก
+// หลักในแอพช้าลงหรือล้มเหลว แม้ GAS จะตอบช้า/ล่ม/ตั้งค่าไว้ผิดก็ตาม (เป็นแค่สำเนาสำรองสำหรับทำรายงาน
+// ภายนอก ไม่ใช่แหล่งข้อมูลหลัก — Firestore ยังเป็น source of truth เสมอ) ครอบ try/catch ทุกจุด ไม่ throw
+function syncVisitToSheet(config, visit, patient) {
+  if (!config?.enabled || !config?.url || !config?.secret) return;
+  try {
+    const row = buildSheetSyncRow(visit, patient);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    fetch(config.url, {
+      method: 'POST',
+      // text/plain เลี่ยง CORS preflight (OPTIONS) ที่ Google Apps Script Web App ไม่รองรับ
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: config.secret, rows: [row] }),
+      signal: controller.signal,
+      keepalive: true, // ให้ request ไปต่อได้แม้ผู้ใช้เปลี่ยนหน้า/ปิดแท็บทันทีหลังบันทึก
+    }).catch(() => {}).finally(() => clearTimeout(timeoutId));
+  } catch (e) { /* เงียบไว้เสมอ — ห้ามกระทบการบันทึกหลักในแอพ */ }
+}
+
+// ซิงค์ย้อนหลังทั้งหมด (bulk) — แบ่งเป็น batch กันก้อนข้อมูลใหญ่เกินไปจนคำขอ timeout/เกิน payload limit
+// ของ Apps Script เรียกจากปุ่ม "ซิงค์ย้อนหลังทั้งหมด" ในหน้าตั้งค่าเท่านั้น (ไม่ใช่ fire-and-forget
+// เหมือน syncVisitToSheet เพราะต้องรายงานความคืบหน้า/ข้อผิดพลาดให้ผู้ใช้เห็นจริง)
+async function bulkSyncVisitsToSheet(config, visits, patients, onProgress) {
+  if (!config?.url || !config?.secret) throw new Error('ยังไม่ได้ตั้งค่า URL/Secret');
+  const patientById = new Map((patients || []).map(p => [p.id, p]));
+  const sorted = [...(visits || [])].filter(v => v.visitDate).sort((a, b) => a.visitDate.localeCompare(b.visitDate));
+  const BATCH = 100;
+  let written = 0;
+  for (let i = 0; i < sorted.length; i += BATCH) {
+    const chunk = sorted.slice(i, i + BATCH);
+    const rows = chunk.map(v => buildSheetSyncRow(v, patientById.get(v.patientId)));
+    const res = await fetch(config.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: config.secret, rows }),
+    });
+    if (!res.ok) throw new Error(`เซิร์ฟเวอร์ตอบ ${res.status}`);
+    const json = await res.json().catch(() => ({}));
+    if (json && json.ok === false) throw new Error(json.error || 'เซิร์ฟเวอร์ปฏิเสธคำขอ (ตรวจสอบ Secret)');
+    written += chunk.length;
+    onProgress?.(written, sorted.length);
+  }
+  return written;
+}
+
+// ทดสอบการเชื่อมต่อแบบ ping เฉยๆ ไม่เขียนข้อมูลใดๆ ลงชีต
+async function pingSheetSync(config) {
+  if (!config?.url || !config?.secret) throw new Error('กรุณากรอก URL และ Secret ก่อน');
+  const res = await fetch(config.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ token: config.secret, ping: true }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.ok === false) throw new Error(json.error || `เซิร์ฟเวอร์ตอบ ${res.status}`);
+  return true;
+}
+
+Object.assign(window, { buildSheetSyncRow, syncVisitToSheet, bulkSyncVisitsToSheet, pingSheetSync, SHEET_SYNC_HEADERS });
 
 // ── Export: 43 แฟ้ม / HDC — ร่างแฟ้ม CHRONICFU เฉพาะการบริบาลเภสัชกรรม COPD/Asthma ──
 // หมายเหตุสำคัญ: เลขบัตรประชาชน (PID) เป็นฟิลด์ไม่บังคับในทะเบียนผู้ป่วย (ผู้ป่วยบางรายไม่สะดวกให้/
@@ -11160,6 +11374,9 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
     // Clear draft on successful save
     clearDraft(patientId, isEditing ? editingVisit.id : null);
     onSave(newData);
+    // ซิงค์ไป Google Sheet แบบเบื้องหลัง (ถ้าตั้งค่า/เปิดใช้งานไว้) — ไม่ await เพราะต้องไม่ทำให้การ
+    // บันทึก visit หลักช้าลงหรือพังแม้ซิงค์จะล้มเหลว (ดู syncVisitToSheet)
+    window.syncVisitToSheet?.(newData.sheetSyncConfig, visit, patient);
     window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
     window.rxConfetti?.();
     setSaveSuccess(true);
