@@ -9822,6 +9822,27 @@ function InhalerChecklistCard({ entry, index, onChange, onRemove }) {
         )}
         <button onClick={() => onRemove(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 16, padding: '0 4px' }}>✕</button>
       </div>
+      {entry.device && (
+        <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#FFFBEB' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: C.textMuted }}>นำอุปกรณ์เดิมมาด้วยวันนี้หรือไม่?</span>
+          {[{ v: true, l: '✓ นำมา' }, { v: false, l: '✕ ไม่ได้นำมา' }].map(opt => (
+            <button key={String(opt.v)} onClick={() => onChange(index, { ...entry, deviceBrought: opt.v })}
+              style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                border: `1.5px solid ${entry.deviceBrought === opt.v ? (opt.v ? C.lowBorder : C.highBorder) : C.border}`,
+                background: entry.deviceBrought === opt.v ? (opt.v ? C.lowBg : C.highBg) : '#fff',
+                color: entry.deviceBrought === opt.v ? (opt.v ? C.low : C.high) : C.textMuted,
+              }}>{opt.l}</button>
+          ))}
+          {entry.deviceBrought === true && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11.5, color: C.textMuted, marginLeft: 6 }}>
+              <input type="checkbox" checked={!!entry.exchangedForNew} onChange={e => onChange(index, { ...entry, exchangedForNew: e.target.checked })}
+                style={{ accentColor: C.primary, width: 14, height: 14 }} />
+              แลกเป็นอุปกรณ์ใหม่วันนี้
+            </label>
+          )}
+        </div>
+      )}
       {entry.device && steps.length > 0 && (
         <div style={{ padding: '10px 14px' }}>
           {steps.map((step, si) => (
@@ -10907,7 +10928,10 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
     return { ...prev, medications: next };
   });
 
-  const addTech = () => setF(prev => ({ ...prev, inhalerTechnique: [...prev.inhalerTechnique, { id: AppStore.generateId(), device: '', stepsCorrect: [], overallScore: 'Poor', errors: [] }] }));
+  // เดิมไม่มีช่องบันทึกว่าผู้ป่วยนำอุปกรณ์พ่นยาเดิมมาด้วยหรือไม่ — รพ.มีนโยบายให้นำอุปกรณ์เดิมมาแลกใหม่
+  // ทุกครั้งที่มาตรวจ เพื่อให้ประเมินเทคนิค/ความร่วมมือได้แม่นยำ (เดิมผู้ป่วยมักไม่นำมา ประเมินจากการซัก
+  // ประวัติ/สาธิตเปล่าเท่านั้น ซึ่งแม่นยำน้อยกว่าดูจากอุปกรณ์จริง เช่น เช็คจำนวนโดสที่เหลือ/คราบยาตกค้าง)
+  const addTech = () => setF(prev => ({ ...prev, inhalerTechnique: [...prev.inhalerTechnique, { id: AppStore.generateId(), device: '', stepsCorrect: [], overallScore: 'Poor', errors: [], deviceBrought: null, exchangedForNew: false }] }));
   const updateTech = (i, val) => setF(prev => ({ ...prev, inhalerTechnique: prev.inhalerTechnique.map((t, idx) => idx === i ? val : t) }));
   const removeTech = (i) => setF(prev => ({ ...prev, inhalerTechnique: prev.inhalerTechnique.filter((_, idx) => idx !== i) }));
 
@@ -14866,6 +14890,32 @@ const calculateQualityKPIs = (data, startDate, endDate, todayStr) => {
 };
 window.calculateQualityKPIs = calculateQualityKPIs; // ใช้จาก Dashboard.jsx (คนละ script block) สำหรับ banner แจ้งเตือน
 
+// ─── สถิติ "นำอุปกรณ์พ่นยาเดิมมาด้วย" ตามนโยบาย รพ. (นำมาแลกของใหม่ทุกครั้งที่มาตรวจ) ──────
+// แยกออกจาก calculateQualityKPIs โดยตั้งใจ — ไม่ใช่ 1 ใน 7 ตัวชี้วัดคุณภาพหลักที่ผ่านการตรวจสอบ/
+// ตกลงเกณฑ์กับทีมมาแล้ว แต่เป็นสถิติเสริมใหม่ เก็บแยกกันไว้กันกระทบ KPI หลักที่ตรวจสอบละเอียดแล้ว
+// ตัวหาร = เฉพาะ "ครั้งที่ประเมินเทคนิคที่ตอบคำถามนี้แล้วจริง" (deviceBrought !== null/undefined)
+// ไม่รวมรายการเก่าก่อนมีฟีเจอร์นี้/ที่ยังไม่ได้ตอบ เพื่อไม่ให้ "ไม่ระบุ" ถูกนับเป็น "ไม่นำมา" ไปเฉยๆ
+const calculateDeviceBroughtStats = (data, startDate, endDate) => {
+  const periodVisits = (data.visits || []).filter(v => v.visitDate && v.visitDate >= startDate && v.visitDate <= endDate);
+  let answered = 0, brought = 0, exchanged = 0;
+  periodVisits.forEach(v => {
+    (v.inhalerTechnique || []).forEach(t => {
+      if (t.deviceBrought === true || t.deviceBrought === false) {
+        answered++;
+        if (t.deviceBrought === true) {
+          brought++;
+          if (t.exchangedForNew) exchanged++;
+        }
+      }
+    });
+  });
+  return {
+    answered, brought, exchanged,
+    broughtPct: answered > 0 ? ((brought / answered) * 100).toFixed(1) : null,
+  };
+};
+window.calculateDeviceBroughtStats = calculateDeviceBroughtStats;
+
 // ─── สร้างรายการ "ช่วงเวลา" ย้อนหลัง สำหรับดึงรายงาน/แนวโน้ม KPI ─────────────
 // granularity: 'month' | 'quarter' | 'year' — คืนค่าเรียงจากอดีต → ปัจจุบัน (เก่าสุดอยู่ซ้าย)
 // ปีงบประมาณไทย (ปีงบ) = 1 ต.ค. ถึง 30 ก.ย. — ตั้งชื่อตาม พ.ศ. ของปีที่ "สิ้นสุด" (30 ก.ย.)
@@ -15497,6 +15547,13 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
     [data, dateRange]
   );
 
+  // สถิติ "นำอุปกรณ์พ่นยาเดิมมาด้วย" ตามนโยบายใหม่ของ รพ. — แยกจาก kpis หลักโดยตั้งใจ (ดูคอมเมนต์ที่
+  // calculateDeviceBroughtStats)
+  const deviceBroughtStats = React.useMemo(
+    () => window.calculateDeviceBroughtStats ? window.calculateDeviceBroughtStats(data, dateRange.start, dateRange.end) : null,
+    [data, dateRange]
+  );
+
   const trend = React.useMemo(
     () => viewMode === 'trend' ? calculateQualityKPIsTrend(data, trendGranularity, trendCount) : null,
     [data, viewMode, trendGranularity, trendCount]
@@ -15745,6 +15802,23 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
               </div>
             ))}
           </div>
+
+          {deviceBroughtStats && deviceBroughtStats.answered > 0 && (
+            <Card style={{ marginTop: 16, borderLeft: `4px solid ${deviceBroughtStats.broughtPct !== null && parseFloat(deviceBroughtStats.broughtPct) >= 80 ? '#059669' : '#D97706'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>🎒 นำอุปกรณ์พ่นยาเดิมมาด้วยตอนตรวจ (นโยบายแลกอุปกรณ์เดิม/ใหม่)</div>
+                  <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
+                    {deviceBroughtStats.brought} / {deviceBroughtStats.answered} ครั้งที่ประเมินเทคนิค — นำมาด้วย{' '}
+                    {deviceBroughtStats.exchanged > 0 ? `(แลกเป็นอุปกรณ์ใหม่ ${deviceBroughtStats.exchanged} ครั้ง)` : ''}
+                  </div>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: parseFloat(deviceBroughtStats.broughtPct) >= 80 ? '#059669' : '#D97706' }}>
+                  {deviceBroughtStats.broughtPct}%
+                </div>
+              </div>
+            </Card>
+          )}
 
           <KPIDetailModal open={!!detailKey} onClose={() => setDetailKey(null)} data={data} metricKey={detailKey} metric={detailKey ? kpis[detailKey] : null}
             icon={metrics.find(m => m.key === detailKey)?.icon} targetLabel={metrics.find(m => m.key === detailKey)?.targetLabel}
