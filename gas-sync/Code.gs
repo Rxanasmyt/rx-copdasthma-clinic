@@ -156,6 +156,10 @@ function writeRows(collection, rows) {
   return rows.length;
 }
 
+// getOrCreateSheet: ใช้ตอนเขียนข้อมูลจริง (writeRows) ต้องเบา/เร็ว — แค่สร้างชีต+หัวตารางถ้ายังไม่มี
+// ไม่จัดสไตล์หนักๆ ที่นี่ (กันการ sync ทีละแถวบ่อยๆ ช้าลงจากการจัดรูปแบบซ้ำทุกครั้ง) ส่วนการจัดสวยงาม
+// เต็มรูปแบบ (สี/ความกว้างคอลัมน์/conditional format) ทำแยกใน styleSheet ซึ่งเรียกจาก setupDashboard
+// เท่านั้น (รันเป็นครั้งคราว ไม่ใช่ทุกครั้งที่มีข้อมูลเข้า)
 function getOrCreateSheet(collection) {
   const meta = COLLECTIONS[collection];
   const headers = HEADERS[collection];
@@ -164,24 +168,111 @@ function getOrCreateSheet(collection) {
   if (!sheet) {
     sheet = ss.insertSheet(meta.sheet);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    styleSheet(sheet, headers.length, meta.color);
   }
   return sheet;
 }
 
-// จัดรูปแบบหัวตาราง (สีประจำหมวด) + ลายแถบสลับสี (banding) ให้อ่านแถวข้อมูลยาวๆ ง่ายขึ้น + แช่แข็งหัวตาราง
-function styleSheet(sheet, numCols, color) {
+// ธีมสีลายแถบสลับ (banding) ต่อหมวด — ให้ตรง/เข้าชุดกับสีหัวตารางของแต่ละชีต แทนสีเทาจางๆ เดิมที่ดู
+// จืดชืดเหมือนกันหมดทุกชีต แยกแยะหมวดด้วยสายตาได้ยาก
+const BANDING_BY_COLLECTION = {
+  patients: SpreadsheetApp.BandingTheme.BLUE,
+  visits: SpreadsheetApp.BandingTheme.TEAL,
+  telepharmacy: SpreadsheetApp.BandingTheme.CYAN,
+  drp: SpreadsheetApp.BandingTheme.RED,
+  referrals: SpreadsheetApp.BandingTheme.PURPLE,
+  adr: SpreadsheetApp.BandingTheme.ORANGE,
+  medrec: SpreadsheetApp.BandingTheme.YELLOW,
+  discharge: SpreadsheetApp.BandingTheme.GREEN,
+  rca: SpreadsheetApp.BandingTheme.PURPLE,
+  kpi_snapshot: SpreadsheetApp.BandingTheme.PINK,
+};
+
+// จัดรูปแบบเต็มรูปแบบ: หัวตารางสีประจำหมวด + ลายแถบสลับสีที่เข้าชุดกัน (ไม่ใช่เทาจืดๆ เหมือนกันหมด) +
+// ปรับความกว้างคอลัมน์ให้พอดีเนื้อหาจริง (เดิมความกว้าง default ของ Sheets แคบมาก ทำให้ข้อความยาวๆ
+// เช่นชื่อโรค/SOAP note ถูกตัดจนอ่านไม่ออก) + ตัดคำ/จัดแนวข้อความแถวข้อมูลให้อ่านง่าย + แช่แข็งหัวตาราง
+// เรียกจาก setupDashboard เท่านั้น (ไม่เรียกจาก getOrCreateSheet ที่ใช้ตอน sync ข้อมูลจริง เพราะหนักเกิน
+// ไปที่จะรันซ้ำทุกครั้งที่มีการบันทึกข้อมูลใหม่ 1 แถว) — รันซ้ำได้ปลอดภัย ลบ banding เดิมก่อนใส่ใหม่เสมอ
+// กัน error "already has banding" ตอนกดรันซ้ำรอบที่ 2 เป็นต้นไป
+function styleSheet(sheet, numCols, color, collection) {
+  const numRows = Math.max(sheet.getMaxRows(), 200);
   const header = sheet.getRange(1, 1, 1, numCols);
-  header.setBackground(color).setFontColor('#FFFFFF').setFontWeight('bold')
+  header.setBackground(color).setFontColor('#FFFFFF').setFontWeight('bold').setFontSize(11)
     .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
-  sheet.setRowHeight(1, 40);
+  sheet.setRowHeight(1, 44);
   sheet.setFrozenRows(1);
   sheet.setFrozenColumns(2);
   sheet.setTabColor(color);
+
+  // ลบ banding เดิมทั้งหมดก่อน (ถ้ามี) แล้วค่อยใส่ธีมสีใหม่ที่เข้าชุดกับหมวดนี้ — ครอบ try/catch เพราะ
+  // บาง BandingTheme อาจไม่รองรับในบาง locale/เวอร์ชัน API ถ้าใส่ธีมที่ต้องการไม่ได้ ให้ fallback เป็น
+  // LIGHT_GREY (ใช้ได้แน่นอนเสมอ) แทนที่จะปล่อยให้ทั้งฟังก์ชัน throw แล้วหยุดจัดสไตล์ชีตที่เหลือ
+  sheet.getBandings().forEach(b => b.remove());
+  const theme = BANDING_BY_COLLECTION[collection] || SpreadsheetApp.BandingTheme.LIGHT_GREY;
   try {
-    sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 200), numCols)
-      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
-  } catch (e) { /* banding ชนกับของเดิมถ้ารันซ้ำ — ข้ามได้ ไม่กระทบข้อมูล */ }
+    sheet.getRange(1, 1, numRows, numCols).applyRowBanding(theme, true, false);
+  } catch (e) {
+    try { sheet.getRange(1, 1, numRows, numCols).applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false); } catch (e2) { /* ข้ามได้ */ }
+  }
+
+  // ความกว้างคอลัมน์: กำหนดจาก "ความยาวข้อความหัวตาราง" แทนการใช้ autoResizeColumns (ซึ่งต้องสแกนเนื้อหา
+  // ทุกแถวเพื่อวัดความกว้างจริง — ช้ามากถ้าชีตมีข้อมูลหลายพันแถวอย่าง Visits/DRP_Tracker ของคลินิกที่ใช้
+  // งานจริง เสี่ยงพาสคริปต์ไปชนลิมิตเวลา 6 นาทีซ้ำอีกรอบ) วิธีนี้เร็วแน่นอนไม่ว่าชีตจะมีข้อมูลกี่แถว
+  const headerTexts = sheet.getRange(1, 1, 1, numCols).getValues()[0];
+  headerTexts.forEach((text, i) => {
+    const len = String(text || '').length;
+    const width = Math.max(90, Math.min(260, len * 9 + 40));
+    sheet.setColumnWidth(i + 1, width);
+  });
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, numCols).setWrap(true).setVerticalAlignment('top').setFontSize(10);
+  }
+
+  applyConditionalFormatting(sheet, collection, numRows);
+}
+
+// ป้ายสีเน้นคอลัมน์สำคัญ (สถานะ/ความรุนแรง/ความเสี่ยง) ให้เด่นชัดด้วยสายตาทันที ไม่ต้องอ่านข้อความทีละ
+// แถว — ตั้งใจเขียนทับกฎเดิมทั้งหมดทุกครั้งที่รัน (setConditionalFormatRules แทนที่ทั้งชุด ไม่ append)
+// กันกฎซ้ำซ้อนสะสมเวลารัน setupDashboard หลายรอบ
+function applyConditionalFormatting(sheet, collection, numRows) {
+  const rules = [];
+  const colorRule = (range, text, bg, fg) => SpreadsheetApp.newConditionalFormatRule()
+    .whenTextContains(text).setBackground(bg).setFontColor(fg || '#FFFFFF').setRanges([range]).build();
+
+  if (collection === 'visits' || collection === 'patients') {
+    const riskCol = collection === 'visits' ? 7 : 27; // G (visits) / AA (patients) — 1-indexed
+    const range = sheet.getRange(2, riskCol, numRows - 1, 1);
+    rules.push(colorRule(range, 'High', '#FEE2E2', '#991B1B'));
+    rules.push(colorRule(range, 'Medium', '#FEF3C7', '#92400E'));
+    rules.push(colorRule(range, 'Low', '#DCFCE7', '#166534'));
+  }
+  if (collection === 'drp') {
+    const sevRange = sheet.getRange(2, 8, numRows - 1, 1); // H ความรุนแรง
+    rules.push(colorRule(sevRange, 'High', '#FEE2E2', '#991B1B'));
+    rules.push(colorRule(sevRange, 'Medium', '#FEF3C7', '#92400E'));
+    rules.push(colorRule(sevRange, 'Low', '#F1F5F9', '#475569'));
+    const statusRange = sheet.getRange(2, 10, numRows - 1, 1); // J สถานะ
+    rules.push(colorRule(statusRange, 'ยังไม่แก้ไข', '#FEE2E2', '#991B1B'));
+    rules.push(colorRule(statusRange, 'กำลังดำเนินการ', '#FEF3C7', '#92400E'));
+    rules.push(colorRule(statusRange, 'แก้ไขแล้ว', '#DCFCE7', '#166534'));
+  }
+  if (collection === 'referrals') {
+    // ค่าที่ setValues() เขียนเป็น boolean จริง (ไม่ใช่ string) จะแสดงผล/เทียบข้อความเป็น "TRUE"/"FALSE"
+    // ตัวพิมพ์ใหญ่เสมอใน Sheets — ต้องเทียบด้วยตัวพิมพ์ใหญ่ ไม่ใช่ "true"/"false"
+    const fbRange = sheet.getRange(2, 11, numRows - 1, 1); // K ได้รับ Feedback แล้ว
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('TRUE')
+      .setBackground('#DCFCE7').setFontColor('#166534').setRanges([fbRange]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('FALSE')
+      .setBackground('#FEF3C7').setFontColor('#92400E').setRanges([fbRange]).build());
+  }
+  if (collection === 'adr') {
+    const sevRange = sheet.getRange(2, 9, numRows - 1, 1); // I ความรุนแรง
+    rules.push(colorRule(sevRange, 'severe', '#FEE2E2', '#991B1B'));
+    rules.push(colorRule(sevRange, 'fatal', '#FEE2E2', '#991B1B'));
+    rules.push(colorRule(sevRange, 'moderate', '#FEF3C7', '#92400E'));
+    rules.push(colorRule(sevRange, 'mild', '#DCFCE7', '#166534'));
+  }
+  sheet.setConditionalFormatRules(rules);
 }
 
 /**
@@ -191,7 +282,13 @@ function styleSheet(sheet, numCols, color) {
  */
 function setupDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  Object.keys(COLLECTIONS).forEach(getOrCreateSheet);
+  // สร้างชีตที่ยังไม่มี + จัดสวยงามทุกชีตใหม่ทั้งหมด (รวมชีตที่มีข้อมูลอยู่แล้วจากก่อนหน้านี้ ที่เดิม
+  // เคยถูกสร้างแบบเรียบๆ ตอน sync ครั้งแรกโดยไม่มีสี/ไม่ได้ปรับความกว้างคอลัมน์) — คือขั้นตอนที่ทำให้
+  // ชีตข้อมูลดูสวยงาม ไม่ใช่แค่ชีต Dashboard เท่านั้น
+  Object.keys(COLLECTIONS).forEach(key => {
+    const sheet = getOrCreateSheet(key);
+    styleSheet(sheet, HEADERS[key].length, COLLECTIONS[key].color, key);
+  });
 
   // ลบชีต Dashboard เดิมทิ้งแล้วสร้างใหม่ทั้งแผ่นทุกครั้งที่รัน (แทนการ clear() เฉยๆ) — เดิมถ้าเคยรัน
   // setupDashboard ของโค้ดเวอร์ชันก่อนหน้ามาแล้ว (เช่น หัวตารางเดิมเป็น A1:H1 แต่เวอร์ชันนี้เปลี่ยนเป็น
@@ -321,7 +418,17 @@ function setupDashboard() {
 
   SpreadsheetApp.flush();
   dash.activate();
-  SpreadsheetApp.getUi().alert('✅ ตั้งค่า Dashboard สำเร็จ — การ์ด/กราฟ/ตัวชี้วัดจะอัปเดตอัตโนมัติเมื่อแอพซิงค์ข้อมูลใหม่เข้ามา (ตัวชี้วัด KPI1-7 จะขึ้น "—" จนกว่าจะกดปุ่ม "ซิงค์ตัวชี้วัด KPI" จากในแอพอย่างน้อย 1 ครั้ง)');
+  // เดิมใช้ SpreadsheetApp.getUi().alert(...) ซึ่งเป็น modal dialog ที่ "บล็อก" การทำงานของสคริปต์
+  // ไว้จนกว่าจะมีคนกด OK ในแท็บ Google Sheet เอง — ถ้าผู้ใช้รันจากแท็บ Apps Script editor แล้วไม่ได้
+  // สลับไปดูแท็บ Sheet จะไม่เห็น dialog นี้เลย สคริปต์จะค้างอยู่อย่างนั้นจนโดน Apps Script บังคับตัด
+  // การทำงานที่ลิมิต 6 นาที (ขึ้น error "Exceeded maximum execution time" ทั้งที่จริงๆ ทุกขั้นตอนก่อน
+  // หน้านี้ทำงานสำเร็จไปหมดแล้ว) — เปลี่ยนเป็น toast แบบไม่บล็อกแทน (ขึ้นมุมขวาล่างของ Sheet สักพักแล้ว
+  // หายไปเอง) และ log ไว้ด้วยเผื่อดูย้อนหลังใน Executions
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    'การ์ด/กราฟ/ตัวชี้วัดจะอัปเดตอัตโนมัติเมื่อแอพซิงค์ข้อมูลใหม่เข้ามา (ตัวชี้วัด KPI1-7 จะขึ้น "—" จนกว่าจะกดปุ่ม "ซิงค์ตัวชี้วัด KPI" จากในแอพอย่างน้อย 1 ครั้ง)',
+    '✅ ตั้งค่า Dashboard สำเร็จ', 10
+  );
+  Logger.log('setupDashboard เสร็จสมบูรณ์');
 }
 
 // วางการ์ดสรุปเป็นแถวคู่ (ตัวเลข + label) เริ่มที่แถว startRow คอลัมน์ 1 เป็นต้นไป
