@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --teal: #0F766E;
+      --teal-dark: #0F172A;
+      --blue: #2563EB;
+      --red: #DC2626;
+      --purple: #7C3AED;
+      --bg: #F8FAFC;
+      --border: #E2E8F0;
+      --text-muted: #64748B;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: #0F172A;
+      font-size: 13px;
+    }
+    .header {
+      background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dark) 100%);
+      color: #fff;
+      padding: 16px 14px;
+      animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .header h1 { margin: 0; font-size: 16px; font-weight: 700; }
+    .header p { margin: 4px 0 0; font-size: 11px; opacity: 0.85; }
+
+    .content { padding: 14px; }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 10px;
+      text-align: center;
+      opacity: 0;
+      transform: translateY(8px) scale(0.96);
+      animation: popIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .stat-card:hover {
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+      transform: translateY(-2px);
+    }
+    .stat-card:nth-child(1) { animation-delay: 0.05s; }
+    .stat-card:nth-child(2) { animation-delay: 0.1s; }
+    .stat-card:nth-child(3) { animation-delay: 0.15s; }
+    .stat-card:nth-child(4) { animation-delay: 0.2s; }
+    .stat-card:nth-child(5) { animation-delay: 0.25s; }
+    @keyframes popIn {
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .stat-value { font-size: 24px; font-weight: 800; line-height: 1; }
+    .stat-label { font-size: 10px; color: var(--text-muted); margin-top: 5px; font-weight: 600; }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--teal-dark);
+      margin: 18px 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .search-box {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .search-box:focus {
+      border-color: var(--teal);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+    }
+
+    .result-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .result-item {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      opacity: 0;
+      animation: fadeSlideIn 0.3s ease forwards;
+      cursor: default;
+      transition: background 0.15s;
+    }
+    .result-item:hover { background: #F0FDFA; }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateX(-6px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .result-name { font-weight: 700; font-size: 12.5px; }
+    .result-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .dx-badge {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 10px;
+      margin-left: 6px;
+    }
+    .dx-COPD { background: #FFF7ED; color: #C2410C; }
+    .dx-Asthma { background: #FAF5FF; color: #7E22CE; }
+    .dx-Both { background: #F0F9FF; color: #0369A1; }
+
+    .empty-state { text-align: center; color: var(--text-muted); font-size: 12px; padding: 18px 0; }
+
+    .refresh-btn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      background: var(--teal);
+      color: #fff;
+      font-weight: 700;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .refresh-btn:hover { background: #0D5F58; }
+    .refresh-btn:active { transform: scale(0.98); }
+
+    .footer-note { text-align: center; font-size: 10px; color: #94A3B8; margin-top: 14px; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🏥 RxClinic Control Panel</h1>
+    <p id="updatedAt">กำลังโหลด...</p>
+  </div>
+
+  <div class="content">
+    <div class="card-grid" id="cardGrid"></div>
+
+    <div class="section-title">🔎 ค้นหาผู้ป่วย</div>
+    <input type="text" class="search-box" id="searchBox" placeholder="พิมพ์ชื่อหรือ HN...">
+    <div class="result-list" id="resultList"></div>
+
+    <button class="refresh-btn" id="refreshBtn" onclick="loadSummary()">🔄 รีเฟรชตัวเลข</button>
+    <div class="footer-note">ดึงข้อมูลสดจากชีต Patients/Visits/DRP_Tracker/Referrals ตรงๆ</div>
+  </div>
+
+  <script>
+    function renderCards(data) {
+      const cards = [
+        { label: 'ผู้ป่วยทั้งหมด', value: data.patients, color: '#2563EB' },
+        { label: 'Visit ทั้งหมด', value: data.visits, color: '#0F766E' },
+        { label: 'DRP ยังไม่ปิด', value: data.openDrp, color: '#DC2626' },
+        { label: 'DRP High ยังเปิด', value: data.highDrp, color: '#B91C1C' },
+        { label: 'รายการส่งต่อแพทย์', value: data.referrals, color: '#7C3AED' },
+      ];
+      const grid = document.getElementById('cardGrid');
+      grid.innerHTML = cards.map(c =>
+        '<div class="stat-card">' +
+          '<div class="stat-value" style="color:' + c.color + '">' + c.value + '</div>' +
+          '<div class="stat-label">' + c.label + '</div>' +
+        '</div>'
+      ).join('');
+      document.getElementById('updatedAt').textContent = 'อัปเดตล่าสุด: ' + data.updatedAt;
+    }
+
+    function loadSummary() {
+      const btn = document.getElementById('refreshBtn');
+      btn.innerHTML = '<span class="spinner"></span>กำลังโหลด...';
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(function (data) {
+          renderCards(data);
+          btn.innerHTML = '🔄 รีเฟรชตัวเลข';
+          btn.disabled = false;
+        })
+        .withFailureHandler(function (err) {
+          document.getElementById('updatedAt').textContent = 'โหลดข้อมูลไม่สำเร็จ: ' + err.message;
+          btn.innerHTML = '🔄 รีเฟรชตัวเลข';
+          btn.disabled = false;
+        })
+        .getSidebarSummary();
+    }
+
+    let searchTimer = null;
+    document.getElementById('searchBox').addEventListener('input', function (e) {
+      const q = e.target.value;
+      clearTimeout(searchTimer);
+      if (!q.trim()) {
+        document.getElementById('resultList').innerHTML = '';
+        return;
+      }
+      // debounce กันยิง request ทุกครั้งที่กดคีย์ (รอ 300ms ให้พิมพ์นิ่งก่อน)
+      searchTimer = setTimeout(function () {
+        google.script.run.withSuccessHandler(renderResults).searchPatients(q);
+      }, 300);
+    });
+
+    function renderResults(results) {
+      const list = document.getElementById('resultList');
+      if (!results || results.length === 0) {
+        list.innerHTML = '<div class="empty-state">ไม่พบผู้ป่วยที่ค้นหา</div>';
+        return;
+      }
+      list.innerHTML = results.map(function (p, i) {
+        const dxClass = 'dx-' + (p.diagnosis || 'COPD').replace(/\s/g, '');
+        return '<div class="result-item" style="animation-delay:' + (i * 0.03) + 's">' +
+          '<div class="result-name">' + p.name + '<span class="dx-badge ' + dxClass + '">' + (p.diagnosis || '—') + '</span></div>' +
+          '<div class="result-meta">HN: ' + p.hn + ' · อายุ ' + p.age + ' ปี</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    loadSummary();
+  </script>
+</body>
+</html>
