@@ -20325,6 +20325,13 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
   });
 
   const ha = data.haCompliance || { medRec: [], adr: [], referrals: [], discharge: [], rca: [] };
+  // ประกาศ pt ก่อน saveHA เสมอ (เดิมอยู่หลัง) — ทุกวันนี้ saveHA ถูกเรียกจาก onSave ของ modal ที่
+  // mount หลัง pt มีค่าแล้วเท่านั้น จึงยังไม่เจอปัญหาจริง แต่ถ้าพลาดเผลอเรียก saveHA ก่อน pt ถูก
+  // กำหนดค่าในอนาคต (เช่นจาก useEffect ของ render รอบเดียวกัน) จะชน temporal dead zone ของ const
+  // ทันที — จัดลำดับให้ถูกไว้ก่อนกันปัญหานี้เกิดขึ้นได้เลย ไม่ต้องรอให้เกิดจริงก่อนค่อยแก้
+  const pt = selected || data.patients?.[0];
+  const ptVisits = pt ? (data.visits || []).filter(v => v.patientId === pt.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||"")) : [];
+
   // field (ชื่อ key ใน haCompliance) → collection/builder ที่ตรงกันฝั่ง Google Sheet sync
   const HA_SYNC_MAP = {
     medRec: { collection: 'medrec', build: window.buildMedRecSyncRow },
@@ -20352,9 +20359,6 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
     unresReferrals: (ha.referrals || []).filter(r => !r.feedbackReceived).length,
     severeADR: (ha.adr || []).filter(r => r.severity === 'severe' || r.severity === 'fatal').length,
   }), [ha]);
-
-  const pt = selected || data.patients?.[0];
-  const ptVisits = pt ? (data.visits || []).filter(v => v.patientId === pt.id).sort((a, b) => (b.visitDate||"").localeCompare(a.visitDate||"")) : [];
 
   return (
     <div>

@@ -125,11 +125,25 @@ function jsonOut(obj) {
 function writeRows(collection, rows) {
   if (rows.length === 0) return 0;
   const meta = COLLECTIONS[collection];
-  const sheet = getOrCreateSheet(collection);
+  const headers = HEADERS[collection];
   const now = new Date();
+
+  // เช็คจำนวนคอลัมน์ของทุกแถวให้ตรงกับ HEADERS ก่อนเขียนเสมอ — เดิมถ้า row.length ไม่ตรงกับที่ควรจะ
+  // เป็น (เช่น ฝั่งแอพแก้ builder แล้วลืมแก้ HEADERS ให้ตรงกัน หรือกลับกัน) เส้นทาง "อัปเดตแถวเดิม" จะ
+  // setValues ด้วยความกว้าง = fullRow.length เอง (เขียนทับแบบเลื่อนคอลัมน์ผิดไปเงียบๆ ไม่ error) ในขณะ
+  // ที่เส้นทาง "เพิ่มแถวใหม่" ใช้ความกว้าง = headers.length ตายตัว (จะ throw ทันทีถ้าไม่ตรง) — สอง
+  // เส้นทางมีพฤติกรรมไม่เหมือนกันเมื่อข้อมูลมีปัญหาเดียวกัน ทำให้บัคแบบนี้หลุดผ่านไปแบบเงียบๆ ได้ถ้าบังเอิญ
+  // แก้ไขแถวเดิมก่อนจะเจอกับแถวใหม่ — เช็คและปฏิเสธทั้งคำขอทันทีถ้าพบ ไม่ใช่ปล่อยให้เขียนข้อมูลผิดตำแหน่ง
+  const expectedLen = meta.appendOnly ? headers.length : headers.length - 1;
+  const badRow = rows.find(r => r.length !== expectedLen);
+  if (badRow) {
+    throw new Error(`จำนวนคอลัมน์ไม่ตรงกับ HEADERS ของ "${collection}" (ควรมี ${expectedLen} ค่า แต่ได้รับ ${badRow.length} ค่า) — ตรวจสอบว่า builder ฝั่งแอพกับ HEADERS ใน Code.gs ตรงกันหรือไม่`);
+  }
+
+  const sheet = getOrCreateSheet(collection);
   if (meta.appendOnly) {
     // KPI_Snapshots: เก็บประวัติทุก snapshot ไว้เป็น time-series สำหรับดูแนวโน้มย้อนหลัง ไม่ทับของเดิม
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, HEADERS[collection].length).setValues(rows);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
     return rows.length;
   }
   // หมวดอื่นทั้งหมด: upsert ด้วย ID คอลัมน์แรก (แก้ไขข้อมูลเดิมในแอพ = อัปเดตแถวเดิม ไม่สร้างซ้ำ)
@@ -145,13 +159,13 @@ function writeRows(collection, rows) {
     const fullRow = [...row, now];
     const existingRowNum = idToRowNum.get(id);
     if (existingRowNum) {
-      sheet.getRange(existingRowNum, 1, 1, fullRow.length).setValues([fullRow]);
+      sheet.getRange(existingRowNum, 1, 1, headers.length).setValues([fullRow]);
     } else {
       toAppend.push(fullRow);
     }
   });
   if (toAppend.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, HEADERS[collection].length).setValues(toAppend);
+    sheet.getRange(sheet.getLastRow() + 1, 1, toAppend.length, headers.length).setValues(toAppend);
   }
   return rows.length;
 }
