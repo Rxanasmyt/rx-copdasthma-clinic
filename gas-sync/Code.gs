@@ -249,19 +249,19 @@ function applyConditionalFormatting(sheet, collection, numRows) {
   if (collection === 'visits' || collection === 'patients') {
     const riskCol = collection === 'visits' ? 7 : 27; // G (visits) / AA (patients) — 1-indexed
     const range = sheet.getRange(2, riskCol, numRows - 1, 1);
-    rules.push(colorRule(range, 'High', '#FEE2E2', '#991B1B'));
-    rules.push(colorRule(range, 'Medium', '#FEF3C7', '#92400E'));
-    rules.push(colorRule(range, 'Low', '#DCFCE7', '#166534'));
+    rules.push(colorRule(range, 'High', '#FEF2F2', '#DC2626'));
+    rules.push(colorRule(range, 'Medium', '#FFFBEB', '#D97706'));
+    rules.push(colorRule(range, 'Low', '#F0FDF4', '#059669'));
   }
   if (collection === 'drp') {
     const sevRange = sheet.getRange(2, 8, numRows - 1, 1); // H ความรุนแรง
-    rules.push(colorRule(sevRange, 'High', '#FEE2E2', '#991B1B'));
-    rules.push(colorRule(sevRange, 'Medium', '#FEF3C7', '#92400E'));
+    rules.push(colorRule(sevRange, 'High', '#FEF2F2', '#DC2626'));
+    rules.push(colorRule(sevRange, 'Medium', '#FFFBEB', '#D97706'));
     rules.push(colorRule(sevRange, 'Low', '#F1F5F9', '#475569'));
     const statusRange = sheet.getRange(2, 10, numRows - 1, 1); // J สถานะ
-    rules.push(colorRule(statusRange, 'ยังไม่แก้ไข', '#FEE2E2', '#991B1B'));
-    rules.push(colorRule(statusRange, 'กำลังดำเนินการ', '#FEF3C7', '#92400E'));
-    rules.push(colorRule(statusRange, 'แก้ไขแล้ว', '#DCFCE7', '#166534'));
+    rules.push(colorRule(statusRange, 'ยังไม่แก้ไข', '#FEF2F2', '#DC2626'));
+    rules.push(colorRule(statusRange, 'กำลังดำเนินการ', '#FFFBEB', '#D97706'));
+    rules.push(colorRule(statusRange, 'แก้ไขแล้ว', '#F0FDF4', '#059669'));
   }
   if (collection === 'referrals') {
     // ค่าที่ setValues() เขียนเป็น boolean จริง (ไม่ใช่ string) จะแสดงผล/เทียบข้อความเป็น "TRUE"/"FALSE"
@@ -274,10 +274,10 @@ function applyConditionalFormatting(sheet, collection, numRows) {
   }
   if (collection === 'adr') {
     const sevRange = sheet.getRange(2, 9, numRows - 1, 1); // I ความรุนแรง
-    rules.push(colorRule(sevRange, 'severe', '#FEE2E2', '#991B1B'));
-    rules.push(colorRule(sevRange, 'fatal', '#FEE2E2', '#991B1B'));
-    rules.push(colorRule(sevRange, 'moderate', '#FEF3C7', '#92400E'));
-    rules.push(colorRule(sevRange, 'mild', '#DCFCE7', '#166534'));
+    rules.push(colorRule(sevRange, 'severe', '#FEF2F2', '#DC2626'));
+    rules.push(colorRule(sevRange, 'fatal', '#FEF2F2', '#DC2626'));
+    rules.push(colorRule(sevRange, 'moderate', '#FFFBEB', '#D97706'));
+    rules.push(colorRule(sevRange, 'mild', '#F0FDF4', '#059669'));
   }
   sheet.setConditionalFormatRules(rules);
 }
@@ -306,13 +306,15 @@ function setupDashboard() {
   let dash = ss.getSheetByName('Dashboard');
   if (dash) ss.deleteSheet(dash);
   dash = ss.insertSheet('Dashboard', 0);
-  dash.setTabColor('#0F766E');
+  // #1E3A8A คือสีหลัก (primary) จริงของแอพ RxClinic (--c-primary) — ใช้ตรงนี้แทนสีเทาเข้มทั่วไป
+  // ให้เปิด Dashboard มาแล้วรู้สึกเหมือนเปิดแอพตัวเดียวกัน ไม่ใช่สเปรดชีตแยกต่างหากที่หน้าตาคนละชุด
+  dash.setTabColor('#1E3A8A');
   dash.setColumnWidths(1, 10, 140);
   dash.setHiddenGridlines(true);
 
-  // ── Title ──
+  // ── Title ── (เซลล์เดี่ยวใส่ gradient ไม่ได้ — ใช้สีพื้นหลังเดียวกับแถบหัวแอพ/sidebar แทน)
   dash.getRange('A1:J1').merge().setValue('🏥 Rx-COPD/Asthma Clinic — ภาพรวมการบริบาลเภสัชกรรมทั้งหมด')
-    .setFontSize(19).setFontWeight('bold').setFontColor('#FFFFFF').setBackground('#0F172A')
+    .setFontSize(19).setFontWeight('bold').setFontColor('#FFFFFF').setBackground('#1E3A8A')
     .setHorizontalAlignment('center').setVerticalAlignment('middle');
   dash.setRowHeight(1, 46);
   dash.getRange('A2:J2').merge()
