@@ -376,7 +376,11 @@ function setupDashboard() {
   dash.setRowHeight(11, 44);
   dash.setRowHeight(12, 26);
   dash.getRange(10, 1, 3, kpiCards.length).setBorder(true, true, true, true, true, true, '#E2E8F0', SpreadsheetApp.BorderStyle.SOLID);
-  dash.getRange('A13').setFormula('="⏱ คำนวณจากช่วงวันที่: " & IFERROR(INDEX(KPI_Snapshots!C:C,COUNTA(KPI_Snapshots!A:A)),"—") & " ถึง " & IFERROR(INDEX(KPI_Snapshots!D:D,COUNTA(KPI_Snapshots!A:A)),"—") & "   ·   เส้นเล็กใต้ตัวเลข = แนวโน้มย้อนหลังจากทุกครั้งที่เคยกดซิงค์ KPI"')
+  // เดิม INDEX(...) ดึงค่าคอลัมน์ C/D ของ KPI_Snapshots มาต่อด้วย "&" ตรงๆ — ถ้า Sheets ตีความค่าที่ส่ง
+  // มาจากแอพ (string วันที่ "2026-11-11") เป็น "วันที่" จริงโดยอัตโนมัติตอนเขียนลงเซลล์ (พฤติกรรม
+  // ปกติของ Sheets) การต่อด้วย & จะโชว์เป็นเลข serial date ดิบๆ (เช่น 46337) แทนวันที่อ่านออก ต้องครอบ
+  // ด้วย TEXT(...) ให้บังคับแปลงเป็นข้อความวันที่เสมอไม่ว่าเซลล์จะถูกตีความเป็นชนิดไหนก็ตาม
+  dash.getRange('A13').setFormula('="⏱ คำนวณจากช่วงวันที่: " & IFERROR(TEXT(INDEX(KPI_Snapshots!C:C,COUNTA(KPI_Snapshots!A:A)),"yyyy-mm-dd"),"—") & " ถึง " & IFERROR(TEXT(INDEX(KPI_Snapshots!D:D,COUNTA(KPI_Snapshots!A:A)),"yyyy-mm-dd"),"—") & "   ·   เส้นเล็กใต้ตัวเลข = แนวโน้มย้อนหลังจากทุกครั้งที่เคยกดซิงค์ KPI"')
     .setFontSize(9).setFontColor('#94A3B8');
 
   // ── Helper columns สำหรับกราฟ (คอลัมน์ L เป็นต้นไป ไม่ต้องแก้ไข) ──
