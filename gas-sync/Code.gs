@@ -229,6 +229,13 @@ function styleSheet(sheet, numCols, color, collection) {
   }
 
   applyConditionalFormatting(sheet, collection, numRows);
+
+  // เพิ่มปุ่มกรอง/เรียงข้อมูล (filter) ที่หัวตาราง — กดลูกศรที่หัวคอลัมน์ใดก็ได้เพื่อกรอง/เรียงข้อมูล
+  // ได้ทันทีโดยไม่ต้องสร้างชีตสำรอง ลบของเดิมก่อนเสมอกัน error "already has a filter" ตอนรันซ้ำ
+  const existingFilter = sheet.getFilter();
+  if (existingFilter) existingFilter.remove();
+  const filterRows = Math.max(sheet.getLastRow(), 2);
+  try { sheet.getRange(1, 1, filterRows, numCols).createFilter(); } catch (e) { /* ข้ามได้ถ้าชีตว่างเกินไป */ }
 }
 
 // ป้ายสีเน้นคอลัมน์สำคัญ (สถานะ/ความรุนแรง/ความเสี่ยง) ให้เด่นชัดด้วยสายตาทันที ไม่ต้องอ่านข้อความทีละ
@@ -356,11 +363,18 @@ function setupDashboard() {
       .setHorizontalAlignment('center').setBackground('#F8FAFC');
     dash.getRange(11, col).setValue(c.label).setFontSize(9).setFontColor('#64748B')
       .setHorizontalAlignment('center').setBackground('#F8FAFC').setWrap(true);
+    // เส้นแนวโน้มเล็กๆ (sparkline) ใต้ตัวเลข — ดึงค่าทั้งคอลัมน์จาก KPI_Snapshots (ประวัติทุกครั้งที่
+    // เคยกดซิงค์ KPI) ให้เห็นทิศทางว่าตัวชี้วัดนี้ดีขึ้น/แย่ลงเมื่อเทียบกับ snapshot ก่อนๆ โดยไม่ต้อง
+    // เปิดไปดูชีต KPI_Snapshots เอง — ถ้ามี snapshot แค่ 0-1 รายการจะไม่มีเส้นให้เห็น (เป็นปกติ)
+    dash.getRange(12, col).setFormula(
+      `=IFERROR(SPARKLINE(FILTER(KPI_Snapshots!${c.col}2:${c.col},KPI_Snapshots!A2:A<>""),{"charttype","line";"color","${c.color}";"linewidth",2}),"")`
+    ).setBackground('#F8FAFC').setHorizontalAlignment('center');
   });
   dash.setRowHeight(10, 40);
   dash.setRowHeight(11, 44);
-  dash.getRange(10, 1, 2, kpiCards.length).setBorder(true, true, true, true, true, true, '#E2E8F0', SpreadsheetApp.BorderStyle.SOLID);
-  dash.getRange('A12').setFormula('="⏱ คำนวณจากช่วงวันที่: " & IFERROR(INDEX(KPI_Snapshots!C:C,COUNTA(KPI_Snapshots!A:A)),"—") & " ถึง " & IFERROR(INDEX(KPI_Snapshots!D:D,COUNTA(KPI_Snapshots!A:A)),"—")')
+  dash.setRowHeight(12, 26);
+  dash.getRange(10, 1, 3, kpiCards.length).setBorder(true, true, true, true, true, true, '#E2E8F0', SpreadsheetApp.BorderStyle.SOLID);
+  dash.getRange('A13').setFormula('="⏱ คำนวณจากช่วงวันที่: " & IFERROR(INDEX(KPI_Snapshots!C:C,COUNTA(KPI_Snapshots!A:A)),"—") & " ถึง " & IFERROR(INDEX(KPI_Snapshots!D:D,COUNTA(KPI_Snapshots!A:A)),"—") & "   ·   เส้นเล็กใต้ตัวเลข = แนวโน้มย้อนหลังจากทุกครั้งที่เคยกดซิงค์ KPI"')
     .setFontSize(9).setFontColor('#94A3B8');
 
   // ── Helper columns สำหรับกราฟ (คอลัมน์ L เป็นต้นไป ไม่ต้องแก้ไข) ──
@@ -416,6 +430,14 @@ function setupDashboard() {
     .setOption('pieHole', 0.45).setOption('colors', ['#DC2626', '#D97706', '#059669'])
     .setOption('width', 480).setOption('height', 240).build());
 
+  // ป้องกันพื้นที่สูตร/การ์ด/กราฟของ Dashboard จากการแก้ไขโดยไม่ตั้งใจ (เช่น พิมพ์ทับตัวเลขการ์ดเล่นๆ
+  // แล้วสูตรหาย) — ใช้ warning-only (ไม่ได้ล็อกแบบเขียนไม่ได้เด็ดขาด) เพื่อไม่ต้องตั้งค่าสิทธิ์ผู้ใช้
+  // เพิ่ม แค่ขึ้นข้อความเตือนให้คิดอีกครั้งก่อนแก้ไข ลบ protection เดิมก่อนเสมอกันซ้อนกันเวลารันซ้ำ
+  dash.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(p => p.remove());
+  const guardRange = dash.getRange(1, 1, 30, 13);
+  const protection = guardRange.protect().setDescription('พื้นที่สูตร Dashboard — แก้ไขเองได้แต่โปรดระวังสูตรเสียหาย');
+  protection.setWarningOnly(true);
+
   SpreadsheetApp.flush();
   dash.activate();
   // เดิมใช้ SpreadsheetApp.getUi().alert(...) ซึ่งเป็น modal dialog ที่ "บล็อก" การทำงานของสคริปต์
@@ -443,4 +465,71 @@ function renderCardRow(dash, startRow, cards) {
   dash.setRowHeight(startRow, 40);
   dash.setRowHeight(startRow + 1, 38);
   dash.getRange(startRow, 1, 2, cards.length).setBorder(true, true, true, true, true, true, '#E2E8F0', SpreadsheetApp.BorderStyle.SOLID);
+}
+
+// ── เมนูลัดบนแถบเมนูของ Google Sheet เอง — ทำงานอัตโนมัติทุกครั้งที่เปิดสเปรดชีตนี้ ──
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🏥 RxClinic')
+    .addItem('📊 เปิดแผงควบคุม (Control Panel)', 'showSidebar')
+    .addSeparator()
+    .addItem('🔄 รีเฟรช/จัดรูปแบบ Dashboard ใหม่ทั้งหมด', 'setupDashboard')
+    .addToUi();
+}
+
+// ── Sidebar: แผงควบคุมแบบ HTML/CSS/JS จริง (ต้องสร้างไฟล์ Sidebar.html แยกในโปรเจกต์นี้ด้วย — ดู
+// gas-sync/Sidebar.html และขั้นตอนใน README.md) ให้มุมมองสรุป + ค้นหาผู้ป่วยแบบ interactive โดยไม่ต้อง
+// สลับไปมาระหว่างชีต ──
+function showSidebar() {
+  const html = HtmlService.createHtmlOutputFromFile('Sidebar').setTitle('🏥 RxClinic Control Panel');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// เรียกจาก Sidebar.html (google.script.run) — สรุปตัวเลขภาพรวมสดจากชีตข้อมูลจริงตรงๆ (ไม่ใช่แค่
+// snapshot ล่าสุด) ให้ตรงกับข้อมูลปัจจุบันเสมอแม้ยังไม่เคยกดซิงค์ KPI
+function getSidebarSummary() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const countRows = (name) => {
+    const sheet = ss.getSheetByName(name);
+    return sheet ? Math.max(sheet.getLastRow() - 1, 0) : 0;
+  };
+  const drpSheet = ss.getSheetByName('DRP_Tracker');
+  let openDrp = 0, highDrp = 0;
+  if (drpSheet && drpSheet.getLastRow() > 1) {
+    const data = drpSheet.getRange(2, 8, drpSheet.getLastRow() - 1, 3).getValues(); // H ความรุนแรง, I แนวทาง, J สถานะ
+    data.forEach(row => {
+      const severity = row[0], status = String(row[2] || '');
+      if (status.indexOf('แก้ไขแล้ว') === -1) {
+        openDrp++;
+        if (severity === 'High') highDrp++;
+      }
+    });
+  }
+  return {
+    patients: countRows('Patients'),
+    visits: countRows('Visits'),
+    openDrp, highDrp,
+    referrals: countRows('Referrals'),
+    updatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm'),
+  };
+}
+
+// เรียกจาก Sidebar.html — ค้นหาผู้ป่วยด้วยชื่อหรือ HN จากชีต Patients คืนผลลัพธ์สูงสุด 15 รายการ
+function searchPatients(query) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Patients');
+  if (!sheet || sheet.getLastRow() < 2 || !query) return [];
+  const q = String(query).trim().toLowerCase();
+  if (!q) return [];
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues(); // ถึงคอลัมน์ J (การวินิจฉัย)
+  const results = [];
+  for (let i = 0; i < data.length && results.length < 15; i++) {
+    const row = data[i];
+    const hn = String(row[1] || ''), firstName = String(row[4] || ''), lastName = String(row[5] || '');
+    const name = (firstName + ' ' + lastName).toLowerCase();
+    if (hn.toLowerCase().indexOf(q) !== -1 || name.indexOf(q) !== -1) {
+      results.push({ hn, name: firstName + ' ' + lastName, age: row[6], diagnosis: row[9] });
+    }
+  }
+  return results;
 }
