@@ -3,27 +3,37 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <!-- ใช้ฟอนต์ Sarabun เดียวกับแอพ RxClinic เป๊ะๆ (ไม่ใช่แค่สีให้ตรงกัน) ให้เปิด sidebar นี้แล้ว
+       รู้สึกเหมือนเปิดแอพตัวเดียวกันจริงๆ ไม่ใช่สเปรดชีตแยกที่หน้าตาคนละชุด -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
+    /* ── ชุดสีนี้ดึงมาจาก --c-* ใน RxClinic.html ตรงๆ (ไม่ใช่เดาสีใหม่) เพื่อให้ sidebar นี้เป็นธีม
+       เดียวกับตัวแอพเป๊ะๆ ทั้งสีหลัก (primary), สีความเสี่ยง (high/medium/low) และสีป้ายวินิจฉัย ──  */
     :root {
-      --teal: #0F766E;
-      --teal-dark: #0F172A;
-      --blue: #2563EB;
-      --red: #DC2626;
-      --purple: #7C3AED;
-      --bg: #F8FAFC;
-      --border: #E2E8F0;
-      --text-muted: #64748B;
+      --primary: #1E3A8A;       /* --c-primary ของแอพ */
+      --primary-light: #2563EB; /* --c-primaryLight */
+      --primary-dark: #1E40AF;  /* --c-primaryDark */
+      --accent: #0891B2;        /* --c-accent */
+      --high: #DC2626; --high-bg: #FEF2F2;     /* --c-high / --c-highBg */
+      --medium: #D97706; --medium-bg: #FFFBEB; /* --c-medium / --c-mediumBg */
+      --low: #059669; --low-bg: #F0FDF4;       /* --c-low / --c-lowBg */
+      --bg: #F1F5F9;             /* --c-bg */
+      --border: #E2E8F0;        /* --c-border */
+      --text: #0F172A;          /* --c-text */
+      --text-muted: #64748B;    /* --c-textMuted */
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Sarabun', 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
-      color: #0F172A;
+      color: var(--text);
       font-size: 13px;
     }
     .header {
-      background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dark) 100%);
+      /* gradient เดียวกับส่วนหัวแอพ/หน้า login ของ RxClinic เป๊ะๆ */
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 55%, var(--primary-light) 100%);
       color: #fff;
       padding: 16px 14px;
       animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -72,7 +82,7 @@
     .section-title {
       font-size: 12px;
       font-weight: 700;
-      color: var(--teal-dark);
+      color: var(--primary);
       margin: 18px 0 8px;
       display: flex;
       align-items: center;
@@ -90,8 +100,8 @@
       transition: border-color 0.15s, box-shadow 0.15s;
     }
     .search-box:focus {
-      border-color: var(--teal);
-      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+      border-color: var(--primary-light);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
     }
 
     .result-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
@@ -105,7 +115,7 @@
       cursor: default;
       transition: background 0.15s;
     }
-    .result-item:hover { background: #F0FDFA; }
+    .result-item:hover { background: #EFF6FF; } /* --c-primaryBg ของแอพ */
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateX(-6px); }
       to { opacity: 1; transform: translateX(0); }
@@ -120,9 +130,10 @@
       border-radius: 10px;
       margin-left: 6px;
     }
-    .dx-COPD { background: #FFF7ED; color: #C2410C; }
-    .dx-Asthma { background: #FAF5FF; color: #7E22CE; }
-    .dx-Both { background: #F0F9FF; color: #0369A1; }
+    /* สีเดียวกับ DiagBadge ในแอพเป๊ะๆ (RxClinic.html) */
+    .dx-COPD { background: #E0F2FE; color: #0369A1; }
+    .dx-Asthma { background: #EDE9FE; color: #7C3AED; }
+    .dx-Both { background: #CCFBF1; color: #0F766E; }
 
     .empty-state { text-align: center; color: var(--text-muted); font-size: 12px; padding: 18px 0; }
 
@@ -132,14 +143,14 @@
       padding: 10px;
       border: none;
       border-radius: 8px;
-      background: var(--teal);
+      background: var(--primary-light);
       color: #fff;
       font-weight: 700;
       font-size: 12.5px;
       cursor: pointer;
       transition: background 0.15s, transform 0.1s;
     }
-    .refresh-btn:hover { background: #0D5F58; }
+    .refresh-btn:hover { background: var(--primary-dark); }
     .refresh-btn:active { transform: scale(0.98); }
 
     .footer-note { text-align: center; font-size: 10px; color: #94A3B8; margin-top: 14px; }
