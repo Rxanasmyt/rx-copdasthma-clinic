@@ -391,12 +391,22 @@ function setupDashboard() {
   dash.getRange('L4').setValue('Asthma').setBackground('#FAF5FF'); dash.getRange('M4').setFormula('=COUNTIF(Visits!F2:F,"Asthma")');
   dash.getRange('L5').setValue('Both').setBackground('#F0F9FF');   dash.getRange('M5').setFormula('=COUNTIF(Visits!F2:F,"Both")');
 
+  // เดิมใช้ COUNTIF แบบ wildcard ("2026-11*") เทียบกับคอลัมน์วันที่ — ใช้ไม่ได้เลยถ้า Sheets ตีความ
+  // ค่าที่แอพส่งมา ("2026-11-02") เป็น "วันที่" จริงโดยอัตโนมัติตอนเขียนลงเซลล์ (ซึ่งเป็นพฤติกรรม
+  // ปกติของ Sheets กับ string รูปแบบวันที่ — เจอปัญหาคลาสเดียวกันกับที่แก้ไปแล้วในบรรทัดสรุปช่วงวันที่
+  // ด้านบน) ทำให้กราฟ "จำนวน Visit ต่อเดือน" นับได้ 0 ทุกเดือนเสมอ ไม่ว่าจะมี visit จริงกี่ครั้งก็ตาม
+  // แก้โดยเทียบช่วงวันที่ด้วย COUNTIFS (>= ต้นเดือน, < ต้นเดือนถัดไป) ซึ่งถูกต้องไม่ว่าเซลล์จะถูก
+  // Sheets ตีความเป็น Date จริงหรือยังเป็นข้อความอยู่ก็ตาม (เปรียบเทียบแบบวันที่/ตัวอักษร ISO ให้ผล
+  // ตรงกันทั้งคู่)
   dash.getRange('L8').setValue('เดือน'); dash.getRange('M8').setValue('จำนวน Visit');
   for (let m = 0; m < 12; m++) {
     const d = new Date(); d.setMonth(d.getMonth() - (11 - m));
+    const y = d.getFullYear(), mo = d.getMonth() + 1;
     const ym = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
     dash.getRange(9 + m, 12).setValue(ym);
-    dash.getRange(9 + m, 13).setFormula(`=COUNTIF(Visits!B2:B,"${ym}*")`);
+    dash.getRange(9 + m, 13).setFormula(
+      `=COUNTIFS(Visits!B:B,">="&DATE(${y},${mo},1),Visits!B:B,"<"&EDATE(DATE(${y},${mo},1),1))`
+    );
   }
 
   dash.getRange('L22').setValue('Adherence'); dash.getRange('M22').setValue('จำนวน');
@@ -411,29 +421,45 @@ function setupDashboard() {
     dash.getRange(28 + i, 13).setFormula(`=COUNTIF(DRP_Tracker!J2:J,"${pair[1]}")`);
   });
 
-  // ── Charts ──
+  // ── Charts ── สไตล์เดียวกันทุกกราฟ: พื้นหลังขาวสะอาด ไม่มีเส้นขอบ หัวข้อ/แกนใช้สีเดียวกับธีมแอพ
+  // (ฟอนต์ยังเป็นของ Sheets เอง — Charts API ไม่รองรับฟอนต์เว็บเหมือน cell ปกติ เป็นข้อจำกัดของ Sheets)
+  const chartBase = {
+    backgroundColor: { fill: 'transparent' },
+    titleTextStyle: { color: '#0F172A', fontSize: 13, bold: true },
+    fontName: 'Arial',
+  };
   dash.insertChart(dash.newChart().setChartType(Charts.ChartType.PIE)
     .addRange(dash.getRange('L2:M5')).setPosition(14, 1, 0, 0)
     .setOption('title', 'สัดส่วนการวินิจฉัย (COPD / Asthma / Both)')
-    .setOption('pieHole', 0.45).setOption('colors', ['#EA580C', '#7C3AED', '#0EA5E9'])
+    .setOption('pieHole', 0.5).setOption('colors', ['#0369A1', '#7C3AED', '#0F766E'])
+    .setOption('pieSliceTextStyle', { color: '#fff', fontSize: 11 })
+    .setOption('backgroundColor', chartBase.backgroundColor).setOption('titleTextStyle', chartBase.titleTextStyle)
     .setOption('width', 420).setOption('height', 280).build());
 
   dash.insertChart(dash.newChart().setChartType(Charts.ChartType.COLUMN)
     .addRange(dash.getRange('L8:M20')).setPosition(14, 4, 0, 0)
     .setOption('title', 'จำนวน Visit ต่อเดือน (12 เดือนล่าสุด)')
-    .setOption('colors', ['#0F766E']).setOption('legend', 'none')
+    .setOption('colors', ['#2563EB']).setOption('legend', 'none')
+    .setOption('backgroundColor', chartBase.backgroundColor).setOption('titleTextStyle', chartBase.titleTextStyle)
+    .setOption('hAxis', { textStyle: { color: '#64748B', fontSize: 9 }, slantedText: true })
+    .setOption('vAxis', { textStyle: { color: '#64748B' }, gridlines: { color: '#F1F5F9' }, minValue: 0 })
     .setOption('width', 480).setOption('height', 280).build());
 
   dash.insertChart(dash.newChart().setChartType(Charts.ChartType.BAR)
     .addRange(dash.getRange('L22:M25')).setPosition(30, 1, 0, 0)
     .setOption('title', 'ระดับ Adherence ของผู้ป่วย')
     .setOption('colors', ['#059669']).setOption('legend', 'none')
+    .setOption('backgroundColor', chartBase.backgroundColor).setOption('titleTextStyle', chartBase.titleTextStyle)
+    .setOption('hAxis', { textStyle: { color: '#64748B' }, gridlines: { color: '#F1F5F9' }, minValue: 0 })
+    .setOption('vAxis', { textStyle: { color: '#64748B' } })
     .setOption('width', 420).setOption('height', 240).build());
 
   dash.insertChart(dash.newChart().setChartType(Charts.ChartType.PIE)
     .addRange(dash.getRange('L27:M30')).setPosition(30, 4, 0, 0)
     .setOption('title', 'สถานะ DRP ทั้งหมด')
-    .setOption('pieHole', 0.45).setOption('colors', ['#DC2626', '#D97706', '#059669'])
+    .setOption('pieHole', 0.5).setOption('colors', ['#DC2626', '#D97706', '#059669'])
+    .setOption('pieSliceTextStyle', { color: '#fff', fontSize: 11 })
+    .setOption('backgroundColor', chartBase.backgroundColor).setOption('titleTextStyle', chartBase.titleTextStyle)
     .setOption('width', 480).setOption('height', 240).build());
 
   // ป้องกันพื้นที่สูตร/การ์ด/กราฟของ Dashboard จากการแก้ไขโดยไม่ตั้งใจ (เช่น พิมพ์ทับตัวเลขการ์ดเล่นๆ
