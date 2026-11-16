@@ -20336,11 +20336,19 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
   const HA_SYNC_MAP = {
     medRec: { collection: 'medrec', build: window.buildMedRecSyncRow },
     adr: { collection: 'adr', build: window.buildAdrSyncRow },
-    referrals: { collection: 'referrals', build: window.buildReferralSyncRow },
     discharge: { collection: 'discharge', build: window.buildDischargeSyncRow },
     rca: { collection: 'rca', build: window.buildRcaSyncRow },
   };
   const saveHA = (field, record) => {
+    // referrals ต้องผ่าน createReferralWithAudit เสมอ ไม่ใช่เส้นทางทั่วไปนี้ — เดิมปุ่ม "ส่งต่อแพทย์"
+    // จากหน้า HA Compliance (ตรงนี้) เรียก saveHA('referrals', r) ตรงๆ ซึ่งไม่เคยบันทึก audit log
+    // เลยสักครั้ง ต่างจากปุ่ม "ส่งต่อแพทย์" ในหน้าประวัติผู้ป่วยที่เรียก createReferralWithAudit อยู่
+    // แล้ว (มี appendAudit + sync ในตัว) ทำให้การส่งต่อแพทย์รายการเดียวกัน มี/ไม่มี audit log ขึ้นอยู่กับ
+    // ว่ากดจากหน้าไหน — ผิดหลัก HA accreditation ที่ต้องตรวจสอบย้อนหลังได้ครบทุกการกระทำ ไม่ใช่บางจุด
+    if (field === 'referrals') {
+      window.createReferralWithAudit?.(data, onDataChange, currentUser, pt, record);
+      return;
+    }
     const updated = { ...ha, [field]: [...(ha[field] || []), record] };
     const nextData = { ...data, haCompliance: updated };
     onDataChange(nextData);
