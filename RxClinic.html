@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
 <style>
   /* ── Theme variables (light default + dark override) ── */
   :root {
@@ -125,6 +125,55 @@
   @keyframes rxBeamPulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.9; } }
   @keyframes rxHaloPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
   @media (prefers-reduced-motion: reduce) { .rx-login-slat, .rx-login-beam, .rx-login-halo { animation: none !important; } }
+  /* ── หน้า Login: ชุดแบรนด์กลาง (ตาม prompt สไตล์ Krongpinang: Sora 800 + shine ช้า + coral accent) ── */
+  .rx-brand-icon { position: relative; width: 96px; height: 96px; margin: 0 auto 18px; }
+  .rx-brand-icon::before {
+    content: ''; position: absolute; left: 50%; top: -14px; width: 150px; height: 120px; transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(247,166,139,0.42), rgba(247,166,139,0)); filter: blur(6px);
+    animation: rxHaloPulse 6s ease-in-out infinite; pointer-events: none;
+  }
+  .rx-brand-icon img {
+    position: relative; width: 96px; height: 96px; border-radius: 26px; display: block;
+    border: 1px solid rgba(255,255,255,0.28);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.38), 0 0 46px rgba(37,99,235,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
+  }
+  .rx-brand-name {
+    margin: 0; font-family: 'Sora','Sarabun',sans-serif; font-weight: 800; color: #fff;
+    font-size: clamp(36px, 11.5vw, 54px); line-height: 1.08; white-space: nowrap; letter-spacing: -0.01em;
+    filter: drop-shadow(0 2px 12px rgba(0,20,60,0.5));
+  }
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .rx-brand-name {
+      background: linear-gradient(100deg, #fff 0 40%, #ffd9c9 50%, #fff 60% 100%); background-size: 250% 100%;
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      animation: rxBrandShine 6s linear infinite;
+    }
+  }
+  @keyframes rxBrandShine { 0% { background-position: 120% 0; } 100% { background-position: -120% 0; } }
+  .rx-brand-sub {
+    font-family: 'Sora','Sarabun',sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.42em;
+    font-size: clamp(17px, 5.4vw, 26px); margin-top: 2px; padding-left: 0.42em;
+    background: linear-gradient(90deg, #ffd9c9, #ff9f7e 55%, #ffe9dd); -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .rx-brand-app { font-family: 'Sora','Sarabun',sans-serif; font-weight: 800; text-transform: uppercase; color: #fff;
+    font-size: clamp(18px, 5.2vw, 27px); letter-spacing: 0.02em; margin-top: 20px; white-space: nowrap; text-shadow: 0 1px 8px rgba(0,30,60,0.45); }
+  .rx-brand-tag { font-family: 'Sora','Sarabun',sans-serif; font-weight: 700; text-transform: uppercase; color: rgba(255,255,255,0.92);
+    font-size: clamp(11px, 3.2vw, 14px); letter-spacing: 0.2em; margin-top: 8px; white-space: nowrap; text-shadow: 0 1px 8px rgba(0,30,60,0.45); }
+  .rx-brand-btn {
+    position: relative; overflow: hidden; margin-top: 18px; padding: 11px 26px; min-height: 44px; border-radius: 999px; cursor: pointer;
+    background: linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0.07)); color: #fff;
+    border: 1px solid rgba(255,255,255,0.32); font-family: 'Sarabun',sans-serif; font-size: 14px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .rx-brand-btn::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.35), transparent);
+    animation: rxBtnSheen 5s ease-in-out infinite;
+  }
+  @keyframes rxBtnSheen { 0%, 70% { left: -60%; } 100% { left: 130%; } }
+  .rx-brand-btn:focus-visible { outline: 3px solid rgba(255,255,255,0.7); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .rx-brand-name, .rx-brand-btn::after, .rx-brand-icon::before { animation: none !important; } }
   .rx-shimmer {
     background: linear-gradient(110deg, #fff 35%, #93C5FD 50%, #fff 65%);
     background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
@@ -5516,28 +5565,15 @@ function LoginScreen({ syncStatus }) {
   // ไอคอนใช้ icon-512.png ไฟล์เดียวกับที่แอพใช้จริง (manifest.json / PWA) ไม่ใช่อิโมจิอีกต่อไป
   const CenterBrand = () => (
     <div style={{ textAlign:'center', marginBottom:22, color:'#fff' }}>
-      <img src="icon-512.png" alt="Rx-COPD/Asthma Clinic" className="rx-breathe" style={{
-        width:88, height:88, borderRadius:22, margin:'0 auto 14px', display:'block',
-        boxShadow:'0 10px 34px rgba(37,99,235,0.55)', border:'1px solid rgba(255,255,255,0.18)',
-      }} />
-      <h1 className="rx-shimmer" style={{ margin:0, fontSize:'clamp(30px,6.4vw,48px)', fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.12 }}>
-        Krongpinang
-      </h1>
-      <div style={{ fontSize:'clamp(13px,2.4vw,17px)', fontWeight:700, color:'rgba(255,255,255,0.55)', letterSpacing:'0.42em', marginTop:3, textTransform:'uppercase' }}>
-        Hospital
-      </div>
-      <div style={{ fontSize:'clamp(17px,3.2vw,22px)', fontWeight:800, color:'rgba(147,197,253,0.95)', letterSpacing:'0.08em', marginTop:16, textTransform:'uppercase' }}>
-        Rx-COPD / Asthma Clinic
-      </div>
-      <p style={{ margin:'6px 0 0', fontSize:11.5, color:'rgba(255,255,255,0.45)' }}>
-        ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด · งานเภสัชกรรมและคุ้มครองผู้บริโภค
+      <div className="rx-brand-icon"><img src="icon-512.png" alt="Rx-COPD/Asthma Clinic" /></div>
+      <h1 className="rx-brand-name">Krongpinang</h1>
+      <div className="rx-brand-sub">Hospital</div>
+      <div className="rx-brand-app">Rx-COPD / Asthma Clinic</div>
+      <div className="rx-brand-tag">COPD · Asthma Care</div>
+      <p style={{ margin:'8px 0 0', fontSize:12.5, color:'rgba(255,255,255,0.6)', textShadow:'0 1px 6px rgba(0,30,60,0.4)' }}>
+        โรงพยาบาลกรงปินัง · งานเภสัชกรรม จ.ยะลา
       </p>
-      <button onClick={() => setShowHelp(true)} style={{
-        marginTop:16, padding:'8px 18px', borderRadius:20, cursor:'pointer',
-        background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.18)',
-        color:'#BFDBFE', fontSize:12, fontWeight:700, fontFamily:'Sarabun,sans-serif',
-        display:'inline-flex', alignItems:'center', gap:7,
-      }}>📘 คู่มือการใช้งานฉบับสมบูรณ์ ›</button>
+      <button className="rx-brand-btn" onClick={() => setShowHelp(true)}>📖 คู่มือการใช้งานฉบับสมบูรณ์ ›</button>
     </div>
   );
 
@@ -5645,9 +5681,9 @@ function LoginScreen({ syncStatus }) {
         justifyContent:'center', gap:28, width:'100%', maxWidth:1280, flexWrap:'wrap', margin:'auto',
       }}>
         {LeftPanel()}
-        <div style={{ width:'100%', maxWidth:400 }}>
+        <div style={{ width:'100%', maxWidth:480 }}>
           {CenterBrand()}
-          <div className="rx-login-card">
+          <div className="rx-login-card" style={{ maxWidth:400, margin:'0 auto' }}>
             {cardContent}
           </div>
         </div>
