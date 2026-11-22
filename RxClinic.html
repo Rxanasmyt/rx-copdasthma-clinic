@@ -115,6 +115,16 @@
   .rx-login-card  { animation: rxFadeUp 0.4s ease both; }
   .rx-login-right { animation: rxFadeUp 0.5s 0.08s ease both; }
   .rx-breathe { animation: rxBreathe 4s ease-in-out infinite; }
+  .rx-login-artwrap { position: absolute; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
+  .rx-login-art { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.8; }
+  .rx-login-vignette { position: absolute; inset: 0; background: radial-gradient(120% 100% at 50% 20%, transparent 35%, rgba(5,11,30,0.72) 100%); }
+  .rx-login-slat { animation: rxSlatWave 7s ease-in-out infinite; }
+  .rx-login-beam { animation: rxBeamPulse 5.5s ease-in-out infinite; }
+  .rx-login-halo { transform-origin: 700px 400px; animation: rxHaloPulse 6s ease-in-out infinite; }
+  @keyframes rxSlatWave { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+  @keyframes rxBeamPulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+  @keyframes rxHaloPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+  @media (prefers-reduced-motion: reduce) { .rx-login-slat, .rx-login-beam, .rx-login-halo { animation: none !important; } }
   .rx-shimmer {
     background: linear-gradient(110deg, #fff 35%, #93C5FD 50%, #fff 65%);
     background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
@@ -5147,6 +5157,51 @@ function LoginCanvas() {
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
+// ภาพพื้นหลังหน้า Login แนว "ART" — ตีความจากภาพห้องโถงโรงพยาบาล (ฝ้าไม้ระแนงตั้งฉากบรรจบจุดรวมสายตา
+// + คานสี + แผงผนังเรืองแสง) เป็นเส้นเวกเตอร์ SVG ล้วน ไม่ใช้รูปถ่ายจริง และคงโทนสีกรมท่า/น้ำเงินของแอพ
+function LoginArtBackdrop() {
+  const N = 34;
+  const slats = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const xTop = -60 + t * 1520;
+    slats.push(
+      <line key={i} className="rx-login-slat" x1={xTop} y1="-10" x2="700" y2="430"
+        stroke={i % 2 === 0 ? 'rgba(147,197,253,0.30)' : 'rgba(37,99,235,0.32)'}
+        strokeWidth={i % 2 === 0 ? 4 : 7} style={{ animationDelay: (i * 0.17) + 's' }} />
+    );
+  }
+  const strips = [[640, 120, 700, 230], [760, 120, 700, 230], [520, 60, 700, 230], [880, 60, 700, 230]];
+  return (
+    <div className="rx-login-artwrap" aria-hidden="true">
+      <svg className="rx-login-art" viewBox="0 0 1400 900" preserveAspectRatio="xMidYMin slice">
+        <defs>
+          <radialGradient id="rxArtHalo" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(96,165,250,0.65)" />
+            <stop offset="100%" stopColor="rgba(96,165,250,0)" />
+          </radialGradient>
+          <linearGradient id="rxArtFade" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#fff" stopOpacity="1" />
+            <stop offset="70%" stopColor="#fff" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          </linearGradient>
+          <mask id="rxArtMask"><rect width="1400" height="900" fill="url(#rxArtFade)" /></mask>
+        </defs>
+        <g mask="url(#rxArtMask)">
+          {slats}
+          <line className="rx-login-beam" x1="-80" y1="40" x2="700" y2="430" stroke="rgba(6,182,212,0.32)" strokeWidth="26" strokeLinecap="round" />
+          <line className="rx-login-beam" x1="1480" y1="40" x2="700" y2="430" stroke="rgba(6,182,212,0.32)" strokeWidth="26" strokeLinecap="round" style={{ animationDelay: '1s' }} />
+          {strips.map((s, i) => (
+            <line key={'s' + i} className="rx-login-beam" x1={s[0]} y1={s[1]} x2={s[2]} y2={s[3]} stroke="rgba(224,242,254,0.5)" strokeWidth="5" strokeLinecap="round" style={{ animationDelay: (i * 0.6) + 's' }} />
+          ))}
+          <circle className="rx-login-halo" cx="700" cy="400" r="230" fill="url(#rxArtHalo)" />
+        </g>
+      </svg>
+      <div className="rx-login-vignette" />
+    </div>
+  );
+}
+
 // เลขเวอร์ชันแสดงผลที่ใช้ในหน้า Login เท่านั้น (ไฟล์ VERSION ที่ root repo เป็นของ CI bump อัตโนมัติ
 // ทุกครั้งที่ merge — ไม่ได้ผูกกับ build step ใดๆ ที่จะฉีดค่าเข้ามาที่นี่ให้อัตโนมัติ ต้องอัปเดตค่านี้มือ
 // เป็นครั้งคราวให้ใกล้เคียงไฟล์ VERSION จริง ไม่จำเป็นต้องตรงเป๊ะทุกครั้ง เป็นแค่เลขอ้างอิงคร่าวๆ)
@@ -5437,19 +5492,22 @@ function LoginScreen({ syncStatus }) {
   );
 
   // ── กึ่งกลาง: โลโก้ + ชื่อโรงพยาบาล/แอพ + ปุ่มคู่มือ ──
+  // ชื่อ รพ./แอพ แสดงเป็นภาษาอังกฤษ ขนาดใหญ่ ตามสไตล์อ้างอิง (Krongpinang Hospital / Drug Substock)
+  // ไอคอนใช้ icon-512.png ไฟล์เดียวกับที่แอพใช้จริง (manifest.json / PWA) ไม่ใช่อิโมจิอีกต่อไป
   const CenterBrand = () => (
     <div style={{ textAlign:'center', marginBottom:22, color:'#fff' }}>
-      <div className="rx-breathe" style={{
-        width:72, height:72, borderRadius:'50%', margin:'0 auto 14px',
-        background:'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 60%,#2563EB 100%)',
-        boxShadow:'0 8px 32px rgba(37,99,235,0.55)',
-        display:'flex', alignItems:'center', justifyContent:'center', fontSize:34,
-      }}>🫁</div>
-      <h1 className="rx-shimmer" style={{ margin:0, fontSize:'clamp(22px,4.5vw,30px)', fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.2 }}>
-        โรงพยาบาลกรงปินัง
+      <img src="icon-512.png" alt="Rx-COPD/Asthma Clinic" className="rx-breathe" style={{
+        width:88, height:88, borderRadius:22, margin:'0 auto 14px', display:'block',
+        boxShadow:'0 10px 34px rgba(37,99,235,0.55)', border:'1px solid rgba(255,255,255,0.18)',
+      }} />
+      <h1 className="rx-shimmer" style={{ margin:0, fontSize:'clamp(30px,6.4vw,48px)', fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.12 }}>
+        Krongpinang
       </h1>
-      <div style={{ fontSize:12.5, fontWeight:700, color:'rgba(147,197,253,0.85)', letterSpacing:'0.04em', marginTop:6 }}>
-        Rx-COPD / ASTHMA CLINIC
+      <div style={{ fontSize:'clamp(13px,2.4vw,17px)', fontWeight:700, color:'rgba(255,255,255,0.55)', letterSpacing:'0.42em', marginTop:3, textTransform:'uppercase' }}>
+        Hospital
+      </div>
+      <div style={{ fontSize:'clamp(17px,3.2vw,22px)', fontWeight:800, color:'rgba(147,197,253,0.95)', letterSpacing:'0.08em', marginTop:16, textTransform:'uppercase' }}>
+        Rx-COPD / Asthma Clinic
       </div>
       <p style={{ margin:'6px 0 0', fontSize:11.5, color:'rgba(255,255,255,0.45)' }}>
         ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด · งานเภสัชกรรมและคุ้มครองผู้บริโภค
@@ -5557,6 +5615,7 @@ function LoginScreen({ syncStatus }) {
 
   return (
     <div style={{ ...bgStyle, flexDirection:'column', overflowY:'auto' }}>
+      <LoginArtBackdrop />
       <LoginCanvas />
       <div className="rx-blob rx-blob-1" />
       <div className="rx-blob rx-blob-2" />
