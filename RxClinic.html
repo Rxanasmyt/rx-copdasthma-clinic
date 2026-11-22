@@ -111,18 +111,43 @@
   .rx-blob-1 { width: 360px; height: 360px; background: radial-gradient(circle, #1D4ED8, transparent 70%); top: -90px; left: -70px; animation: rxBlobFloat 18s ease-in-out infinite; }
   .rx-blob-2 { width: 320px; height: 320px; background: radial-gradient(circle, #06B6D4, transparent 70%); bottom: -70px; right: -50px; animation: rxBlobFloat 23s ease-in-out infinite reverse; }
   .rx-blob-3 { width: 280px; height: 280px; background: radial-gradient(circle, #7C3AED, transparent 70%); top: 42%; left: 48%; animation: rxBlobFloat 27s ease-in-out infinite; }
-  .rx-login-hero { animation: rxFadeUp 0.5s ease both; }
-  .rx-login-card { animation: rxFadeUp 0.4s ease both; }
-  .rx-login-mobilelogo { display: none; }
+  .rx-login-left  { animation: rxFadeUp 0.5s ease both; }
+  .rx-login-card  { animation: rxFadeUp 0.4s ease both; }
+  .rx-login-right { animation: rxFadeUp 0.5s 0.08s ease both; }
   .rx-breathe { animation: rxBreathe 4s ease-in-out infinite; }
   .rx-shimmer {
     background: linear-gradient(110deg, #fff 35%, #93C5FD 50%, #fff 65%);
     background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent; animation: rxShimmer 5s linear infinite;
   }
-  @media (max-width: 900px) {
-    .rx-login-hero      { display: none !important; }
-    .rx-login-mobilelogo { display: block !important; }
+  /* ── หน้า Login: การ์ดข้อมูล (ใช้งานอย่างไร/ภาพรวมระบบ) ── */
+  .rx-login-infocard {
+    background: rgba(255,255,255,0.055); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 20px;
+    padding: 22px 22px 24px; color: #fff;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .rx-login-infocard h2 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px;
+  }
+  .rx-login-infocard > p.rx-login-infocard-sub { margin: 0 0 16px; font-size: 11.5px; color: rgba(255,255,255,0.45); }
+  .rx-login-steptag {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 20px;
+    background: rgba(96,165,250,0.18); color: #93C5FD; border: 1px solid rgba(96,165,250,0.3); margin-bottom: 6px;
+  }
+  .rx-login-tapchip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700;
+    padding: 3px 10px; border-radius: 8px; background: rgba(37,99,235,0.18); color: #BFDBFE;
+    border: 1px solid rgba(37,99,235,0.3); margin: 5px 0;
+  }
+  .rx-login-ovitem {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 8px; transition: background 0.15s, border-color 0.15s;
+  }
+  .rx-login-ovitem:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+  @media (max-width: 1360px) {
+    .rx-login-left, .rx-login-right { display: none !important; }
   }
 
   /* ── App interior background ── */
@@ -5122,12 +5147,47 @@ function LoginCanvas() {
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
-// ── Login feature list (shown on hero) ──
+// เลขเวอร์ชันแสดงผลที่ใช้ในหน้า Login เท่านั้น (ไฟล์ VERSION ที่ root repo เป็นของ CI bump อัตโนมัติ
+// ทุกครั้งที่ merge — ไม่ได้ผูกกับ build step ใดๆ ที่จะฉีดค่าเข้ามาที่นี่ให้อัตโนมัติ ต้องอัปเดตค่านี้มือ
+// เป็นครั้งคราวให้ใกล้เคียงไฟล์ VERSION จริง ไม่จำเป็นต้องตรงเป๊ะทุกครั้ง เป็นแค่เลขอ้างอิงคร่าวๆ)
+const APP_VERSION = '1.0.173';
+
+// ── Login feature list (ใช้ในหน้าคู่มือการใช้งาน) ──
 const LOGIN_FEATURES = [
   { i: '📋', t: 'บันทึกการบริบาลเภสัชกรรม', d: 'SOAP · เทคนิคยาพ่น · DRP · ความร่วมมือใช้ยา' },
   { i: '🎯', t: 'คัดกรองความเสี่ยงอัตโนมัติ', d: 'GOLD 2023 ABE · GINA · CAT/mMRC/ACT' },
   { i: '📞', t: 'Telepharmacy ติดตามผู้ป่วย', d: 'นัดหมาย · โทรติดตาม · บันทึกผลลัพธ์' },
   { i: '☁️', t: 'ซิงค์ข้อมูลทุกอุปกรณ์', d: 'Cloud Sync ปลอดภัย · ใช้ได้ทุกที่ทุกเวลา' },
+];
+
+// ── หน้า Login: ลำดับการใช้งานประจำวัน (แผงซ้าย) ──
+const LOGIN_WORKFLOW = [
+  { tag: 'เช้า / ก่อนเริ่มคลินิก', icon: '📅', title: 'ตรวจดูคิวผู้ป่วยวันนี้', tap: 'แท็บ "วันคลินิกวันนี้"',
+    desc: 'ดูรายชื่อที่นัดไว้ เช็คอิน หรือนำเข้ารายชื่อนัดจาก HOSxP / เพิ่ม Walk-in เข้าคิวได้ทันที' },
+  { tag: 'ระหว่างคลินิก', icon: '📝', title: 'บันทึกการบริบาลทีละคน', tap: 'ปุ่ม "บันทึกการบริบาลเภสัชกรรม"',
+    desc: 'กรอก SOAP · รายการยา · ประเมินเทคนิคพ่นยา · ความร่วมมือใช้ยา ระบบคำนวณความเสี่ยง/DRP ให้อัตโนมัติ' },
+  { tag: 'หลังคลินิก', icon: '🧪', title: 'ติดตามปัญหาที่ตรวจพบ', tap: 'แท็บ "DRP Tracker" / "Telepharmacy"',
+    desc: 'ดูรายการ DRP ที่ยังไม่ปิด มอบหมายผู้รับผิดชอบ และนัดโทรติดตามผู้ป่วยกลุ่มเสี่ยงสูง' },
+];
+const LOGIN_RECURRING = {
+  tag: 'ทุกเดือน', icon: '📈', title: 'ตรวจสอบตัวชี้วัดคุณภาพ', tap: 'แท็บ "Analytics"',
+  desc: 'ดูผลตัวชี้วัด KPI1-7 (GOLD/GINA) เทียบเป้าหมาย พร้อมรายชื่อผู้ป่วยที่ต้องติดตามเพิ่ม',
+};
+
+// ── หน้า Login: ภาพรวมระบบ (แผงขวา) ──
+const LOGIN_OVERVIEW = [
+  { i: '📊', t: 'Dashboard', d: 'คิววันนี้ · แจ้งเตือน · สรุปภาพรวมคลินิก' },
+  { i: '👤', t: 'ทะเบียนผู้ป่วย', d: 'ข้อมูลผู้ป่วย COPD/Asthma ทั้งหมด' },
+  { i: '📝', t: 'บันทึกการบริบาล', d: 'SOAP · ยา · เทคนิคพ่นยา · Adherence' },
+  { i: '🧪', t: 'DRP Tracker', d: 'ติดตามปัญหาการใช้ยา ปิดวงจรอัตโนมัติ' },
+  { i: '📞', t: 'Telepharmacy', d: 'นัดโทรติดตามผู้ป่วยกลุ่มเสี่ยงสูง' },
+  { i: '🏥', t: 'HA Compliance', d: 'ADR · Med Reconciliation · RCA · Discharge' },
+  { i: '📈', t: 'Analytics', d: 'ตัวชี้วัดคุณภาพ KPI1-7 ตามมาตรฐาน' },
+];
+const LOGIN_OVERVIEW_FOOT = [
+  { i: '🔐', t: 'ควบคุมสิทธิ์ตามบทบาท', d: 'Admin · เภสัชกร · ผู้ช่วยเภสัชกร — แต่ละบทบาทเห็น/แก้ไขได้ต่างกันจริง' },
+  { i: '🛡️', t: 'Audit log ทุกการทำรายการ', d: 'บันทึก/แก้ไข/อนุมัติ — ย้อนดูได้เสมอว่าใครทำอะไรเมื่อไหร่' },
+  { i: '🔔', t: 'แจ้งเตือนนัด/วัคซีนเกินกำหนด', d: 'ผู้ป่วยนัดเกินกำหนด วัคซีนที่ต้องกระตุ้น ขึ้นแจ้งอัตโนมัติ' },
 ];
 
 // ── Login Screen ──────────────────────────────────────
@@ -5253,11 +5313,18 @@ function LoginScreen({ syncStatus }) {
   const [err,      setErr]      = stState('');
   const [resetSent, setResetSent] = stState(false);
   const [resetMode, setResetMode] = stState(false);
+  const [remember, setRemember] = stState(true);
+  const [showHelp, setShowHelp] = stState(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) { setErr('กรุณากรอกอีเมลและรหัสผ่าน'); return; }
     setLoading(true); setErr('');
     try {
+      // "จดจำการเข้าใช้ในเครื่องนี้": LOCAL = คงสถานะล็อกอินไว้แม้ปิดเบราว์เซอร์/รีสตาร์ทเครื่อง,
+      // SESSION = ออกจากระบบอัตโนมัติเมื่อปิดแท็บ/เบราว์เซอร์ (เหมาะกับเครื่องส่วนกลางที่ใช้ร่วมกันหลายคน)
+      await firebase.auth().setPersistence(
+        remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION
+      );
       await firebase.auth().signInWithEmailAndPassword(email.trim(), password);
     } catch (e) {
       const code = e.code || '';
@@ -5303,68 +5370,96 @@ function LoginScreen({ syncStatus }) {
     boxShadow:'0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.14)',
   };
 
-  const Hero = () => (
-    <div className="rx-login-hero" style={{ flex:'0 1 440px', maxWidth:460, color:'#fff' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:26 }}>
-        <div className="rx-breathe" style={{
-          width:66, height:66, borderRadius:20, flexShrink:0,
-          background:'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 55%,#2563EB 100%)',
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:34,
-        }}>🫁</div>
-        <div>
-          <h1 className="rx-shimmer" style={{ margin:0, fontSize:27, fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.15 }}>
-            Rx-COPD/Asthma
-          </h1>
-          <p style={{ margin:'3px 0 0', fontSize:13, color:'rgba(147,197,253,0.85)', fontWeight:600 }}>
-            ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด
-          </p>
-        </div>
-      </div>
-      <p style={{ fontSize:14, lineHeight:1.9, color:'rgba(255,255,255,0.72)', marginBottom:28 }}>
-        ระบบบริหารจัดการคลินิก <b style={{color:'#fff'}}>COPD</b> และ <b style={{color:'#fff'}}>Asthma</b> แบบครบวงจร
-        บันทึกการบริบาล ประเมินความเสี่ยง ติดตามผู้ป่วย พร้อมรายงานคุณภาพตามมาตรฐาน GOLD &amp; GINA
-      </p>
-      <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-        {LOGIN_FEATURES.map(f => (
-          <div key={f.t} style={{ display:'flex', alignItems:'center', gap:14 }}>
+  // ── แผงซ้าย: "ใช้งานแอพนี้อย่างไร" — ลำดับงานประจำวัน ──
+  const LeftPanel = () => (
+    <div className="rx-login-left" style={{ flex:'0 1 300px', maxWidth:300 }}>
+      <div className="rx-login-infocard">
+        <h2>🧭 ใช้งานแอพนี้อย่างไร</h2>
+        <p className="rx-login-infocard-sub">งานประจำวันของห้องยา — ทำตามลำดับนี้ได้เลย</p>
+        {LOGIN_WORKFLOW.map((s, i) => (
+          <div key={s.title} style={{ display:'flex', gap:10, marginBottom: i < LOGIN_WORKFLOW.length - 1 ? 16 : 14 }}>
             <div style={{
-              width:44, height:44, borderRadius:13, flexShrink:0,
-              background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.13)',
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:21,
-            }}>{f.i}</div>
-            <div>
-              <div style={{ fontSize:14, fontWeight:700 }}>{f.t}</div>
-              <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginTop:1 }}>{f.d}</div>
+              width:26, height:26, borderRadius:'50%', flexShrink:0, marginTop:1,
+              background:'linear-gradient(135deg,#1E3A8A,#2563EB)', color:'#fff',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800,
+            }}>{i + 1}</div>
+            <div style={{ minWidth:0 }}>
+              <span className="rx-login-steptag">{s.tag}</span>
+              <div style={{ fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+                <span>{s.icon}</span>{s.title}
+              </div>
+              <div className="rx-login-tapchip">กดที่: {s.tap}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', lineHeight:1.6, marginTop:4 }}>{s.desc}</div>
             </div>
           </div>
         ))}
-      </div>
-      <div style={{ marginTop:30, paddingTop:18, borderTop:'1px solid rgba(255,255,255,0.1)', fontSize:11, color:'rgba(255,255,255,0.42)', lineHeight:1.75 }}>
-        <span style={{ color:'rgba(147,197,253,0.65)', fontWeight:700 }}>จัดทำโดย </span>
-        ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง
+        <div style={{ marginTop:4, paddingTop:14, borderTop:'1px solid rgba(255,255,255,0.1)' }}>
+          <span className="rx-login-steptag" style={{ background:'rgba(217,119,6,0.18)', color:'#FCD34D', borderColor:'rgba(217,119,6,0.3)' }}>{LOGIN_RECURRING.tag}</span>
+          <div style={{ fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+            <span>{LOGIN_RECURRING.icon}</span>{LOGIN_RECURRING.title}
+          </div>
+          <div className="rx-login-tapchip">กดที่: {LOGIN_RECURRING.tap}</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', lineHeight:1.6, marginTop:4 }}>{LOGIN_RECURRING.desc}</div>
+        </div>
       </div>
     </div>
   );
 
-  const MobileLogo = () => (
-    <div className="rx-login-mobilelogo" style={{ textAlign:'center', marginBottom:20 }}>
+  // ── แผงขวา: "ภาพรวมระบบ" — แต่ละโมดูลของแอพ ──
+  const RightPanel = () => (
+    <div className="rx-login-right" style={{ flex:'0 1 300px', maxWidth:300 }}>
+      <div className="rx-login-infocard">
+        <h2>📂 ภาพรวมระบบ</h2>
+        <p className="rx-login-infocard-sub">แต่ละส่วนของแอพ เพื่ออ่านวิธีใช้ในคู่มือได้</p>
+        {LOGIN_OVERVIEW.map(o => (
+          <div key={o.t} className="rx-login-ovitem">
+            <div style={{ fontSize:18, flexShrink:0 }}>{o.i}</div>
+            <div style={{ minWidth:0, flex:1 }}>
+              <div style={{ fontSize:12.5, fontWeight:700 }}>{o.t}</div>
+              <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.5)', marginTop:1 }}>{o.d}</div>
+            </div>
+            <div style={{ color:'rgba(255,255,255,0.3)', fontSize:14 }}>›</div>
+          </div>
+        ))}
+        <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid rgba(255,255,255,0.1)', display:'flex', flexDirection:'column', gap:10 }}>
+          {LOGIN_OVERVIEW_FOOT.map(o => (
+            <div key={o.t} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+              <div style={{ fontSize:15, flexShrink:0 }}>{o.i}</div>
+              <div>
+                <div style={{ fontSize:11.5, fontWeight:700 }}>{o.t}</div>
+                <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.45)', marginTop:1, lineHeight:1.5 }}>{o.d}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── กึ่งกลาง: โลโก้ + ชื่อโรงพยาบาล/แอพ + ปุ่มคู่มือ ──
+  const CenterBrand = () => (
+    <div style={{ textAlign:'center', marginBottom:22, color:'#fff' }}>
       <div className="rx-breathe" style={{
-        width:66, height:66, borderRadius:'50%', margin:'0 auto 12px',
+        width:72, height:72, borderRadius:'50%', margin:'0 auto 14px',
         background:'linear-gradient(135deg,#1E3A8A 0%,#1D4ED8 60%,#2563EB 100%)',
         boxShadow:'0 8px 32px rgba(37,99,235,0.55)',
-        display:'flex', alignItems:'center', justifyContent:'center', fontSize:38,
-      }}>
-        <svg viewBox="0 0 48 48" width="42" height="42" fill="#FFFFFF" aria-label="lungs">
-          <rect x="22.5" y="6" width="3" height="14" rx="1.5"/>
-          <rect x="16" y="11" width="16" height="3" rx="1.5"/>
-          <path d="M21 14c0 6-1 9-4 13s-6 6-6 11c0 3 2 5 5 5 4 0 5-3 5-8V14z"/>
-          <path d="M27 14c0 6 1 9 4 13s6 6 6 11c0 3-2 5-5 5-4 0-5-3-5-8V14z"/>
-        </svg>
-      </div>
-      <h1 style={{ color:'#FFFFFF', fontSize:20, fontWeight:800, margin:'0 0 4px', letterSpacing:'-0.3px' }}>
-        Rx-COPD/Asthma Clinic
+        display:'flex', alignItems:'center', justifyContent:'center', fontSize:34,
+      }}>🫁</div>
+      <h1 className="rx-shimmer" style={{ margin:0, fontSize:'clamp(22px,4.5vw,30px)', fontWeight:800, letterSpacing:'-0.6px', lineHeight:1.2 }}>
+        โรงพยาบาลกรงปินัง
       </h1>
-      <p style={{ color:'rgba(147,197,253,0.75)', fontSize:12, margin:'4px 0 0' }}>ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด</p>
+      <div style={{ fontSize:12.5, fontWeight:700, color:'rgba(147,197,253,0.85)', letterSpacing:'0.04em', marginTop:6 }}>
+        Rx-COPD / ASTHMA CLINIC
+      </div>
+      <p style={{ margin:'6px 0 0', fontSize:11.5, color:'rgba(255,255,255,0.45)' }}>
+        ระบบบริบาลเภสัชกรรมผู้ป่วยโรคปอด · งานเภสัชกรรมและคุ้มครองผู้บริโภค
+      </p>
+      <button onClick={() => setShowHelp(true)} style={{
+        marginTop:16, padding:'8px 18px', borderRadius:20, cursor:'pointer',
+        background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.18)',
+        color:'#BFDBFE', fontSize:12, fontWeight:700, fontFamily:'Sarabun,sans-serif',
+        display:'inline-flex', alignItems:'center', gap:7,
+      }}>📘 คู่มือการใช้งานฉบับสมบูรณ์ ›</button>
     </div>
   );
 
@@ -5432,6 +5527,11 @@ function LoginScreen({ syncStatus }) {
           background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.5)', fontSize:16,
         }}>{showPw ? '🙈' : '👁'}</button>
       </div>
+      <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:12, color:'rgba(255,255,255,0.6)', margin:'2px 0 14px' }}>
+        <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}
+          style={{ accentColor:'#2563EB', width:15, height:15, cursor:'pointer' }} />
+        จดจำการเข้าใช้ในเครื่องนี้
+      </label>
       <ErrBadge msg={err} />
       <button onClick={handleLogin} disabled={loading} style={{
         width:'100%', padding:'14px', borderRadius:12,
@@ -5440,7 +5540,7 @@ function LoginScreen({ syncStatus }) {
         color:'#fff', border:'none', cursor:loading?'default':'pointer',
         fontSize:15, fontWeight:700, fontFamily:'Sarabun,sans-serif', transition:'all 0.15s',
         opacity:loading?0.7:1,
-      }}>{loading ? '⏳ กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}</button>
+      }}>{loading ? '⏳ กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ →'}</button>
       <div style={{ textAlign:'center', marginTop:14 }}>
         <button onClick={() => { setResetMode(true); setErr(''); setResetSent(false); }} style={{
           background:'none', border:'none', cursor:'pointer',
@@ -5456,21 +5556,111 @@ function LoginScreen({ syncStatus }) {
   );
 
   return (
-    <div style={bgStyle}>
+    <div style={{ ...bgStyle, flexDirection:'column', overflowY:'auto' }}>
       <LoginCanvas />
       <div className="rx-blob rx-blob-1" />
       <div className="rx-blob rx-blob-2" />
       <div className="rx-blob rx-blob-3" />
       <div style={{
-        position:'relative', zIndex:2, display:'flex', alignItems:'center',
-        justifyContent:'center', gap:56, width:'100%', maxWidth:1000, flexWrap:'wrap',
+        position:'relative', zIndex:2, display:'flex', alignItems:'flex-start',
+        justifyContent:'center', gap:28, width:'100%', maxWidth:1280, flexWrap:'wrap', margin:'auto',
       }}>
-        {Hero()}
-        <div className="rx-login-card" style={{ width:'100%', maxWidth:400 }}>
-          {MobileLogo()}
-          {cardContent}
+        {LeftPanel()}
+        <div style={{ width:'100%', maxWidth:400 }}>
+          {CenterBrand()}
+          <div className="rx-login-card">
+            {cardContent}
+          </div>
         </div>
+        {RightPanel()}
       </div>
+      <div style={{ position:'relative', zIndex:2, textAlign:'center', marginTop:22, fontSize:11, color:'rgba(255,255,255,0.35)' }}>
+        © งานเภสัชกรรม โรงพยาบาลกรงปินัง · เวอร์ชัน {APP_VERSION}
+      </div>
+
+      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="📘 คู่มือการใช้งานฉบับสมบูรณ์" width={760}>
+        <div style={{ display:'flex', flexDirection:'column', gap:22 }}>
+          <section>
+            <h3 style={{ margin:'0 0 10px', fontSize:14, fontWeight:800, color:C.primary }}>🧭 ลำดับงานประจำวัน</h3>
+            {LOGIN_WORKFLOW.map((s, i) => (
+              <div key={s.title} style={{ display:'flex', gap:12, marginBottom:14 }}>
+                <div style={{
+                  width:28, height:28, borderRadius:'50%', flexShrink:0,
+                  background:'linear-gradient(135deg,#1E3A8A,#2563EB)', color:'#fff',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800,
+                }}>{i + 1}</div>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.primaryLight }}>{s.tag}</div>
+                  <div style={{ fontSize:13.5, fontWeight:700, color:C.text }}>{s.icon} {s.title} — <span style={{ fontWeight:600, color:C.textMuted }}>{s.tap}</span></div>
+                  <div style={{ fontSize:12.5, color:C.textMuted, lineHeight:1.7, marginTop:2 }}>{s.desc}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{ display:'flex', gap:12 }}>
+              <div style={{
+                width:28, height:28, borderRadius:'50%', flexShrink:0,
+                background:'linear-gradient(135deg,#D97706,#F59E0B)', color:'#fff',
+                display:'flex', alignItems:'center', justifyContent:'center', fontSize:13,
+              }}>🔁</div>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#D97706' }}>{LOGIN_RECURRING.tag}</div>
+                <div style={{ fontSize:13.5, fontWeight:700, color:C.text }}>{LOGIN_RECURRING.icon} {LOGIN_RECURRING.title} — <span style={{ fontWeight:600, color:C.textMuted }}>{LOGIN_RECURRING.tap}</span></div>
+                <div style={{ fontSize:12.5, color:C.textMuted, lineHeight:1.7, marginTop:2 }}>{LOGIN_RECURRING.desc}</div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h3 style={{ margin:'0 0 10px', fontSize:14, fontWeight:800, color:C.primary }}>📂 ภาพรวมแต่ละส่วนของระบบ</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              {LOGIN_OVERVIEW.map(o => (
+                <div key={o.t} style={{ display:'flex', gap:10, padding:'8px 10px', borderRadius:10, background:C.bgAlt, border:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:18 }}>{o.i}</div>
+                  <div>
+                    <div style={{ fontSize:12.5, fontWeight:700 }}>{o.t}</div>
+                    <div style={{ fontSize:11, color:C.textMuted }}>{o.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 style={{ margin:'0 0 10px', fontSize:14, fontWeight:800, color:C.primary }}>✨ ความสามารถเด่น</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              {LOGIN_FEATURES.map(f => (
+                <div key={f.t} style={{ display:'flex', gap:10, padding:'8px 10px', borderRadius:10, background:C.bgAlt, border:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:18 }}>{f.i}</div>
+                  <div>
+                    <div style={{ fontSize:12.5, fontWeight:700 }}>{f.t}</div>
+                    <div style={{ fontSize:11, color:C.textMuted }}>{f.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 style={{ margin:'0 0 10px', fontSize:14, fontWeight:800, color:C.primary }}>🔐 สิทธิ์การใช้งาน & ความปลอดภัย</h3>
+            {LOGIN_OVERVIEW_FOOT.map(o => (
+              <div key={o.t} style={{ display:'flex', gap:10, marginBottom:8 }}>
+                <div style={{ fontSize:16 }}>{o.i}</div>
+                <div>
+                  <div style={{ fontSize:12.5, fontWeight:700 }}>{o.t}</div>
+                  <div style={{ fontSize:11.5, color:C.textMuted, lineHeight:1.6 }}>{o.d}</div>
+                </div>
+              </div>
+            ))}
+            <p style={{ fontSize:11.5, color:C.textMuted, marginTop:10 }}>
+              ระบบใช้ Firebase Authentication — Admin เป็นผู้สร้างบัญชีผู้ใช้ให้ผ่านหน้า "ตั้งค่า → จัดการผู้ใช้" เท่านั้น ไม่มีการสมัครสมาชิกด้วยตนเอง
+            </p>
+          </section>
+
+          <div style={{ textAlign:'center', fontSize:11, color:C.textLight, paddingTop:8, borderTop:`1px solid ${C.border}` }}>
+            จัดทำโดย ภก.อนัส มะยีแต · ฝ่ายเภสัชกรรมและคุ้มครองผู้บริโภค · โรงพยาบาลกรงปินัง · เวอร์ชัน {APP_VERSION}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
