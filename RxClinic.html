@@ -127,13 +127,23 @@
   @media (prefers-reduced-motion: reduce) { .rx-login-slat, .rx-login-beam, .rx-login-halo { animation: none !important; } }
   /* ── หน้า Login: ชุดแบรนด์กลาง (ตาม prompt สไตล์ Krongpinang: Sora 800 + shine ช้า + coral accent) ── */
   .rx-brand-icon { position: relative; width: 96px; height: 96px; margin: 0 auto 18px; }
-  .rx-brand-icon::before {
-    content: ''; position: absolute; left: 50%; top: -14px; width: 150px; height: 120px; transform: translateX(-50%);
-    background: radial-gradient(closest-side, rgba(247,166,139,0.42), rgba(247,166,139,0)); filter: blur(6px);
-    animation: rxHaloPulse 6s ease-in-out infinite; pointer-events: none;
+  /* ออร่าสีวนหลังไอคอน: conic-gradient หมุนช้าๆ 2 ชั้นสวนทางกัน + แสงพีชเต้นเบาๆ (blur เพื่อไม่ให้ขอบแข็ง) */
+  .rx-brand-icon::before, .rx-brand-icon::after {
+    content: ''; position: absolute; border-radius: 50%; pointer-events: none; z-index: 0;
   }
+  .rx-brand-icon::before {
+    inset: -40px; filter: blur(18px); opacity: 1;
+    background: conic-gradient(from 0deg, #2563EB, #06B6D4, #A78BFA, #F7A68B, #2563EB);
+    animation: rxAuraSpin 9s linear infinite;
+  }
+  .rx-brand-icon::after {
+    inset: -16px; filter: blur(10px); opacity: 0.85;
+    background: conic-gradient(from 180deg, #F7A68B, #38BDF8, #7C3AED, #06B6D4, #F7A68B);
+    animation: rxAuraSpin 6s linear infinite reverse;
+  }
+  @keyframes rxAuraSpin { to { transform: rotate(360deg); } }
   .rx-brand-icon img {
-    position: relative; width: 96px; height: 96px; border-radius: 26px; display: block;
+    position: relative; z-index: 1; width: 96px; height: 96px; border-radius: 26px; display: block;
     border: 1px solid rgba(255,255,255,0.28);
     box-shadow: 0 16px 40px rgba(0,0,0,0.38), 0 0 46px rgba(37,99,235,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
   }
@@ -173,7 +183,7 @@
   }
   @keyframes rxBtnSheen { 0%, 70% { left: -60%; } 100% { left: 130%; } }
   .rx-brand-btn:focus-visible { outline: 3px solid rgba(255,255,255,0.7); outline-offset: 2px; }
-  @media (prefers-reduced-motion: reduce) { .rx-brand-name, .rx-brand-btn::after, .rx-brand-icon::before { animation: none !important; } }
+  @media (prefers-reduced-motion: reduce) { .rx-brand-name, .rx-brand-btn::after, .rx-brand-icon::before, .rx-brand-icon::after { animation: none !important; } }
   .rx-shimmer {
     background: linear-gradient(110deg, #fff 35%, #93C5FD 50%, #fff 65%);
     background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
