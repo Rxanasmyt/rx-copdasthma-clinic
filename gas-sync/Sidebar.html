@@ -236,6 +236,14 @@
       }, 300);
     });
 
+    // ชื่อ/HN มาจากข้อมูลผู้ป่วยที่ผู้ใช้กรอกเอง ต้อง escape ก่อนใส่ innerHTML เสมอ ไม่งั้นชื่อที่มี markup
+    // จะรันสคริปต์ใน sidebar ซึ่งเรียก google.script.run อ่านชีตทั้งหมดได้
+    function esc(v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
     function renderResults(results) {
       const list = document.getElementById('resultList');
       if (!results || results.length === 0) {
@@ -243,10 +251,10 @@
         return;
       }
       list.innerHTML = results.map(function (p, i) {
-        const dxClass = 'dx-' + (p.diagnosis || 'COPD').replace(/\s/g, '');
+        const dxClass = 'dx-' + String(p.diagnosis || 'COPD').replace(/[^A-Za-z0-9_-]/g, '');
         return '<div class="result-item" style="animation-delay:' + (i * 0.03) + 's">' +
-          '<div class="result-name">' + p.name + '<span class="dx-badge ' + dxClass + '">' + (p.diagnosis || '—') + '</span></div>' +
-          '<div class="result-meta">HN: ' + p.hn + ' · อายุ ' + p.age + ' ปี</div>' +
+          '<div class="result-name">' + esc(p.name) + '<span class="dx-badge ' + dxClass + '">' + esc(p.diagnosis || '—') + '</span></div>' +
+          '<div class="result-meta">HN: ' + esc(p.hn) + ' · อายุ ' + esc(p.age) + ' ปี</div>' +
         '</div>';
       }).join('');
     }

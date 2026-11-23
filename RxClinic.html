@@ -20667,7 +20667,15 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
       return;
     }
     const updated = { ...ha, [field]: [...(ha[field] || []), record] };
-    const nextData = { ...data, haCompliance: updated };
+    let nextData = { ...data, haCompliance: updated };
+    // medRec/adr/discharge/rca เดิมบันทึกลงข้อมูลตรงๆ โดยไม่มี audit log เลย (referrals ถูกแก้ไปแล้วรอบก่อน
+    // แต่อีก 4 ประเภทยังตกหล่น) — HA ต้องย้อนตรวจได้ว่าใครบันทึกอะไรให้ผู้ป่วยรายไหน
+    const HA_AUDIT_LABEL = { medRec: 'Medication Reconciliation', adr: 'รายงาน ADR', discharge: 'Discharge Counseling', rca: 'RCA' };
+    const userLabel = currentUser ? `${currentUser.prefix || ''}${currentUser.name || currentUser.username || ''}`.trim() || 'unknown' : 'unknown';
+    nextData = appendAudit(nextData, {
+      user: userLabel, action: 'ha-' + field.toLowerCase() + '-create', patientId: pt?.id,
+      summary: `บันทึก ${HA_AUDIT_LABEL[field] || field} ของ ${pt?.prefix || ''}${pt?.firstName || ''} ${pt?.lastName || ''} · HN ${pt?.hn || ''}`,
+    });
     onDataChange(nextData);
     const syncDef = HA_SYNC_MAP[field];
     if (syncDef?.build && window.syncRowsToSheet) {
