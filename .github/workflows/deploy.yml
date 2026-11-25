@@ -28,17 +28,10 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Setup Node (for precompiling JSX)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Prepare site files
         run: |
           mkdir -p _site
-          # precompile JSX ล่วงหน้า — เบราว์เซอร์ไม่ต้องโหลด/รัน Babel ตอนเปิดแอพ (เดิมหน้าขาว 2-3 วินาที)
-          npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/babel" @babel/standalone@7.29.0
-          NODE_PATH="$RUNNER_TEMP/babel/node_modules" node scripts/build-site.js RxClinic.html _site/index.html
+          cp RxClinic.html _site/index.html
           cp manifest.json _site/
           cp sw.js _site/
           cp icon-192.png _site/
