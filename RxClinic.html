@@ -14,6 +14,9 @@
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="preconnect" href="https://unpkg.com" crossorigin />
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
 <style>
   /* ── Theme variables (light default + dark override) ── */
@@ -852,31 +855,6 @@
     .rx-med-row > *:nth-child(4) { grid-row: 3; grid-column: 1 / 4; }   /* adherence */
   }
 </style>
-<!-- React + Babel -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
-<!-- SheetJS: อ่านไฟล์ Excel (.xls/.xlsx) เช่นรายงานนัดหมายจาก HOSxP -->
-<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
-<!-- สร้าง QR code ในเครื่องผู้ใช้เอง (ไม่ส่งข้อมูลผู้ป่วยออกไปที่ไหน) — เดิมใช้ api.qrserver.com ซึ่งต้อง
-     ส่ง HN + ลิงก์เข้าไปในทุกครั้งที่พิมพ์บัตร/ดูตัวอย่าง QR ขัดกับหลักการ PDPA-safe ที่แอปยึดไว้จุดอื่น
-     (เช่น โมดูล OCR ที่ประกาศชัดว่า "ภาพไม่ถูกส่งออกจากเครื่องเลย") -->
-<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous"></script>
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<!-- Auto-inject Firebase config -->
-<script>
-(function(){
-  var cfg = {"apiKey":"AIzaSyCN1LiuPXgHeWfc21OhQ5IuR951JX5Bltk","authDomain":"rxcopdasthmaclinic.firebaseapp.com","projectId":"rxcopdasthmaclinic","storageBucket":"rxcopdasthmaclinic.firebasestorage.app","messagingSenderId":"765957793019","appId":"1:765957793019:web:e876c9c2b49eca6e8dbc5e"};
-  try {
-    if(!localStorage.getItem('copd_firebase_v1')){
-      localStorage.setItem('copd_firebase_v1', JSON.stringify(cfg));
-    }
-  } catch (e) { /* localStorage blocked (private mode / policy) — app still boots, config just won't persist */ }
-})();
-</script>
 </head>
 <script>
 // Theme bootstrap — apply before render to prevent flash
@@ -898,7 +876,44 @@
   };
 })();
 </script>
-<div id="root"></div>
+<!-- หน้าโหลดทันที: แสดงก่อนสคริปต์ไลบรารีจะโหลดเสร็จ (ไลบรารีย้ายมาไว้ใต้บล็อกนี้ ไม่บล็อกการวาดหน้าแรกแล้ว)
+     React จะเขียนทับเนื้อหาใน #root เองเมื่อพร้อม -->
+<style>
+  @keyframes rxSplashBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+  #rx-splash { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: linear-gradient(145deg,#050B1E 0%,#0B1D45 38%,#0E2558 68%,#071230 100%); color: #fff; font-family: 'Sarabun', system-ui, sans-serif; }
+  #rx-splash img { width: 84px; height: 84px; border-radius: 22px; box-shadow: 0 10px 34px rgba(37,99,235,0.55); }
+  #rx-splash b { font-size: 15px; letter-spacing: 0.02em; }
+  #rx-splash i { display: block; width: 160px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; position: relative; }
+  #rx-splash i::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 4px; background: #3B82F6; animation: rxSplashBar 1.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { #rx-splash i::after { animation: none; width: 60%; } }
+</style>
+<div id="root"><div id="rx-splash"><img src="icon-192.png" alt="" /><b>กำลังโหลดระบบ...</b><i></i></div></div>
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<!-- SheetJS: อ่านไฟล์ Excel (.xls/.xlsx) เช่นรายงานนัดหมายจาก HOSxP -->
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous" defer></script>
+<!-- สร้าง QR code ในเครื่องผู้ใช้เอง (ไม่ส่งข้อมูลผู้ป่วยออกไปที่ไหน) — เดิมใช้ api.qrserver.com ซึ่งต้อง
+     ส่ง HN + ลิงก์เข้าไปในทุกครั้งที่พิมพ์บัตร/ดูตัวอย่าง QR ขัดกับหลักการ PDPA-safe ที่แอปยึดไว้จุดอื่น
+     (เช่น โมดูล OCR ที่ประกาศชัดว่า "ภาพไม่ถูกส่งออกจากเครื่องเลย") -->
+<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js" crossorigin="anonymous" defer></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<!-- Auto-inject Firebase config -->
+<script>
+(function(){
+  var cfg = {"apiKey":"AIzaSyCN1LiuPXgHeWfc21OhQ5IuR951JX5Bltk","authDomain":"rxcopdasthmaclinic.firebaseapp.com","projectId":"rxcopdasthmaclinic","storageBucket":"rxcopdasthmaclinic.firebasestorage.app","messagingSenderId":"765957793019","appId":"1:765957793019:web:e876c9c2b49eca6e8dbc5e"};
+  try {
+    if(!localStorage.getItem('copd_firebase_v1')){
+      localStorage.setItem('copd_firebase_v1', JSON.stringify(cfg));
+    }
+  } catch (e) { /* localStorage blocked (private mode / policy) — app still boots, config just won't persist */ }
+})();
+</script>
 <script>
 // COPD/Asthma Clinic - Data Store (plain JS, no JSX)
 // Exposes: AppStore, INHALER_CHECKLISTS, COMMON_MEDICATIONS,

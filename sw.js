@@ -2,7 +2,7 @@
 // HTML/navigation: network-first (always latest when online)
 // CDN libs/icons: cache-first (immutable, versioned)
 
-const CACHE_VERSION = 'rxcopd-v35'; // v35: ไอคอนแอปใหม่ + apple-touch-icon/favicon.ico ที่เพิ่งเชื่อม <link> เข้ากับหน้าเว็บจริง
+const CACHE_VERSION = 'rxcopd-v36'; // v36: ไม่ precache Babel แล้ว (deploy precompile JSX) / v35: ไอคอนแอปใหม่ + apple-touch-icon/favicon.ico ที่เพิ่งเชื่อม <link> เข้ากับหน้าเว็บจริง
 const APP_SHELL = [
   './',
   './index.html',
@@ -14,7 +14,6 @@ const APP_SHELL = [
   // CDN dependencies
   'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
-  'https://unpkg.com/@babel/standalone@7.29.0/babel.min.js',
   'https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap',
 ];
 
