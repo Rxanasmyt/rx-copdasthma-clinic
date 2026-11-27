@@ -2,7 +2,7 @@
 const { readApp, extractBlocks } = require('./extract');
 
 const src = readApp();
-const code = extractBlocks(src, ['getProblemPatients']);
+const code = extractBlocks(src, ['RX_DATE_BUDDHIST', 'fmtDMY', 'getProblemPatients']);
 // eslint-disable-next-line no-eval
 eval(code + `\nglobal.getProblemPatients = getProblemPatients;`);
 
@@ -33,7 +33,7 @@ function run(t) {
 
   t.ok('carePercent -> uses noShowRoster directly (p5)',
     JSON.stringify(getProblemPatients('carePercent', roster, noShowRoster).map(p => p.id)) === JSON.stringify(['p5']));
-  t.ok('carePercent reason includes nextVisit date', getProblemPatients('carePercent', roster, noShowRoster)[0].reason.includes('2026-07-01'));
+  t.ok('carePercent reason includes nextVisit date', getProblemPatients('carePercent', roster, noShowRoster)[0].reason.includes('01/07/2569'));
 
   t.ok('adherenceGoodPercent -> p1 and p3 (adherenceGood===false)',
     JSON.stringify(getProblemPatients('adherenceGoodPercent', roster).map(p => p.id).sort()) === JSON.stringify(['p1', 'p3']));
