@@ -915,6 +915,29 @@
 })();
 </script>
 <script>
+// ── รูปแบบวันที่ทั้งแอพ: วัน/เดือน/ปี (dd/mm/yyyy) ──
+// ข้อมูลที่เก็บยังเป็น ISO (yyyy-mm-dd, ค.ศ.) เสมอ — ฟังก์ชันเหล่านี้ใช้แสดงผล/รับค่าที่พิมพ์เท่านั้น
+// ปีที่แสดงเป็น พ.ศ. ให้ตรงกับวันที่ภาษาไทยอื่นๆ ในแอพ (ตั้ง RX_DATE_BUDDHIST = false ถ้าต้องการแสดงเป็น ค.ศ.)
+const RX_DATE_BUDDHIST = true;
+function fmtDMY(v) {
+  if (v === null || v === undefined || v === '') return '';
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if (!m) return String(v);
+  var y = +m[1] + (RX_DATE_BUDDHIST ? 543 : 0);
+  return m[3] + '/' + m[2] + '/' + y;
+}
+// "dd/mm/yyyy" (ปีเป็น พ.ศ. หรือ ค.ศ. ก็ได้ — ปี >= 2400 ถือเป็น พ.ศ.) -> "yyyy-mm-dd" (ค.ศ.) หรือ null ถ้าไม่ใช่วันที่จริง
+function parseDMY(t) {
+  var m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(String(t || '').trim());
+  if (!m) return null;
+  var d = +m[1], mo = +m[2], y = +m[3];
+  if (y >= 2400) y -= 543;
+  var dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
+}
+</script>
+<script>
 // COPD/Asthma Clinic - Data Store (plain JS, no JSX)
 // Exposes: AppStore, INHALER_CHECKLISTS, COMMON_MEDICATIONS,
 //          TRIGGER_OPTIONS, COMORBIDITY_OPTIONS, INSURANCE_OPTIONS,
@@ -2472,7 +2495,57 @@ function FormField({ label, required, children, error, hint }) {
 }
 
 // ── Input ─────────────────────────────────────────────
+// ── DateInput: ช่องวันที่แบบ วว/ดด/ปปปป (แทน <input type="date"> ที่เบราว์เซอร์แสดงตามภาษาเครื่อง เช่น เดือน/วัน/ปี) ──
+// พิมพ์ตัวเลขล้วนได้ (ใส่ / ให้อัตโนมัติ) หรือกดไอคอนปฏิทินเพื่อเลือก — onChange ส่ง ISO (yyyy-mm-dd) ออกไปเสมอ
+function DateInput({ value, onChange, style, className, disabled, placeholder, min, max, field }) {
+  const [text, setText] = React.useState(fmtDMY(value));
+  const pickerRef = React.useRef(null);
+  React.useEffect(() => {
+    setText(prev => (parseDMY(prev) === (value || null) || (!value && prev === '')) ? prev : fmtDMY(value));
+  }, [value]);
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    const typing = raw.length > text.length;
+    let out = digits;
+    if (digits.length > 4) out = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4);
+    else if (digits.length > 2) out = digits.slice(0, 2) + '/' + digits.slice(2) + (digits.length === 4 && typing ? '/' : '');
+    else if (digits.length === 2 && typing) out = digits + '/';
+    setText(out);
+    if (digits.length === 0) { onChange(''); return; }
+    if (digits.length === 8) { const iso = parseDMY(out); if (iso) onChange(iso); }
+  };
+  const handleBlur = () => { if (text && !parseDMY(text)) setText(fmtDMY(value)); };
+  const openPicker = () => {
+    const el = pickerRef.current; if (!el || disabled) return;
+    try { if (el.showPicker) el.showPicker(); else el.click(); } catch (err) { el.click(); }
+  };
+  const wide = style && style.width;
+  return (
+    <span style={{ position: 'relative', display: wide ? 'inline-block' : 'block', width: wide || undefined, minWidth: 130 }}>
+      <input type="text" inputMode="numeric" autoComplete="off" value={text} onChange={handleChange} onBlur={handleBlur}
+        placeholder={placeholder || 'วว/ดด/ปปปป'} disabled={disabled} className={className} maxLength={10}
+        style={{ ...style, width: '100%', boxSizing: 'border-box', paddingRight: 32 }} />
+      <button type="button" tabIndex={-1} onClick={openPicker} disabled={disabled} aria-label="เลือกวันที่จากปฏิทิน"
+        style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer', fontSize: 14, padding: 2, lineHeight: 1, opacity: disabled ? 0.4 : 0.75 }}>📅</button>
+      <input type="date" ref={pickerRef} tabIndex={-1} aria-hidden="true" value={value || ''} min={min} max={max}
+        onChange={e => { if (e.target.value) onChange(e.target.value); }}
+        style={{ position: 'absolute', right: 6, top: '50%', width: 1, height: 1, opacity: 0, pointerEvents: 'none', border: 0, padding: 0 }} />
+    </span>
+  );
+}
+// ใช้แทน <input type="date" onChange={e => ... e.target.value}> เดิม (คง signature ของ event เดิมไว้)
+function DateRaw({ onChange, type, ...rest }) {
+  return <DateInput {...rest} onChange={v => onChange({ target: { value: v } })} />;
+}
+
 function Input({ value, onChange, placeholder, type = 'text', style: extra, disabled, onPaste, inputMode, onKeyDown }) {
+  if (type === 'date') {
+    return <DateInput value={value} onChange={onChange} disabled={disabled} className="rx-field" style={{
+      padding: '9px 13px', borderRadius: 9, fontSize: 13, border: `1.5px solid ${C.border}`, background: disabled ? C.bgAlt : C.surface,
+      color: C.text, fontFamily: 'inherit', transition: 'border-color 0.15s, box-shadow 0.15s', ...extra,
+    }} />;
+  }
   // เดิม input type="number" ไม่มีการกัน scroll เลย — เบราว์เซอร์ (Chrome/Firefox/Edge) มีพฤติกรรม
   // มาตรฐานคือถ้าเมาส์อยู่เหนือ number input ที่ focus ค้างอยู่แล้วเลื่อนวงล้อเมาส์ผ่าน จะปรับค่าตัวเลข
   // ขึ้น/ลงทันทีแบบเงียบๆ ไม่มีอะไรเตือน — ฟอร์มนี้มีช่องตัวเลขค่าสัญญาณชีพ (SpO2, RR ฯลฯ) อยู่กลาง
@@ -4031,7 +4104,7 @@ function VaccinationStatus({ patient, compact }) {
               <div style={{ flex: 1, fontSize: 12 }}>
                 <div style={{ fontWeight: 600, color: C.text }}>{it.label}</div>
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 1 }}>
-                  {it.date ? `ฉีดเมื่อ ${it.date} (${it.days} วันก่อน)` : 'ยังไม่ได้ฉีด'}
+                  {it.date ? `ฉีดเมื่อ ${fmtDMY(it.date)} (${it.days} วันก่อน)` : 'ยังไม่ได้ฉีด'}
                 </div>
               </div>
               <span style={{ fontSize: 10, color: c, fontWeight: 600 }}>
@@ -4494,7 +4567,7 @@ function autoGenerateSOAP(visit, patient) {
   if (poorTech.length) pLines.push(`${n++}. สอนเทคนิคยาพ่นซ้ำ: ${poorTech.map(t => t.device).join(', ')}`);
   if (adhLevel === 'Poor' || adhLevel === 'Fair') pLines.push(`${n++}. ส่งเสริม adherence`);
   if ((visit.counselingTopics || []).length) pLines.push(`${n++}. Counseling: ${visit.counselingTopics.join(', ')}`);
-  if (visit.nextVisit) pLines.push(`${n++}. นัดติดตาม / Next visit: ${visit.nextVisit}`);
+  if (visit.nextVisit) pLines.push(`${n++}. นัดติดตาม / Next visit: ${fmtDMY(visit.nextVisit)}`);
 
   return { s: sParts.join('\n'), o: oParts.join('\n'), a: aLines.join('\n'), p: pLines.join('\n') };
 }
@@ -4542,7 +4615,7 @@ function autoPharmacistNote(visit, patient) {
     lines.push('No DRP detected');
   }
   if ((visit.counselingTopics || []).length) lines.push(`Counseling: ${visit.counselingTopics.join(', ')}`);
-  if (visit.nextVisit) lines.push(`นัดครั้งถัดไป: ${visit.nextVisit}`);
+  if (visit.nextVisit) lines.push(`นัดครั้งถัดไป: ${fmtDMY(visit.nextVisit)}`);
 
   return lines.join('\n');
 }
@@ -6190,7 +6263,7 @@ function CompetencyLog({ currentUser }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>วันที่</div>
-            <input type="date" value={form.date} onChange={e => set('date', e.target.value)}
+            <DateRaw type="date" value={form.date} onChange={e => set('date', e.target.value)}
               style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 12, fontFamily: 'inherit' }} />
           </div>
           <div>
@@ -6237,7 +6310,7 @@ function CompetencyLog({ currentUser }) {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{l.topic}</div>
-                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{l.date} · {l.type} · {l.pharmacist}</div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{fmtDMY(l.date)} · {l.type} · {l.pharmacist}</div>
                 {l.outcome && <div style={{ fontSize: 11, color: C.accent, marginTop: 2 }}>💡 {l.outcome}</div>}
               </div>
               <button onClick={() => setConfirmRemove(l.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.textMuted, fontSize: 14, flexShrink: 0, minWidth: 32, minHeight: 32 }}>✕</button>
@@ -7028,7 +7101,7 @@ function printPatientReport(patient, visits, tele) {
     return `
     <div class="vc">
       <div class="vc-head">
-        <strong style="font-size:14px;color:#0F2D5E">${v.visitDate}</strong>
+        <strong style="font-size:14px;color:#0F2D5E">${fmtDMY(v.visitDate)}</strong>
         <span style="color:#64748B;font-size:12px">${v.pharmacist||''}</span>
         <span style="margin-left:auto;font-size:12px;font-weight:700;color:${vRc}">● ${v.riskLevel||'Low'} Risk</span>
       </div>
@@ -7047,9 +7120,9 @@ function printPatientReport(patient, visits, tele) {
   }).join('');
 
   const teleRows = ptT.map(t => `<tr>
-    <td>${t.scheduledDate}</td><td>${t.actualDate||'—'} ${t.callTime||''}</td>
+    <td>${fmtDMY(t.scheduledDate)}</td><td>${fmtDMY(t.actualDate)||'—'} ${t.callTime||''}</td>
     <td>${t.status==='Success'?'โทรสำเร็จ':t.status==='No Answer'?'ไม่รับสาย':t.status}</td>
-    <td>${t.symptoms||'—'}</td><td>${t.counseling||'—'}</td><td>${t.nextFollowup||'—'}</td>
+    <td>${t.symptoms||'—'}</td><td>${t.counseling||'—'}</td><td>${fmtDMY(t.nextFollowup)||'—'}</td>
   </tr>`).join('');
 
   const html = `
@@ -7104,7 +7177,7 @@ function printMonthlyReport(data, yearMonth) {
     const rc = {High:'risk-H',Medium:'risk-M',Low:'risk-L'}[v.riskLevel]||'risk-L';
     const adhC = {Good:'#059669',Fair:'#D97706',Poor:'#DC2626'}[v.adherence?.level]||'#64748B';
     return `<tr>
-      <td>${v.visitDate}</td>
+      <td>${fmtDMY(v.visitDate)}</td>
       <td>${pt?.hn||''}</td>
       <td>${pt?`${pt.prefix}${pt.firstName} ${pt.lastName}`:''}</td>
       <td>${pt?.diagnosis||''}</td>
@@ -7630,7 +7703,7 @@ function printPatientTakeHome(patient, latestVisit) {
 
     <div class="sec">
       <h2>📅 นัดครั้งถัดไป</h2>
-      <div style="font-size:14px;font-weight:700;color:#0F2D5E">${v.nextVisit || 'ตามที่แพทย์สั่ง'}</div>
+      <div style="font-size:14px;font-weight:700;color:#0F2D5E">${fmtDMY(v.nextVisit) || 'ตามที่แพทย์สั่ง'}</div>
     </div>
 
     <div class="contact">
@@ -7669,7 +7742,7 @@ function printVisitSOAP(patient, visit) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #0F2D5E;">
       <div>
         <h1 style="font-size:16px;margin-bottom:2px">${patient.prefix}${patient.firstName} ${patient.lastName}</h1>
-        <div class="meta">HN: ${patient.hn} · อายุ ${patient.age} ปี · ${patient.insurance} · Visit: <strong>${visit.visitDate}</strong></div>
+        <div class="meta">HN: ${patient.hn} · อายุ ${patient.age} ปี · ${patient.insurance} · Visit: <strong>${fmtDMY(visit.visitDate)}</strong></div>
       </div>
       <div style="text-align:right">
         <div style="font-size:10px;color:#64748B">พิมพ์: ${today}</div>
@@ -7702,7 +7775,7 @@ function printVisitSOAP(patient, visit) {
 
     ${visit.pharmacistNote?`<h2>บันทึกเภสัชกร</h2><div style="background:#F0F9FF;border-left:3px solid #0369A1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;white-space:pre-wrap">${visit.pharmacistNote}</div>`:''}
   `;
-  openPrintWindow(html, `SOAP — ${patient.firstName} ${patient.lastName} (${visit.visitDate})`);
+  openPrintWindow(html, `SOAP — ${patient.firstName} ${patient.lastName} (${fmtDMY(visit.visitDate)})`);
 }
 
 // ── PDF: รายงาน DRP รายผู้ป่วย ─────────────────────────
@@ -7726,7 +7799,7 @@ function printDRPReport(patient, visits) {
   const totalL = rows.filter(r => r.sev === 'Low').length;
 
   const tableRows = rows.map(r =>
-    `<tr><td>${r.date}</td><td>${r.code||'—'}</td><td>${r.cat||'—'}</td>
+    `<tr><td>${fmtDMY(r.date)}</td><td>${r.code||'—'}</td><td>${r.cat||'—'}</td>
      <td style="color:${r.sev==='High'?'#DC2626':r.sev==='Medium'?'#D97706':'#059669'};font-weight:700">${r.sev||'—'}</td>
      <td>${r.action}</td></tr>`
   ).join('');
@@ -7781,7 +7854,7 @@ function printQuarterlyReport(data, year, quarter) {
     const pt = pts.find(p => p.id === v.patientId);
     const rc = { High:'risk-H', Medium:'risk-M', Low:'risk-L' }[v.riskLevel]||'risk-L';
     return `<tr>
-      <td>${v.visitDate}</td>
+      <td>${fmtDMY(v.visitDate)}</td>
       <td>${pt?.hn||''}</td>
       <td>${pt?`${pt.prefix}${pt.firstName} ${pt.lastName}`:''}</td>
       <td class="${rc}">${v.riskLevel||'Low'}</td>
@@ -8520,7 +8593,7 @@ function SmartAlertBanner({ data, navigate }) {
             severity: 'high',
             icon: '⚠️',
             title: `${p.prefix}${p.firstName} ${p.lastName}`,
-            detail: `พบ DRP High ${drps.length} รายการ จาก visit ${lastVisit.visitDate}: ${drps.map(d => d.problemTh).join(' | ')}`,
+            detail: `พบ DRP High ${drps.length} รายการ จาก visit ${fmtDMY(lastVisit.visitDate)}: ${drps.map(d => d.problemTh).join(' | ')}`,
             patientId: p.id,
           });
         }
@@ -9138,7 +9211,7 @@ function PatientList({ data, onDataChange, navigate, currentUser }) {
                   <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{r.hn}</td>
                   <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>{r.prefix}{r.firstName} {r.lastName}</td>
                   <td style={{ padding: '6px 10px' }}>{r.age || <span style={{ color: C.high }}>?</span>}</td>
-                  <td style={{ padding: '6px 10px' }}>{r.dateOfBirth || '—'}</td>
+                  <td style={{ padding: '6px 10px' }}>{fmtDMY(r.dateOfBirth) || '—'}</td>
                   <td style={{ padding: '6px 10px' }}>{r.gender === 'F' ? 'หญิง' : 'ชาย'}</td>
                   <td style={{ padding: '6px 10px' }}>
                     {r.diagnosis}
@@ -9305,7 +9378,7 @@ function PatientTimeline({ patient, visits, telepharmacy, onViewVisit }) {
             }} className={it.type === 'visit' ? 'rx-kpi-row-click' : ''}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: it.color }}>{it.title}</span>
-                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: 'nowrap' }}>{it.date}</span>
+                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: 'nowrap' }}>{fmtDMY(it.date)}</span>
               </div>
               <div style={{ fontSize: 12.5, color: C.text, lineHeight: 1.5 }}>{it.summary}</div>
               {it.type === 'visit' && it.data.medications?.length > 0 && (
@@ -9338,7 +9411,7 @@ function VisitDetailModal({ open, patient, visit, onClose, onEdit, auditLog }) {
   const hasVitals = vitals.spO2 || vitals.rr || vitals.bp || vitals.fev1 || vitals.peakFlow;
 
   return (
-    <Modal open={open} onClose={onClose} title={`📋 รายละเอียด Visit — ${visit.visitDate}`} width={860}
+    <Modal open={open} onClose={onClose} title={`📋 รายละเอียด Visit — ${fmtDMY(visit.visitDate)}`} width={860}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Btn size="sm" variant="ghost" onClick={() => typeof window.printVisitSOAP === 'function' && window.printVisitSOAP(patient, visit)}>🖨️ พิมพ์ SOAP</Btn>
@@ -9351,7 +9424,7 @@ function VisitDetailModal({ open, patient, visit, onClose, onEdit, auditLog }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
         <RiskBadge level={visit.riskLevel || 'Low'} />
         <span style={{ fontSize: 12.5, color: C.textMuted }}>เภสัชกร: <strong style={{ color: C.text }}>{visit.pharmacist || '—'}</strong></span>
-        {visit.nextVisit && <span style={{ fontSize: 12.5, color: C.textMuted }}>· นัดครั้งถัดไป: <strong style={{ color: C.primary }}>{visit.nextVisit}</strong></span>}
+        {visit.nextVisit && <span style={{ fontSize: 12.5, color: C.textMuted }}>· นัดครั้งถัดไป: <strong style={{ color: C.primary }}>{fmtDMY(visit.nextVisit)}</strong></span>}
         <span style={{ fontSize: 12.5, color: visit.informedConsent ? C.low : C.high, marginLeft: 'auto' }}>
           {visit.informedConsent ? '✅ Informed Consent' : '⚠ ไม่มี Informed Consent'}
         </span>
@@ -9599,8 +9672,8 @@ function VisitCompareModal({ open, patient, visitA, visitB, onClose }) {
     <Modal open={open} onClose={onClose} title="⚖️ เปรียบเทียบ Visit" width={980}>
       <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 1fr', gap: 12, marginBottom: 6 }}>
         <div />
-        <div style={{ fontSize: 15, fontWeight: 800, color: C.textMuted }}>📅 {older.visitDate} <span style={{ fontSize: 11, fontWeight: 600 }}>(เก่ากว่า)</span></div>
-        <div style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>📅 {newer.visitDate} <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>(ใหม่กว่า)</span></div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.textMuted }}>📅 {fmtDMY(older.visitDate)} <span style={{ fontSize: 11, fontWeight: 600 }}>(เก่ากว่า)</span></div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.primary }}>📅 {fmtDMY(newer.visitDate)} <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>(ใหม่กว่า)</span></div>
       </div>
 
       <Row label="เภสัชกร" oldChild={older.pharmacist} newChild={newer.pharmacist} />
@@ -9735,7 +9808,7 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8,
                 background: C.bgAlt, border: `1px solid ${C.border}`,
               }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: C.text, minWidth: 90 }}>{ev.date}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.text, minWidth: 90 }}>{fmtDMY(ev.date)}</span>
                 <span style={{
                   fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
                   color: ev.severity === 'Severe' ? '#DC2626' : ev.severity === 'Moderate' ? '#D97706' : '#6B7280',
@@ -9773,7 +9846,7 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
               return (
                 <div key={r.id} style={{ padding: '10px 12px', borderRadius: 8, background: C.bgAlt, border: `1px solid ${C.border}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>→ {r.referTo} [{(r.urgency || '').toUpperCase()}] · {r.date}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700 }}>→ {r.referTo} [{(r.urgency || '').toUpperCase()}] · {fmtDMY(r.date)}</span>
                     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: r.feedbackReceived ? C.lowBg : C.highBg, color: r.feedbackReceived ? C.low : C.high }}>
                       {r.feedbackReceived ? '✅ ได้รับ feedback' : '⏳ รอ feedback'}
                     </span>
@@ -9805,7 +9878,7 @@ function PatientHubTab({ data, patient, visits, navigate, onDataChange, onSwitch
           initial={{
             referTo: 'แพทย์เฉพาะทาง', urgency: lastVisit?.exacerbation?.hospitalized ? 'urgent' : 'routine',
             problem: cdsReferralFlag
-              ? `ควบคุมโรคไม่ได้ (${patient.diagnosis}) แม้ปรับยา/เทคนิคพ่นยา/adherence ให้ดีที่สุดแล้ว — exacerbation ${lastVisit?.exacerbation?.countThisYear ?? 0} ครั้ง/ปี${lastVisit?.exacerbation?.hospitalized ? ' (เคยนอน รพ.)' : ''} ณ visit วันที่ ${lastVisit?.visitDate || ''}`
+              ? `ควบคุมโรคไม่ได้ (${patient.diagnosis}) แม้ปรับยา/เทคนิคพ่นยา/adherence ให้ดีที่สุดแล้ว — exacerbation ${lastVisit?.exacerbation?.countThisYear ?? 0} ครั้ง/ปี${lastVisit?.exacerbation?.hospitalized ? ' (เคยนอน รพ.)' : ''} ณ visit วันที่ ${fmtDMY(lastVisit?.visitDate) || ''}`
               : '',
           }} />
       )}
@@ -10048,7 +10121,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
                             : prev.length < 2 ? [...prev, v.id] : prev)}
                           style={{ width: 17, height: 17, accentColor: '#7C3AED', cursor: 'pointer' }} />
                       )}
-                      <span onClick={() => !compareMode && setViewingVisitId(v.id)} style={{ fontSize: 14, fontWeight: 700, color: C.primary, cursor: compareMode ? 'default' : 'pointer' }}>{v.visitDate}</span>
+                      <span onClick={() => !compareMode && setViewingVisitId(v.id)} style={{ fontSize: 14, fontWeight: 700, color: C.primary, cursor: compareMode ? 'default' : 'pointer' }}>{fmtDMY(v.visitDate)}</span>
                       <span style={{ fontSize: 12, color: C.textMuted }}>{v.pharmacist}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -10129,7 +10202,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
                   <tr style={{ background: C.bgAlt }}>
                     <th style={{ padding: '10px 14px', textAlign: 'left', borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: C.primary, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: C.bgAlt, zIndex: 1, minWidth: 160 }}>💊 ยา</th>
                     {sorted2.map(v => (
-                      <th key={v.id} style={{ padding: '8px 10px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.textMuted, whiteSpace: 'nowrap', minWidth: 90 }}>{v.visitDate}</th>
+                      <th key={v.id} style={{ padding: '8px 10px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.textMuted, whiteSpace: 'nowrap', minWidth: 90 }}>{fmtDMY(v.visitDate)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -10363,7 +10436,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
                         </div>
                         <div style={{ flex: 1, paddingTop: 4 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: vh.drps.length > 0 ? 8 : 0 }}>
-                            <span style={{ fontWeight: 700, fontSize: 13, color: C.primary }}>{vh.date}</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: C.primary }}>{fmtDMY(vh.date)}</span>
                             <RiskBadge level={vh.riskLevel || 'Low'} />
                             {vh.drps.length === 0 && <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>✓ ไม่พบ DRP</span>}
                           </div>
@@ -10398,22 +10471,22 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {tele.map(t => {
                 const copyText = [
-                  `[Telepharmacy] ${t.actualDate || t.scheduledDate} ${t.callTime || ''}`,
+                  `[Telepharmacy] ${fmtDMY(t.actualDate || t.scheduledDate)} ${t.callTime || ''}`,
                   `Pt: ${patient.prefix}${patient.firstName} ${patient.lastName} HN:${patient.hn}`,
                   t.symptoms ? `อาการ: ${t.symptoms}` : '',
                   t.exacerbation ? '⚠ มี Exacerbation' : '',
                   t.rescueUse && t.rescueUse !== 'None' ? `Rescue: ${t.rescueUse}` : '',
                   t.medicationProblems ? `ปัญหายา: ${t.medicationProblems}` : '',
                   t.counseling ? `แนะนำ: ${t.counseling}` : '',
-                  t.nextFollowup ? `นัดต่อ: ${t.nextFollowup}` : '',
+                  t.nextFollowup ? `นัดต่อ: ${fmtDMY(t.nextFollowup)}` : '',
                   t.callDuration > 0 ? `ระยะเวลาโทร: ${Math.floor(t.callDuration/60)}:${String(t.callDuration%60).padStart(2,'0')} นาที` : '',
                 ].filter(Boolean).join('\n');
                 return (
                   <Card key={t.id} style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                       <div>
-                        <span style={{ fontWeight: 700, color: C.primary }}>นัดโทร: {t.scheduledDate}</span>
-                        {t.actualDate && <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>โทรจริง: {t.actualDate} {t.callTime}</span>}
+                        <span style={{ fontWeight: 700, color: C.primary }}>นัดโทร: {fmtDMY(t.scheduledDate)}</span>
+                        {t.actualDate && <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted }}>โทรจริง: {fmtDMY(t.actualDate)} {t.callTime}</span>}
                         {t.callDuration > 0 && <span style={{ marginLeft: 8, fontSize: 11, color: C.textMuted }}>⏱ {Math.floor(t.callDuration/60)}:{String(t.callDuration%60).padStart(2,'0')} นาที</span>}
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -10436,7 +10509,7 @@ function VisitHistory({ data, patientId, navigate, onEditVisit, currentUser, onD
                         {t.rescueUse && t.rescueUse !== 'None' && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>Rescue: </span><span style={{ fontSize: 13 }}>{t.rescueUse}</span></div>}
                         {t.medicationProblems && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>ปัญหายา: </span><span style={{ fontSize: 13 }}>{t.medicationProblems}</span></div>}
                         {t.counseling && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>คำแนะนำ: </span><span style={{ fontSize: 13 }}>{t.counseling}</span></div>}
-                        {t.nextFollowup && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>นัดต่อ: </span><span style={{ fontSize: 13, color: C.primary, fontWeight: 600 }}>{t.nextFollowup}</span></div>}
+                        {t.nextFollowup && <div><span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>นัดต่อ: </span><span style={{ fontSize: 13, color: C.primary, fontWeight: 600 }}>{fmtDMY(t.nextFollowup)}</span></div>}
                       </div>
                     )}
                     {t.pharmacistNote && (
@@ -11142,7 +11215,7 @@ function MiniVisitCard({ visit, isLatest, currentMedNames }) {
       }}>
         <div>
           <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{labelText}</div>
-          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 1 }}>{visit.visitDate}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 1 }}>{fmtDMY(visit.visitDate)}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1 }}>{days}</div>
@@ -11685,7 +11758,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
       nextVisit: prev.nextVisit || suggestNextVisit(),
     }));
     setPrefillState('used');
-    setShowToast({ msg: `✓ คัดลอกข้อมูลจาก Visit ${lastVisit.visitDate} แล้ว — กรุณาประเมิน Adherence และเทคนิคใหม่`, type: 'success' });
+    setShowToast({ msg: `✓ คัดลอกข้อมูลจาก Visit ${fmtDMY(lastVisit.visitDate)} แล้ว — กรุณาประเมิน Adherence และเทคนิคใหม่`, type: 'success' });
     setTimeout(() => setShowToast(null), 4000);
   };
 
@@ -11873,7 +11946,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
       user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
       action: isEditing ? 'edit-visit' : 'create-visit',
       patientId, visitId: visit.id,
-      summary: `${isEditing ? 'แก้ไข' : 'สร้าง'} Visit ${visit.visitDate} (${patient.prefix}${patient.firstName} ${patient.lastName})`
+      summary: `${isEditing ? 'แก้ไข' : 'สร้าง'} Visit ${fmtDMY(visit.visitDate)} (${patient.prefix}${patient.firstName} ${patient.lastName})`
         + (changedFields.length ? ` — เปลี่ยน: ${changedFields.join(', ')}` : ''),
       changedFields,
     });
@@ -11885,7 +11958,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
     if (window.buildVisitSyncRow && window.syncRowsToSheet) {
       window.syncRowsToSheet(newData.sheetSyncConfig, 'visits', [window.buildVisitSyncRow(visit, patient)]);
     }
-    window.rxToast?.(isEditing ? `แก้ไข Visit ${visit.visitDate} สำเร็จ` : `บันทึก Visit ${visit.visitDate} สำเร็จ`, 'success');
+    window.rxToast?.(isEditing ? `แก้ไข Visit ${fmtDMY(visit.visitDate)} สำเร็จ` : `บันทึก Visit ${fmtDMY(visit.visitDate)} สำเร็จ`, 'success');
     window.rxConfetti?.();
     setSaveSuccess(true);
     setTimeout(() => navigate('history', patientId), 750);
@@ -11911,11 +11984,11 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
       user: currentUser ? `${currentUser.prefix}${currentUser.name}` : 'unknown',
       action: 'delete-visit',
       patientId, visitId: editingVisit.id,
-      summary: `ลบ Visit ${editingVisit.visitDate} (${patient.prefix}${patient.firstName} ${patient.lastName})`,
+      summary: `ลบ Visit ${fmtDMY(editingVisit.visitDate)} (${patient.prefix}${patient.firstName} ${patient.lastName})`,
     });
     clearDraft(patientId, editingVisit.id);
     onSave(newData);
-    window.rxToast?.(`ลบ Visit ${editingVisit.visitDate} สำเร็จ`, 'info');
+    window.rxToast?.(`ลบ Visit ${fmtDMY(editingVisit.visitDate)} สำเร็จ`, 'info');
     navigate('history', patientId);
   };
 
@@ -11942,7 +12015,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
           <div style={{ fontSize: 13, fontWeight: 700, color: C.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isEditing ? '✏️ แก้ไข Visit' : '📝 บันทึกการบริบาล'} — {patient.prefix}{patient.firstName} {patient.lastName}
           </div>
-          <div style={{ fontSize: 11, color: C.textMuted }}>HN: {patient.hn} · อายุ {patient.age} ปี{isEditing ? ` · ${editingVisit.visitDate}` : ''}</div>
+          <div style={{ fontSize: 11, color: C.textMuted }}>HN: {patient.hn} · อายุ {patient.age} ปี{isEditing ? ` · ${fmtDMY(editingVisit.visitDate)}` : ''}</div>
         </div>
         <DiagBadge diagnosis={patient.diagnosis} />
         <RiskBadge level={f.riskLevel} />
@@ -11966,7 +12039,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
           <div style={{ fontSize: 22 }}>🔄</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>
-              พบ Visit ก่อนหน้าเมื่อ {daysAgo(lastVisit.visitDate)} วันก่อน ({lastVisit.visitDate})
+              พบ Visit ก่อนหน้าเมื่อ {daysAgo(lastVisit.visitDate)} วันก่อน ({fmtDMY(lastVisit.visitDate)})
             </div>
             <div style={{ fontSize: 11, color: C.primary, marginTop: 2, opacity: 0.85 }}>
               คัดลอก <strong>ยา ({lastVisit.medications?.length||0} ตัว)</strong> · <strong>เทคนิคยาพ่น</strong> · <strong>Trigger factors</strong> จากครั้งก่อน เพื่อให้แก้เฉพาะจุดที่เปลี่ยน
@@ -11983,7 +12056,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
           padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
           fontSize: 12, color: C.low, fontWeight: 600,
         }}>
-          ✓ ใช้ข้อมูลจาก Visit {lastVisit?.visitDate} — กรุณาประเมิน Adherence และเทคนิคยาพ่นใหม่
+          ✓ ใช้ข้อมูลจาก Visit {fmtDMY(lastVisit?.visitDate)} — กรุณาประเมิน Adherence และเทคนิคยาพ่นใหม่
         </div>
       )}
 
@@ -11993,7 +12066,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
           padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
           fontSize: 12, color: C.medium, fontWeight: 600,
         }}>
-          ✏️ คุณกำลังแก้ไข Visit ที่บันทึกไปแล้วเมื่อ {editingVisit.visitDate} — การบันทึกจะทับข้อมูลเดิม
+          ✏️ คุณกำลังแก้ไข Visit ที่บันทึกไปแล้วเมื่อ {fmtDMY(editingVisit.visitDate)} — การบันทึกจะทับข้อมูลเดิม
         </div>
       )}
 
@@ -12084,7 +12157,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
                     display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px',
                     borderRadius: 8, background: C.bgAlt, fontSize: 12.5,
                   }}>
-                    <span style={{ fontWeight: 700, color: C.text, minWidth: 90 }}>{ev.date}</span>
+                    <span style={{ fontWeight: 700, color: C.text, minWidth: 90 }}>{fmtDMY(ev.date)}</span>
                     <span style={{ color: C.textMuted }}>{ev.severity}</span>
                     {ev.hospitalized && <span style={{ fontSize: 11, color: C.high }}>🏥 นอน รพ.</span>}
                     {ev.erVisit && <span style={{ fontSize: 11, color: C.high }}>🚑 ER</span>}
@@ -12779,7 +12852,7 @@ function VisitForm({ data, patientId, editingVisit, prefillVisitDate, onSave, on
       <ConfirmModal open={confirmDelete} onClose={() => setConfirmDelete(false)}
         onConfirm={handleDelete}
         title="ยืนยันการลบ Visit"
-        message={`ลบบันทึกการเยี่ยมวันที่ ${editingVisit?.visitDate}? ข้อมูลทั้งหมดของ Visit นี้จะหายและไม่สามารถกู้คืนได้`}
+        message={`ลบบันทึกการเยี่ยมวันที่ ${fmtDMY(editingVisit?.visitDate)}? ข้อมูลทั้งหมดของ Visit นี้จะหายและไม่สามารถกู้คืนได้`}
         danger />
     </div>
   );
@@ -12861,7 +12934,7 @@ function RiskScreeningView({ data, navigate }) {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0, alignItems: 'flex-end' }}>
                   <span style={{ fontSize: 11, color: C.textMuted }}>
-                    เยี่ยมล่าสุด: {lastVisit?.visitDate || '—'}
+                    เยี่ยมล่าสุด: {fmtDMY(lastVisit?.visitDate) || '—'}
                   </span>
                   <Btn size="sm" variant="ghost" onClick={() => navigate('history', p.id)}>ดูประวัติ</Btn>
                   <Btn size="sm" variant="accent"  onClick={() => navigate('telepharmacy-add', p.id)}>+ นัด Telepharmacy</Btn>
@@ -13075,7 +13148,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
             {entry.patient.name || '—'} <span style={{ fontWeight: 500, color: C.textMuted }}>· HN {entry.patient.hn}</span>
           </div>
           <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>
-            {entry.categoryTh || entry.categoryEn} — {entry.problemTh} <span style={{ opacity: 0.7 }}>(visit {entry.visitDate})</span>
+            {entry.categoryTh || entry.categoryEn} — {entry.problemTh} <span style={{ opacity: 0.7 }}>(visit {fmtDMY(entry.visitDate)})</span>
           </div>
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{DRP_STATUS_LABEL[entry.status]}</span>
@@ -13108,7 +13181,7 @@ function DRPTrackerRow({ entry, onSave, navigate, users, canEdit = true, current
           )}
           {entry.status === 'resolved' && !entry.outcome?.checked && (
             <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 11.5, color: C.textMuted, background: '#F3F4F6', border: '1px solid #E5E7EB' }}>
-              🔁 ปิดวงจร: ยังไม่มี visit ถัดไปหลัง {entry.visitDate} ให้ตรวจสอบว่าดีขึ้นจริงหรือไม่ — ระบบจะเช็คให้อัตโนมัติเมื่อผู้ป่วยมา visit ครั้งหน้า
+              🔁 ปิดวงจร: ยังไม่มี visit ถัดไปหลัง {fmtDMY(entry.visitDate)} ให้ตรวจสอบว่าดีขึ้นจริงหรือไม่ — ระบบจะเช็คให้อัตโนมัติเมื่อผู้ป่วยมา visit ครั้งหน้า
             </div>
           )}
           {!canEdit && (
@@ -13251,10 +13324,10 @@ function DRPTrackerView({ data, onDataChange, navigate, currentUser, initPatient
           </div>
           {useDateRange && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input type="date" value={dateRange.start} onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
+              <DateRaw type="date" value={dateRange.start} onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
                 style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
               <span style={{ color: C.textMuted, fontSize: 11.5 }}>ถึง</span>
-              <input type="date" value={dateRange.end} onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
+              <DateRaw type="date" value={dateRange.end} onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
                 style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
             </div>
           )}
@@ -13493,7 +13566,7 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
       {pt && (
         <div style={{ padding: '10px 14px', background: C.bgAlt, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
           <strong>{pt.prefix}{pt.firstName} {pt.lastName}</strong>
-          <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {rec.scheduledDate} · {pt.phone || 'ไม่มีเบอร์'}</span>
+          <span style={{ marginLeft: 8, color: C.textMuted }}>HN: {pt.hn} · นัดโทร: {fmtDMY(rec.scheduledDate)} · {pt.phone || 'ไม่มีเบอร์'}</span>
           {rec.pharmacistNote && <div style={{ marginTop: 4, color: C.textMuted, fontSize: 12 }}>วัตถุประสงค์: {rec.pharmacistNote}</div>}
         </div>
       )}
@@ -13522,7 +13595,7 @@ function TelepharmacyRecordForm({ data, onDataChange, selectedId, onClose }) {
       {drpContext.length > 0 && (
         <div style={{ padding: '12px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
-            💡 ประเด็นที่ควรติดตาม (จาก visit {lastVisit.visitDate})
+            💡 ประเด็นที่ควรติดตาม (จาก visit {fmtDMY(lastVisit.visitDate)})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {drpContext.slice(0, 5).map((d, i) => (
@@ -13685,11 +13758,11 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
       render: r => {
         const todayStr = new Date().toISOString().slice(0, 10);
         const isOverdue = r.status === 'Pending' && r.scheduledDate < todayStr;
-        if (!isOverdue) return <span style={{ fontSize: 12 }}>{r.scheduledDate}</span>;
+        if (!isOverdue) return <span style={{ fontSize: 12 }}>{fmtDMY(r.scheduledDate)}</span>;
         const daysLate = Math.floor((new Date(todayStr) - new Date(r.scheduledDate)) / 86400000);
         return (
           <div>
-            <span style={{ fontSize: 12, color: C.high, fontWeight: 600 }}>{r.scheduledDate}</span>
+            <span style={{ fontSize: 12, color: C.high, fontWeight: 600 }}>{fmtDMY(r.scheduledDate)}</span>
             <div style={{ fontSize: 10, color: C.high, fontWeight: 700 }}>⏰ เลย {daysLate} วัน</div>
           </div>
         );
@@ -13698,7 +13771,7 @@ function TelepharmacyView({ data, onDataChange, navigate, initPatientId, current
     {
       key: 'actualDate', label: 'โทรจริง', width: 140,
       render: r => r.actualDate
-        ? <div><div style={{ fontSize: 12 }}>{r.actualDate} {r.callTime || ''}</div>
+        ? <div><div style={{ fontSize: 12 }}>{fmtDMY(r.actualDate)} {r.callTime || ''}</div>
             {r.callDuration > 0 && <div style={{ fontSize: 10, color: C.textMuted }}>⏱ {Math.floor(r.callDuration / 60)}:{String(r.callDuration % 60).padStart(2, '0')} นาที</div>}</div>
         : <span style={{ color: C.textMuted }}>—</span>,
     },
@@ -13939,11 +14012,11 @@ function MedicationSearchCard({ data, navigate }) {
         </div>
         {useDateRange && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="date" value={dateRange.start}
+            <DateRaw type="date" value={dateRange.start}
               onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
               style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
             <span style={{ color: C.textMuted, fontSize: 11.5 }}>ถึง</span>
-            <input type="date" value={dateRange.end}
+            <DateRaw type="date" value={dateRange.end}
               onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
               style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: 'inherit' }} />
           </div>
@@ -15888,7 +15961,7 @@ const getProblemPatients = (metricKey, roster, noShowRoster) => {
       return roster.filter(r => r.techniquePass === false)
         .map(r => ({ ...r, reason: 'ประเมินเทคนิคการใช้ยาพ่นล่าสุด ไม่ผ่านเกณฑ์' }));
     case 'carePercent':
-      return noShowRoster.map(r => ({ ...r, reason: `มีนัดวันที่ ${r.nextVisit} แต่ยังไม่พบว่ามารับบริการ` }));
+      return noShowRoster.map(r => ({ ...r, reason: `มีนัดวันที่ ${fmtDMY(r.nextVisit)} แต่ยังไม่พบว่ามารับบริการ` }));
     case 'adherenceGoodPercent':
       return roster.filter(r => r.adherenceGood === false)
         .map(r => ({ ...r, reason: 'ความร่วมมือในการใช้ยาพ่น (Adherence) ยังไม่อยู่ในระดับดี' }));
@@ -16518,11 +16591,11 @@ const QualityKPIsDashboard = ({ data, navigate }) => {
                 border: `1.5px solid #059669`, background: '#ECFDF5', color: '#047857', fontFamily: 'inherit',
               }}>📖 ทั้งหมด (ทั้งทะเบียน)</button>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-                <input type="date" value={dateRange.start}
+                <DateRaw type="date" value={dateRange.start}
                   onChange={e => setDateRange(r => ({ ...r, start: e.target.value }))}
                   style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
                 <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
-                <input type="date" value={dateRange.end}
+                <DateRaw type="date" value={dateRange.end}
                   onChange={e => setDateRange(r => ({ ...r, end: e.target.value }))}
                   style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
                 <Btn size="sm" variant="ghost" onClick={() => window.printQualityKPIReport?.(kpis, metrics, dateRange)}>🖨️ พิมพ์รายงาน</Btn>
@@ -16899,7 +16972,7 @@ const NoShowTable = ({ noShowRoster, dateRange }) => {
                   <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
                   <td style={{ padding: '7px 10px', color: C.textMuted, whiteSpace: 'nowrap' }}>{r.hn}</td>
                   <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{r.diagnosis}</td>
-                  <td style={{ padding: '7px 10px', color: C.high, fontWeight: 600, whiteSpace: 'nowrap' }}>{r.nextVisit}</td>
+                  <td style={{ padding: '7px 10px', color: C.high, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDMY(r.nextVisit)}</td>
                 </tr>
               ))}
             </tbody>
@@ -17111,7 +17184,7 @@ window.printPatientRoster = printPatientRoster;
 function printNoShowRoster(noShowRoster, dateRange) {
   const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
   const rows = noShowRoster.map(r => `<tr>
-    <td>${r.name || '—'}</td><td>${r.hn}</td><td>${r.diagnosis}</td><td>${r.nextVisit}</td><td></td>
+    <td>${r.name || '—'}</td><td>${r.hn}</td><td>${r.diagnosis}</td><td>${fmtDMY(r.nextVisit)}</td><td></td>
   </tr>`).join('');
   const html = `
     <h1>📵 รายชื่อผู้ป่วยที่นัดแต่ไม่มา — ใช้ติดตามกลับ</h1>
@@ -17675,7 +17748,7 @@ const calculateNotifications = (data, currentUser) => {
         severity: 'high',
         icon: '📞',
         title: 'Telepharmacy เลยกำหนด',
-        message: `${patient?.hn || '—'} ${patient?.firstName || ''} นัดโทร ${t.scheduledDate}`,
+        message: `${patient?.hn || '—'} ${patient?.firstName || ''} นัดโทร ${fmtDMY(t.scheduledDate)}`,
         patientId: t.patientId,
         actionLabel: 'เปิด Telepharmacy',
         action: () => window.AppNavigate && window.AppNavigate('telepharmacy'),
@@ -17802,7 +17875,7 @@ const calculateNotifications = (data, currentUser) => {
           severity: 'high',
           icon: '⚠️',
           title: 'DRP รุนแรงค้างเกิน 7 วัน',
-          message: `${w.patient.hn} ${w.patient.name} — ${w.problemTh} (พบเมื่อ ${w.visitDate})`,
+          message: `${w.patient.hn} ${w.patient.name} — ${w.problemTh} (พบเมื่อ ${fmtDMY(w.visitDate)})`,
           patientId: w.patientId,
           actionLabel: 'เปิดใน DRP Tracker',
           action: () => window.AppNavigate && window.AppNavigate('drpTracker-focus', w.patientId),
@@ -18003,7 +18076,7 @@ td { padding: 5pt 8pt; border: 1px solid #E2E8F0; }
 ${visits.map(v => {
   const pt = data.patients.find(p => p.id === v.patientId);
   return `<tr>
-    <td>${v.visitDate}</td>
+    <td>${fmtDMY(v.visitDate)}</td>
     <td>${pt?.hn || '—'}</td>
     <td>${pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</td>
     <td>${v.pharmacist || '—'}</td>
@@ -18080,7 +18153,7 @@ ${deviceData.steps.map(s => `<li>${s}</li>`).join('')}
 <h2>📞 ติดต่อเรา</h2>
 <p><strong>คลินิก COPD/Asthma</strong><br>
 โทร: 02-XXX-XXXX (จ-ศ 8:00-16:00)<br>
-นัดครั้งถัดไป: ${visit?.nextVisit || '(ตามแพทย์นัด)'}</p>
+นัดครั้งถัดไป: ${fmtDMY(visit?.nextVisit) || '(ตามแพทย์นัด)'}</p>
 
 <div class="footer">เอกสารนี้จัดทำโดย COPD/Asthma Clinic Management System</div>
 </body></html>`;
@@ -20215,7 +20288,7 @@ function ADRReportModal({ open, onClose, patient, onSave }) {
         </div>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 5 }}>วันที่เกิดอาการ</div>
-          <input type="date" value={form.onsetDate} onChange={e => set('onsetDate', e.target.value)}
+          <DateRaw type="date" value={form.onsetDate} onChange={e => set('onsetDate', e.target.value)}
             style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: 'inherit' }} />
         </div>
         <div>
@@ -20490,7 +20563,7 @@ function DischargeCounselingModal({ open, onClose, patient, visits, onSave }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>วันนัดครั้งต่อไป</div>
-          <input type="date" value={followupDate} onChange={e => setFollowupDate(e.target.value)}
+          <DateRaw type="date" value={followupDate} onChange={e => setFollowupDate(e.target.value)}
             style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: 'inherit' }} />
         </div>
         <div>
@@ -20573,7 +20646,7 @@ function RCAModal({ open, onClose, patient, triggerEvent, onSave }) {
           </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>วันที่เกิด</div>
-            <input type="date" value={form.eventDate} onChange={e => set('eventDate', e.target.value)}
+            <DateRaw type="date" value={form.eventDate} onChange={e => set('eventDate', e.target.value)}
               style={{ width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: 'inherit' }} />
           </div>
         </div>
@@ -20740,10 +20813,10 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="date" value={bundleRange.start} onChange={e => setBundleRange(r => ({ ...r, start: e.target.value }))}
+            <DateRaw type="date" value={bundleRange.start} onChange={e => setBundleRange(r => ({ ...r, start: e.target.value }))}
               style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
             <span style={{ color: C.textMuted, fontSize: 12 }}>ถึง</span>
-            <input type="date" value={bundleRange.end} onChange={e => setBundleRange(r => ({ ...r, end: e.target.value }))}
+            <DateRaw type="date" value={bundleRange.end} onChange={e => setBundleRange(r => ({ ...r, end: e.target.value }))}
               style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'inherit' }} />
             <Btn onClick={() => {
               // ถ้าลบวันที่ในช่องออกจนว่างเปล่า calculateQualityKPIs จะกรอง visit ทั้งหมดทิ้งหมด (เทียบ
@@ -20835,7 +20908,7 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
                   <div key={r.id} style={{ padding: '8px 0', borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ fontWeight: 700 }}>{r.type === 'admission' ? '🏥 Admission' : '🏠 Discharge'} — {r.rows?.length || 0} รายการยา</span>
-                      <span style={{ fontSize: 10, color: C.textMuted }}>{r.date}</span>
+                      <span style={{ fontSize: 10, color: C.textMuted }}>{fmtDMY(r.date)}</span>
                     </div>
                     <div style={{ color: discCount > 0 ? C.high : C.textMuted }}>{pt2?.firstName} {discCount > 0 ? `· ⚠ Discrepancy ${discCount} รายการ` : '· ไม่มี Discrepancy'}</div>
                   </div>
@@ -20854,7 +20927,7 @@ function HAComplianceDashboard({ data, onDataChange, currentUser }) {
                 return (
                   <div key={r.id} style={{ padding: '8px 0', borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
                     <div style={{ fontWeight: 700 }}>{r.event?.slice(0, 60)}</div>
-                    <div style={{ color: C.textMuted }}>{pt2?.firstName} · {r.date} · {r.preventable === 'yes' ? '🛡 ป้องกันได้' : r.preventable === 'no' ? 'ป้องกันไม่ได้' : 'ไม่แน่ใจ'}</div>
+                    <div style={{ color: C.textMuted }}>{pt2?.firstName} · {fmtDMY(r.date)} · {r.preventable === 'yes' ? '🛡 ป้องกันได้' : r.preventable === 'no' ? 'ป้องกันไม่ได้' : 'ไม่แน่ใจ'}</div>
                   </div>
                 );
               })
@@ -22364,7 +22437,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                       <div style={{ fontSize:10, color:C.textMuted }}>{pt?.hn}</div>
                     </div>
                     <div style={{ textAlign:'right', flexShrink:0 }}>
-                      <div style={{ fontSize:11, fontWeight:700, color: overdue ? C.high : '#0369A1' }}>{t.scheduledDate}</div>
+                      <div style={{ fontSize:11, fontWeight:700, color: overdue ? C.high : '#0369A1' }}>{fmtDMY(t.scheduledDate)}</div>
                       {overdue && <div style={{ fontSize:9, color:C.high, fontWeight:600 }}>เกินกำหนด</div>}
                     </div>
                   </div>
@@ -22403,7 +22476,7 @@ function Dashboard({ data, navigate, onDataChange, currentUser }) {
                       onClick={() => navigate('history', v.patientId)}
                       onMouseEnter={e => e.currentTarget.style.background=C.bgAlt}
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                      <td style={{ padding:'12px 14px', fontFamily:'monospace', fontSize:11, color:C.textMuted }}>{v.visitDate}</td>
+                      <td style={{ padding:'12px 14px', fontFamily:'monospace', fontSize:11, color:C.textMuted }}>{fmtDMY(v.visitDate)}</td>
                       <td style={{ padding:'12px 14px' }}>
                         <div style={{ fontWeight:700, color:C.text }}>{pt ? `${pt.prefix}${pt.firstName} ${pt.lastName}` : '—'}</div>
                         <div style={{ fontSize:10, color:C.textMuted }}>{pt?.hn}</div>

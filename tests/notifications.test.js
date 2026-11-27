@@ -5,7 +5,7 @@ const { readApp, extractBlocks } = require('./extract');
 
 const src = readApp();
 const code = extractBlocks(src, [
-  'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
+  'RX_DATE_BUDDHIST', 'fmtDMY', 'COMMON_MEDICATIONS', 'INHALER_CHECKLISTS', 'DRUG_INTERACTIONS', 'RESP_DRUG_KEYWORDS', 'classifyRespiratoryMed',
   'checkInteractions', 'detectDRP', 'drpEntryId', 'normalizeDrpProblem', 'groupVisitsByPatientSorted', 'verifyDRPOutcome',
   'computeDRPWorklist', 'calculateNotifications',
 ]);
